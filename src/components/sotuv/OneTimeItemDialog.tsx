@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { PackagePlus } from "lucide-react";
 import type { OneTimeItemInput } from "./types";
+import { formatNumberInput } from "@/lib/utils";
 
 type Props = {
   open: boolean;
@@ -111,7 +112,7 @@ export function OneTimeItemDialog({ open, onOpenChange, onAdd }: Props) {
             <Input
               inputMode="decimal"
               value={price}
-              onChange={(event) => setPrice(event.target.value)}
+              onChange={(event) => setPrice(formatNumberInput(event.target.value))}
               placeholder="0"
               className="h-9"
             />

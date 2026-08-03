@@ -1,4 +1,5 @@
 import * as React from "react";
+import * as XLSX from "xlsx";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -19,14 +20,14 @@ import {
   returnedByLabel,
 } from "@/components/shared/ReturnReceiptDetailDialog";
 import { useApp } from "@/lib/app-context";
-import { CalendarDays, Eye, Filter, PackagePlus, Pencil, RotateCcw, Search, Trash2 } from "lucide-react";
+import { CalendarDays, Eye, FileSpreadsheet, Filter, PackageMinus, PackagePlus, Pencil, Printer, RotateCcw, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 function fmtDate(value: string) {
   return new Date(value).toLocaleString("uz-UZ", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
-type Tab = "added" | "edited" | "returned";
+type Tab = "added" | "edited" | "returned" | "writtenoff";
 type EditChange = {
   field: string;
   oldValue: unknown;
@@ -44,9 +45,18 @@ export function TovarlarTarixi() {
         <Button size="sm" variant={tab === "added" ? "default" : "outline"} onClick={() => setTab("added")}>{t("added_products")}</Button>
         <Button size="sm" variant={tab === "edited" ? "default" : "outline"} onClick={() => setTab("edited")}>{t("edited_products")}</Button>
         <Button size="sm" variant={tab === "returned" ? "default" : "outline"} onClick={() => setTab("returned")} className="gap-2"><RotateCcw className="h-4 w-4" /> Qaytgan tovarlar tarixi</Button>
+        <Button size="sm" variant={tab === "writtenoff" ? "default" : "outline"} onClick={() => setTab("writtenoff")} className="gap-2"><PackageMinus className="h-4 w-4" /> Hisobdan chiqarilgan tovarlar tarixi</Button>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
-        {tab === "added" ? <AddedTable /> : tab === "edited" ? <EditedTable /> : <ReturnedTable />}
+        {tab === "added" ? (
+          <AddedTable />
+        ) : tab === "edited" ? (
+          <EditedTable />
+        ) : tab === "returned" ? (
+          <ReturnedTable />
+        ) : (
+          <WrittenOffTable />
+        )}
       </div>
     </div>
   );
@@ -146,7 +156,10 @@ function EditedTable() {
   const filtered = React.useMemo(
     () =>
       MOCK_EDIT_HISTORY.filter(
-        (h) => matchesProductName(h.productName, productQuery) && matchesDateFilter(h.date, dateMode, from, to),
+        (h) =>
+          h.action !== "writeoff" &&
+          matchesProductName(h.productName, productQuery) &&
+          matchesDateFilter(h.date, dateMode, from, to),
       ),
     [productQuery, dateMode, from, to],
   );
@@ -198,10 +211,21 @@ function EditedTable() {
                   <td className="px-4 py-2">
                     <Badge
                       variant="outline"
-                      className={h.action === "delete" ? "border-destructive/40 text-destructive" : ""}
+                      className={
+                        h.action === "delete" || h.action === "writeoff"
+                          ? "border-destructive/40 text-destructive"
+                          : ""
+                      }
                     >
-                      {h.action === "delete" ? t("deleted") : t("edited")}
+                      {h.action === "delete"
+                        ? t("deleted")
+                        : h.action === "writeoff"
+                          ? t("written_off")
+                          : t("edited")}
                     </Badge>
+                    {h.action === "writeoff" && typeof h.note === "string" && h.note && (
+                      <div className="mt-1 text-xs text-muted-foreground">{h.note}</div>
+                    )}
                   </td>
                   <td className="px-4 py-2">{h.editedBy}</td>
                 </tr>
@@ -217,6 +241,91 @@ function EditedTable() {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function WrittenOffTable() {
+  const { t } = useApp();
+  const [productQuery, setProductQuery] = React.useState("");
+  const [dateMode, setDateMode] = React.useState<DateMode>("all");
+  const [from, setFrom] = React.useState("");
+  const [to, setTo] = React.useState("");
+
+  const filtered = React.useMemo(
+    () =>
+      MOCK_EDIT_HISTORY.filter(
+        (h) =>
+          h.action === "writeoff" &&
+          matchesProductName(h.productName, productQuery) &&
+          matchesDateFilter(h.date, dateMode, from, to),
+      ),
+    [productQuery, dateMode, from, to],
+  );
+
+  const totalQty = filtered.reduce((sum, h) => sum + Math.max(0, h.oldQty - h.newQty), 0);
+
+  return (
+    <div className="flex h-full flex-col">
+      <HistoryFilters
+        productQuery={productQuery}
+        onProductQueryChange={setProductQuery}
+        dateMode={dateMode}
+        onDateModeChange={setDateMode}
+        from={from}
+        onFromChange={setFrom}
+        to={to}
+        onToChange={setTo}
+        summaryLabel="Hisobdan chiqarilgan"
+        summaryValue={`${filtered.length} ta yozuv`}
+      />
+
+      <div className="min-h-0 flex-1 overflow-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 z-10 bg-muted/90 backdrop-blur">
+            <tr className="border-b text-xs uppercase text-muted-foreground">
+              <th className="px-4 py-2 text-left">{t("date")}</th>
+              <th className="px-4 py-2 text-left">{t("product")}</th>
+              <th className="px-4 py-2 text-right">Chiqarilgan miqdor</th>
+              <th className="px-4 py-2 text-left">Sabab</th>
+              <th className="px-4 py-2 text-left">{t("edited_by")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((h) => (
+              <tr key={h.id} className="border-b hover:bg-muted/40">
+                <td className="px-4 py-2 text-muted-foreground">{fmtDate(h.date)}</td>
+                <td className="px-4 py-2 font-medium">{h.productName}</td>
+                <td className="px-4 py-2 text-right tabular-nums">
+                  <span className="font-semibold text-destructive">
+                    -{Math.max(0, h.oldQty - h.newQty)} {h.unit}
+                  </span>
+                  <div className="text-xs text-muted-foreground">
+                    {h.oldQty} → {h.newQty} {h.unit}
+                  </div>
+                </td>
+                <td className="px-4 py-2 text-muted-foreground">{h.note || "-"}</td>
+                <td className="px-4 py-2">
+                  <Badge variant="outline">{h.editedBy}</Badge>
+                </td>
+              </tr>
+            ))}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
+                  Hisobdan chiqarilgan tovarlar topilmadi
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {filtered.length > 0 && (
+        <div className="border-t bg-card px-4 py-2 text-right text-xs text-muted-foreground">
+          Jami hisobdan chiqarilgan: <span className="font-semibold text-destructive">{totalQty}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -296,6 +405,120 @@ function HistoryFilters({
   );
 }
 
+function exportProductHistoryToExcel(row: ProductHistory) {
+  const data = [
+    {
+      "Sana": fmtDate(row.date),
+      "Tovar nomi": row.productName,
+      "Miqdor": row.qty,
+      "Birligi": row.unit,
+      "Sotuv narxi": row.price,
+      "Tan narx": row.costPrice,
+      "Jami tan narx": row.qty * row.costPrice,
+      "Ombor": row.warehouse,
+      "Polka": row.shelfLocation || "",
+      "Agent": row.agentName || "",
+      "Agent telefoni": row.agentPhone || "",
+      "Berilgan pul": row.paidAmount ?? "",
+      "Qarz summasi": row.remainingDebt ?? "",
+      "Izoh": row.note || "",
+      "Qo'shgan": row.addedBy,
+    },
+  ];
+
+  const worksheet = XLSX.utils.json_to_sheet(data);
+  worksheet["!cols"] = [
+    { wch: 18 }, { wch: 24 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 14 },
+    { wch: 16 }, { wch: 18 }, { wch: 12 }, { wch: 20 }, { wch: 16 }, { wch: 14 },
+    { wch: 14 }, { wch: 24 }, { wch: 16 },
+  ];
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Kirim");
+  XLSX.writeFile(workbook, `kirim-${row.id}.xlsx`);
+}
+
+function printNakladnoy(row: ProductHistory, storeName: string, phone: string) {
+  const win = window.open("", "_blank");
+  if (!win) return;
+
+  const total = row.qty * row.costPrice;
+  const hasSource = Boolean(row.agentName || row.agentId || row.agentPhone);
+
+  win.document.write(`
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Nakladnoy ${row.id}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 24px; color: #111; }
+          h1 { font-size: 18px; margin: 0 0 2px; }
+          .muted { color: #555; font-size: 12px; }
+          .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111; padding-bottom: 12px; margin-bottom: 16px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+          th, td { border: 1px solid #333; padding: 8px; font-size: 13px; text-align: left; }
+          th { background: #f2f2f2; }
+          .right { text-align: right; }
+          .total-row td { font-weight: bold; }
+          .signs { display: flex; justify-content: space-between; margin-top: 48px; }
+          .sign { width: 45%; border-top: 1px solid #333; padding-top: 4px; font-size: 12px; text-align: center; }
+        </style>
+      </head>
+      <body>
+        <div class="head">
+          <div>
+            <h1>${storeName || "Tovar qabul qilish nakladnoyi"}</h1>
+            ${phone ? `<div class="muted">Tel: ${phone}</div>` : ""}
+          </div>
+          <div class="muted">
+            <div>Nakladnoy №: ${row.id}</div>
+            <div>Sana: ${fmtDate(row.date)}</div>
+          </div>
+        </div>
+
+        ${
+          hasSource
+            ? `<div class="muted">Yetkazib beruvchi: <b>${row.agentName || "-"}</b>${row.agentPhone ? ` · ${row.agentPhone}` : ""}</div>`
+            : ""
+        }
+
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Tovar nomi</th>
+              <th class="right">Miqdor</th>
+              <th class="right">Narx</th>
+              <th class="right">Summa</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>1</td>
+              <td>${row.productName}</td>
+              <td class="right">${row.qty} ${row.unit}</td>
+              <td class="right">${formatSom(row.costPrice)}</td>
+              <td class="right">${formatSom(total)}</td>
+            </tr>
+            <tr class="total-row">
+              <td colspan="4" class="right">Jami:</td>
+              <td class="right">${formatSom(total)}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="signs">
+          <div class="sign">Topshirdi (F.I.Sh, imzo)</div>
+          <div class="sign">Qabul qildi: ${row.addedBy}</div>
+        </div>
+      </body>
+    </html>
+  `);
+  win.document.close();
+  win.focus();
+  win.print();
+}
+
 function ProductHistoryDetailDialog({
   row,
   onClose,
@@ -303,6 +526,7 @@ function ProductHistoryDetailDialog({
   row: ProductHistory | null;
   onClose: () => void;
 }) {
+  const { settings } = useApp();
   const hasSource = Boolean(row?.agentName || row?.agentId || row?.agentPhone);
 
   return (
@@ -356,6 +580,26 @@ function ProductHistoryDetailDialog({
                   Bu kirimda agent yoki nasiya manbasi kiritilmagan.
                 </div>
               )}
+            </div>
+
+            <div className="flex justify-end gap-2 border-t pt-3">
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => exportProductHistoryToExcel(row)}
+              >
+                <FileSpreadsheet className="h-4 w-4" />
+                Excel
+              </Button>
+              <Button
+                className="gap-2"
+                onClick={() =>
+                  printNakladnoy(row, settings.receiptSettings.storeName, settings.receiptSettings.phone)
+                }
+              >
+                <Printer className="h-4 w-4" />
+                Nakladnoy
+              </Button>
             </div>
           </div>
         )}
@@ -652,8 +896,12 @@ function fieldLabel(field: string) {
   if (["qty", "quantity", "amount", "miqdor"].includes(normalized)) return "Miqdor";
   if (["price", "saleprice", "narx"].includes(normalized)) return "Narx";
   if (["costprice", "cost", "tannarx"].includes(normalized)) return "Tan narx";
+  if (["wholesaleprice", "optomnarx"].includes(normalized)) return "Optom narx";
   if (["unit", "birlik"].includes(normalized)) return "Birlik";
   if (["warehouse", "ombor"].includes(normalized)) return "Ombor";
+  if (["name", "nomi"].includes(normalized)) return "Nomi";
+  if (["barcode", "shtrixkod"].includes(normalized)) return "Shtrix kod";
+  if (["shelflocation", "raf", "polka"].includes(normalized)) return "Polka";
   return field;
 }
 

@@ -6,8 +6,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 import {
   MOCK_RECEIPTS, MOCK_CASH_CLOSES, MOCK_WITHDRAWALS, MOCK_DEBT_PAYMENTS,
-  MOCK_ONE_TIME_ITEMS,
+  MOCK_ONE_TIME_ITEMS, MOCK_RECEIPT_EDIT_HISTORY,
   formatSom, type Receipt, type CashClose, type CashWithdrawal, type DebtPayment, type OneTimeItemHistory,
+  type EditedReceiptHistory,
 } from "@/lib/mock-data";
 import {
   Banknote,
@@ -17,6 +18,7 @@ import {
   ChevronRight,
   Filter,
   PackagePlus,
+  Pencil,
 } from "lucide-react";
 import { PeriodFilter, type PeriodFilterValue } from "@/components/shared/PeriodFilter";
 
@@ -25,6 +27,7 @@ const TABS = [
   { id: "chiqim", label: "Pul chiqarish" },
   { id: "qarz",   label: "Qarz so'ndirish" },
   { id: "bir_martalik", label: "Bir martalik tovarlar" },
+  { id: "tahrirlangan", label: "Tahrirlangan cheklar" },
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
 type Period = PeriodFilterValue;
@@ -67,6 +70,10 @@ function inDateRange(date: string, period: Period, from: string, to: string) {
     start = new Date(now); start.setHours(0, 0, 0, 0);
     end = new Date(now); end.setHours(23, 59, 59, 999);
   }
+  if (period === "yesterday") {
+    start = new Date(now); start.setDate(start.getDate() - 1); start.setHours(0, 0, 0, 0);
+    end = new Date(now); end.setDate(end.getDate() - 1); end.setHours(23, 59, 59, 999);
+  }
   if (period === "week") {
     start = startOfWeek(now);
     end = new Date(now); end.setHours(23, 59, 59, 999);
@@ -81,16 +88,14 @@ function inDateRange(date: string, period: Period, from: string, to: string) {
   }
   if (period === "custom") {
     if (from) start = new Date(`${from}T00:00:00`);
+    // "to" hali tanlanmagan bo'lsa (faqat bitta kun bosilgan), o'sha kunning o'zi bilan cheklaymiz.
     if (to) end = new Date(`${to}T23:59:59`);
+    else if (from) end = new Date(`${from}T23:59:59`);
   }
 
   if (start && value < start) return false;
   if (end && value > end) return false;
   return true;
-}
-
-function uniq(values: string[]) {
-  return Array.from(new Set(values.filter(Boolean)));
 }
 
 function receiptCategory(r: Receipt) {
@@ -108,44 +113,37 @@ function withdrawalTotal(r: CashWithdrawal) {
 export function KassaTarixi() {
   const [tab, setTab] = React.useState<Tab>("yopish");
   const [picked, setPicked] = React.useState<PickedItem | null>(null);
-  const [period, setPeriod] = React.useState<Period>("all");
+  const [period, setPeriod] = React.useState<Period>("today");
   const [from, setFrom] = React.useState("");
   const [to, setTo] = React.useState("");
-  const [category, setCategory] = React.useState("all");
-
-  React.useEffect(() => {
-    setCategory("all");
-  }, [tab]);
-
-  const categoryOptions = React.useMemo(() => {
-    if (tab === "yopish") return uniq(MOCK_CASH_CLOSES.map((r) => r.cashier));
-    if (tab === "chiqim") return uniq(MOCK_WITHDRAWALS.map((r) => r.category));
-    if (tab === "qarz") return uniq(MOCK_DEBT_PAYMENTS.map((r) => r.method === "naqd" ? "Naqd" : "Karta"));
-    return uniq(MOCK_ONE_TIME_ITEMS.map((r) => r.cashier));
-  }, [tab]);
 
   const filteredCloses = React.useMemo(() => MOCK_CASH_CLOSES.filter((r) =>
-    inDateRange(r.date, period, from, to) && (category === "all" || r.cashier === category)
-  ), [period, from, to, category]);
+    inDateRange(r.date, period, from, to)
+  ), [period, from, to]);
 
   const filteredWithdrawals = React.useMemo(() => MOCK_WITHDRAWALS.filter((r) =>
-    inDateRange(r.date, period, from, to) && (category === "all" || r.category === category)
-  ), [period, from, to, category]);
+    inDateRange(r.date, period, from, to)
+  ), [period, from, to]);
 
   const filteredDebtPayments = React.useMemo(() => MOCK_DEBT_PAYMENTS.filter((r) =>
-    inDateRange(r.date, period, from, to) && (category === "all" || (r.method === "naqd" ? "Naqd" : "Karta") === category)
-  ), [period, from, to, category]);
+    inDateRange(r.date, period, from, to)
+  ), [period, from, to]);
 
   const filteredOneTimeItems = React.useMemo(() => MOCK_ONE_TIME_ITEMS.filter((r) =>
-    inDateRange(r.date, period, from, to) && (category === "all" || r.cashier === category)
-  ), [period, from, to, category]);
+    inDateRange(r.date, period, from, to)
+  ), [period, from, to]);
+
+  const filteredEditedReceipts = React.useMemo(() => MOCK_RECEIPT_EDIT_HISTORY.filter((r) =>
+    inDateRange(r.date, period, from, to)
+  ), [period, from, to]);
 
   const total = React.useMemo(() => {
     if (tab === "yopish") return filteredCloses.reduce((s, r) => s + closeTotal(r), 0);
     if (tab === "chiqim") return filteredWithdrawals.reduce((s, r) => s + withdrawalTotal(r), 0);
     if (tab === "qarz") return filteredDebtPayments.reduce((s, r) => s + r.amount, 0);
+    if (tab === "tahrirlangan") return filteredEditedReceipts.length;
     return filteredOneTimeItems.reduce((s, r) => s + r.total, 0);
-  }, [tab, filteredCloses, filteredWithdrawals, filteredDebtPayments, filteredOneTimeItems]);
+  }, [tab, filteredCloses, filteredWithdrawals, filteredDebtPayments, filteredOneTimeItems, filteredEditedReceipts]);
 
   return (
     <div className="flex h-full flex-col">
@@ -160,36 +158,21 @@ export function KassaTarixi() {
           ))}
         </div>
         <div className="rounded-xl border bg-primary/5 px-4 py-2 text-right shadow-sm">
-          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Jami</div>
-          <div className="text-lg font-bold tabular-nums text-primary">{formatSom(total)}</div>
+          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            {tab === "tahrirlangan" ? "Tahrirlar soni" : "Jami"}
+          </div>
+          <div className="text-lg font-bold tabular-nums text-primary">
+            {tab === "tahrirlangan" ? `${total} ta` : formatSom(total)}
+          </div>
         </div>
       </div>
 
       <div className="border-b bg-muted/20 p-3">
-        <div className="flex flex-wrap items-end gap-3 rounded-xl border bg-background p-3 shadow-sm">
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border bg-background p-3 shadow-sm">
           <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
             <Filter className="h-4 w-4" /> Filter
           </div>
-          <PeriodFilter value={period} onValueChange={setPeriod} from={from} to={to} onFromChange={setFrom} onToChange={setTo} />
-          <label className="grid gap-1 text-xs font-medium text-muted-foreground">
-            Kategoriya
-            <select
-              className="h-9 min-w-[180px] rounded-md border bg-background px-3 text-sm text-foreground"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-            >
-              <option value="all">Barcha kategoriyalar</option>
-              {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </label>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => { setPeriod("all"); setFrom(""); setTo(""); setCategory("all"); }}
-          >
-            Tozalash
-          </Button>
+          <PeriodFilter value={period} onValueChange={setPeriod} from={from} to={to} onFromChange={setFrom} onToChange={setTo} hideAllOption showYesterdayOption instantSingleDay />
         </div>
       </div>
 
@@ -198,6 +181,7 @@ export function KassaTarixi() {
         {tab === "chiqim" && <ChiqimList rows={filteredWithdrawals} onPick={(r) => setPicked({ kind: "chiqim", data: r })} />}
         {tab === "qarz"   && <QarzList rows={filteredDebtPayments} onPick={(r) => setPicked({ kind: "qarz",   data: r })} />}
         {tab === "bir_martalik" && <OneTimeList rows={filteredOneTimeItems} onPick={(r) => setPicked({ kind: "bir_martalik", data: r })} />}
+        {tab === "tahrirlangan" && <EditedReceiptsList rows={filteredEditedReceipts} />}
       </div>
 
       {picked?.kind === "yopish" && (
@@ -656,6 +640,44 @@ function QarzList({ rows, onPick }: { rows: DebtPayment[]; onPick: (r: DebtPayme
             <td className="px-3 py-1.5 font-semibold tabular-nums">{formatSom(r.amount)}</td>
             <td className="px-3 py-1.5 text-xs"><Badge variant="outline">{r.method === "naqd" ? "Naqd" : "Karta"}</Badge></td>
             <td className="px-3 py-1.5 text-xs text-muted-foreground">{new Date(r.date).toLocaleString("uz-UZ")}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function EditedReceiptsList({ rows }: { rows: EditedReceiptHistory[] }) {
+  return (
+    <table className="w-full text-sm">
+      <thead className="bg-muted/50"><tr>
+        <Th>Sana</Th><Th>Chek</Th><Th>Amal</Th><Th>O'zgarishlar</Th><Th>Eski summa</Th><Th>Yangi summa</Th><Th>Kim tahrirladi</Th>
+      </tr></thead>
+      <tbody>
+        {rows.length === 0 && (
+          <tr><td colSpan={7} className="p-6 text-center text-muted-foreground">Tahrirlangan cheklar topilmadi</td></tr>
+        )}
+        {rows.map((r) => (
+          <tr key={r.id} className="border-b hover:bg-muted/40">
+            <td className="px-3 py-1.5 text-xs text-muted-foreground">{new Date(r.date).toLocaleString("uz-UZ")}</td>
+            <td className="px-3 py-1.5 font-mono text-xs">{r.receiptId}</td>
+            <td className="px-3 py-1.5">
+              <Badge
+                variant="outline"
+                className={"gap-1 " + (r.action === "delete" ? "border-destructive/40 text-destructive" : "")}
+              >
+                <Pencil className="h-3 w-3" />
+                {r.action === "delete" ? "O'chirildi" : "Tahrirlandi"}
+              </Badge>
+            </td>
+            <td className="px-3 py-1.5 text-xs text-muted-foreground">
+              {r.changes && r.changes.length > 0
+                ? r.changes.map((c) => `${c.label}: ${c.oldValue} → ${c.newValue}`).join("; ")
+                : "—"}
+            </td>
+            <td className="px-3 py-1.5 tabular-nums">{formatSom(r.oldTotal)}</td>
+            <td className="px-3 py-1.5 font-semibold tabular-nums">{formatSom(r.newTotal)}</td>
+            <td className="px-3 py-1.5"><Badge variant="secondary" className="text-[10px]">{r.editedBy}</Badge></td>
           </tr>
         ))}
       </tbody>

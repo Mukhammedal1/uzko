@@ -1,8 +1,13 @@
 import * as React from "react";
+import * as XLSX from "xlsx";
 import {
   Bot,
+  FileSpreadsheet,
+  FileText,
   HandCoins,
+  Pencil,
   Phone,
+  Printer,
   ReceiptText,
   Search,
   Truck,
@@ -19,6 +24,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -32,7 +47,8 @@ import {
 } from "@/components/ui/select";
 import { PeriodFilter, type PeriodFilterValue } from "@/components/shared/PeriodFilter";
 import { addCreditCustomer, dispatchReceiptMessage, fullCustomerName } from "@/lib/data-actions";
-import { formatNumberInput } from "@/lib/utils";
+import { cn, formatNumberInput } from "@/lib/utils";
+import { useApp } from "@/lib/app-context";
 import {
   MOCK_CREDIT_CUSTOMERS,
   MOCK_RECEIPT_DISPATCHES,
@@ -67,8 +83,48 @@ type CreditRow = {
   phone: string;
   botEnabled: boolean;
   debt: number;
+  paid: number;
+  totalDebtEver: number;
+  dueDate?: string;
+  lastDebtDate?: string;
   total: number;
   receipts: CustomerDebtReceipt[];
+};
+
+const DUE_SOON_DAYS = 3;
+
+type DebtStatus = "paid" | "overdue" | "due_soon" | "normal";
+
+function debtStatus(debt: number, dueDate: string | undefined): DebtStatus {
+  if (debt <= 0) return "paid";
+  if (!dueDate) return "normal";
+  const due = new Date(`${dueDate}T23:59:59`);
+  const now = new Date();
+  if (due < now) return "overdue";
+  const daysLeft = (due.getTime() - now.getTime()) / 86_400_000;
+  if (daysLeft <= DUE_SOON_DAYS) return "due_soon";
+  return "normal";
+}
+
+const DEBT_STATUS_LABEL: Record<DebtStatus, string> = {
+  paid: "To'langan",
+  overdue: "Muddati o'tgan",
+  due_soon: "Muddat yaqin",
+  normal: "",
+};
+
+const DEBT_STATUS_TEXT_CLASS: Record<DebtStatus, string> = {
+  paid: "text-success",
+  overdue: "text-destructive",
+  due_soon: "text-amber-600",
+  normal: "text-primary",
+};
+
+const DEBT_STATUS_BADGE_CLASS: Record<DebtStatus, string> = {
+  paid: "border-success/40 bg-success/10 text-success",
+  overdue: "border-destructive/40 bg-destructive/10 text-destructive",
+  due_soon: "border-amber-500/40 bg-amber-500/10 text-amber-600",
+  normal: "",
 };
 
 type AgentRow = {
@@ -86,7 +142,12 @@ type DetailState =
   | { type: "oddiy-customers"; title: string; rows: RegularRow[] }
   | { type: "oddiy-receipts"; title: string; rows: Receipt[] }
   | { type: "nasiya-debts"; title: string; rows: CreditRow[] }
-  | { type: "nasiya-receipts"; title: string; rows: CustomerDebtReceipt[] }
+  | {
+      type: "nasiya-receipts";
+      title: string;
+      rows: CustomerDebtReceipt[];
+      customer: { id: string; name: string; phone: string };
+    }
   | {
       type: "agent-groups";
       title: string;
@@ -98,7 +159,11 @@ type DetailState =
 
 type SelectedReceiptState =
   | { type: "oddiy"; receipt: Receipt }
-  | { type: "nasiya"; receipt: CustomerDebtReceipt }
+  | {
+      type: "nasiya";
+      receipt: CustomerDebtReceipt;
+      customer: { id: string; name: string; phone: string };
+    }
   | { type: "agent"; receipt: SupplierReport }
   | null;
 
@@ -135,8 +200,439 @@ function matchesMany(values: Array<string | undefined>, query: string) {
   return values.some((value) => String(value ?? "").toLowerCase().includes(normalized));
 }
 
+function amountMatches(amount: number, query: string) {
+  const digits = query.trim().replace(/\D/g, "");
+  if (!digits) return true;
+  return String(Math.round(amount)).includes(digits);
+}
+
 function fmtDate(value: string) {
   return new Date(value).toLocaleString("uz-UZ");
+}
+
+export function exportAgentHistoryToExcel(rows: SupplierReport[], agentId: string, agentName: string) {
+  const data = rows.flatMap((report) =>
+    report.items.map((item) => ({
+      "Chek": report.id,
+      "Sana": fmtDate(report.date),
+      "Turi": report.type === "return" ? "Qaytarish" : "Prixod",
+      "Tovar nomi": item.productName,
+      "Miqdor": item.qty,
+      "Birligi": item.unit,
+      "Summasi": item.amount,
+      "Mashina": report.vehicleName || "",
+      "Mashina raqami": report.vehiclePlate || "",
+      "Haydovchi": report.driverName || "",
+      "Haydovchi raqami": report.driverPhone || "",
+      "Izoh": report.note || "",
+    })),
+  );
+
+  const worksheet = XLSX.utils.json_to_sheet(data);
+  worksheet["!cols"] = [
+    { wch: 14 }, { wch: 18 }, { wch: 12 }, { wch: 26 }, { wch: 10 }, { wch: 10 }, { wch: 14 },
+    { wch: 16 }, { wch: 14 }, { wch: 18 }, { wch: 16 }, { wch: 24 },
+  ];
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Tovarlar tarixi");
+  XLSX.writeFile(workbook, `agent-${agentId}-tovarlar-tarixi.xlsx`);
+}
+
+export function printAgentNakladnoy(
+  rows: SupplierReport[],
+  agentId: string,
+  agentName: string,
+  agentPhone: string,
+  storeName: string,
+  storePhone: string,
+) {
+  const win = window.open("", "_blank");
+  if (!win) return;
+
+  const items = rows.flatMap((report) =>
+    report.items.map((item) => ({ ...item, reportId: report.id, date: report.date })),
+  );
+  const total = items.reduce((sum, item) => sum + item.amount, 0);
+  const transportRows = rows.filter(
+    (report) => report.vehicleName || report.vehiclePlate || report.driverName || report.driverPhone,
+  );
+
+  win.document.write(`
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Nakladnoy — ${agentName}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 24px; color: #111; }
+          h1 { font-size: 18px; margin: 0 0 2px; }
+          .muted { color: #555; font-size: 12px; }
+          .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111; padding-bottom: 12px; margin-bottom: 16px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+          th, td { border: 1px solid #333; padding: 8px; font-size: 13px; text-align: left; }
+          th { background: #f2f2f2; }
+          .right { text-align: right; }
+          .total-row td { font-weight: bold; }
+          .signs { display: flex; justify-content: space-between; margin-top: 48px; }
+          .sign { width: 45%; border-top: 1px solid #333; padding-top: 4px; font-size: 12px; text-align: center; }
+        </style>
+      </head>
+      <body>
+        <div class="head">
+          <div>
+            <h1>${storeName || "Agent tovarlar tarixi nakladnoyi"}</h1>
+            ${storePhone ? `<div class="muted">Tel: ${storePhone}</div>` : ""}
+          </div>
+          <div class="muted">
+            <div>Agent: <b>${agentName}</b> (${agentId})</div>
+            ${agentPhone ? `<div>Tel: ${agentPhone}</div>` : ""}
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Chek</th>
+              <th>Sana</th>
+              <th>Tovar nomi</th>
+              <th class="right">Miqdor</th>
+              <th class="right">Summa</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items
+              .map(
+                (item, index) => `
+              <tr>
+                <td>${index + 1}</td>
+                <td>${item.reportId}</td>
+                <td>${fmtDate(item.date)}</td>
+                <td>${item.productName}</td>
+                <td class="right">${item.qty} ${item.unit}</td>
+                <td class="right">${formatSom(item.amount)}</td>
+              </tr>
+            `,
+              )
+              .join("")}
+            <tr class="total-row">
+              <td colspan="5" class="right">Jami:</td>
+              <td class="right">${formatSom(total)}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        ${
+          transportRows.length > 0
+            ? `<div class="muted" style="margin-top:16px;">
+                <b>Mashrut ma'lumotlari</b>
+                ${transportRows
+                  .map(
+                    (report) => `
+                  <div style="margin-top:4px;">
+                    Chek ${report.id}:
+                    ${report.vehicleName ? ` Mashina — ${report.vehicleName}` : ""}
+                    ${report.vehiclePlate ? ` (${report.vehiclePlate})` : ""}
+                    ${report.driverName ? ` · Haydovchi — ${report.driverName}` : ""}
+                    ${report.driverPhone ? ` (${report.driverPhone})` : ""}
+                  </div>
+                `,
+                  )
+                  .join("")}
+              </div>`
+            : ""
+        }
+
+        <div class="signs">
+          <div class="sign">Topshirdi: ${agentName}</div>
+          <div class="sign">Qabul qildi (F.I.Sh, imzo)</div>
+        </div>
+      </body>
+    </html>
+  `);
+  win.document.close();
+  win.focus();
+  win.print();
+}
+
+export function printAgentReceipt80mm(report: SupplierReport, storeName: string, storePhone: string) {
+  const win = window.open("", "_blank");
+  if (!win) return;
+
+  win.document.write(`
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Chek ${report.id}</title>
+        <style>
+          @page { size: 80mm auto; margin: 0; }
+          body { font-family: 'Courier New', monospace; width: 72mm; margin: 0 auto; padding: 4mm; color: #000; font-size: 12px; }
+          h1 { font-size: 14px; margin: 0 0 2px; text-align: center; }
+          .muted { color: #333; font-size: 11px; text-align: center; }
+          .line { border-top: 1px dashed #000; margin: 6px 0; }
+          .row { display: flex; justify-content: space-between; gap: 6px; }
+          table { width: 100%; border-collapse: collapse; font-size: 11px; }
+          th { text-align: left; font-weight: normal; border-bottom: 1px dashed #000; padding-bottom: 2px; }
+          td { padding: 2px 0; vertical-align: top; }
+          .right { text-align: right; }
+          .total { font-weight: bold; font-size: 13px; }
+        </style>
+      </head>
+      <body>
+        <h1>${storeName || "Prixod cheki"}</h1>
+        ${storePhone ? `<div class="muted">Tel: ${storePhone}</div>` : ""}
+        <div class="line"></div>
+        <div class="row"><span>Chek:</span><span><b>${report.id}</b></span></div>
+        <div class="row"><span>Sana:</span><span>${fmtDate(report.date)}</span></div>
+        <div class="row"><span>Turi:</span><span>${report.type === "return" ? "Qaytarish" : "Prixod"}</span></div>
+        <div class="row"><span>Agent:</span><span>${report.agentName}</span></div>
+        ${report.agentPhone ? `<div class="row"><span>Tel:</span><span>${report.agentPhone}</span></div>` : ""}
+        <div class="line"></div>
+        <table>
+          <thead>
+            <tr><th>Tovar</th><th class="right">Miqdor</th><th class="right">Summa</th></tr>
+          </thead>
+          <tbody>
+            ${report.items
+              .map(
+                (item) => `
+              <tr>
+                <td>${item.productName}</td>
+                <td class="right">${item.qty} ${item.unit}</td>
+                <td class="right">${formatSom(item.amount)}</td>
+              </tr>
+            `,
+              )
+              .join("")}
+          </tbody>
+        </table>
+        <div class="line"></div>
+        <div class="row total"><span>Jami:</span><span>${formatSom(report.totalAmount)}</span></div>
+        <div class="row"><span>Berilgan:</span><span>${formatSom(report.paidAmount)}</span></div>
+        <div class="row"><span>Qoldiq:</span><span>${formatSom(report.remainingDebt)}</span></div>
+        ${
+          report.vehicleName || report.vehiclePlate || report.driverName || report.driverPhone
+            ? `<div class="line"></div>
+               ${report.vehicleName || report.vehiclePlate ? `<div class="row"><span>Mashina:</span><span>${report.vehicleName || ""}${report.vehiclePlate ? ` (${report.vehiclePlate})` : ""}</span></div>` : ""}
+               ${report.driverName || report.driverPhone ? `<div class="row"><span>Haydovchi:</span><span>${report.driverName || ""}${report.driverPhone ? ` (${report.driverPhone})` : ""}</span></div>` : ""}`
+            : ""
+        }
+        ${report.note ? `<div class="line"></div><div class="muted">${report.note}</div>` : ""}
+      </body>
+    </html>
+  `);
+  win.document.close();
+  win.focus();
+  win.print();
+}
+
+function exportCreditReceiptToExcel(
+  receipts: CustomerDebtReceipt[],
+  customerId: string,
+  customerName: string,
+) {
+  const data = receipts.flatMap((receipt) =>
+    receipt.items.length > 0
+      ? receipt.items.map((item) => ({
+          "Chek": receipt.id,
+          "Sana": fmtDate(receipt.date),
+          "Turi": receipt.title,
+          "Tovar nomi": item.name,
+          "Miqdor": item.qty,
+          "Birligi": item.unit,
+          "Summasi": item.amount,
+          "Izoh": receipt.note || "",
+        }))
+      : [
+          {
+            "Chek": receipt.id,
+            "Sana": fmtDate(receipt.date),
+            "Turi": receipt.title,
+            "Tovar nomi": "",
+            "Miqdor": 0,
+            "Birligi": "",
+            "Summasi": receipt.amount,
+            "Izoh": receipt.note || "",
+          },
+        ],
+  );
+
+  const worksheet = XLSX.utils.json_to_sheet(data);
+  worksheet["!cols"] = [
+    { wch: 14 }, { wch: 18 }, { wch: 16 }, { wch: 26 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 24 },
+  ];
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Nasiya tarixi");
+  XLSX.writeFile(workbook, `nasiyachi-${customerId}-tarix.xlsx`);
+}
+
+function printCreditNakladnoy(
+  receipts: CustomerDebtReceipt[],
+  customerId: string,
+  customerName: string,
+  customerPhone: string,
+  storeName: string,
+  storePhone: string,
+) {
+  const win = window.open("", "_blank");
+  if (!win) return;
+
+  const items = receipts.flatMap((receipt) =>
+    receipt.items.length > 0
+      ? receipt.items.map((item) => ({ ...item, receiptId: receipt.id, date: receipt.date }))
+      : [{ name: receipt.title, qty: 1, unit: "", amount: receipt.amount, receiptId: receipt.id, date: receipt.date }],
+  );
+  const total = items.reduce((sum, item) => sum + item.amount, 0);
+
+  win.document.write(`
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Nakladnoy — ${customerName}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 24px; color: #111; }
+          h1 { font-size: 18px; margin: 0 0 2px; }
+          .muted { color: #555; font-size: 12px; }
+          .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111; padding-bottom: 12px; margin-bottom: 16px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+          th, td { border: 1px solid #333; padding: 8px; font-size: 13px; text-align: left; }
+          th { background: #f2f2f2; }
+          .right { text-align: right; }
+          .total-row td { font-weight: bold; }
+          .signs { display: flex; justify-content: space-between; margin-top: 48px; }
+          .sign { width: 45%; border-top: 1px solid #333; padding-top: 4px; font-size: 12px; text-align: center; }
+        </style>
+      </head>
+      <body>
+        <div class="head">
+          <div>
+            <h1>${storeName || "Nasiya tovarlar tarixi nakladnoyi"}</h1>
+            ${storePhone ? `<div class="muted">Tel: ${storePhone}</div>` : ""}
+          </div>
+          <div class="muted">
+            <div>Mijoz: <b>${customerName}</b> (${customerId})</div>
+            ${customerPhone && customerPhone !== "—" ? `<div>Tel: ${customerPhone}</div>` : ""}
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Chek</th>
+              <th>Sana</th>
+              <th>Tovar nomi</th>
+              <th class="right">Miqdor</th>
+              <th class="right">Summa</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items
+              .map(
+                (item, index) => `
+              <tr>
+                <td>${index + 1}</td>
+                <td>${item.receiptId}</td>
+                <td>${fmtDate(item.date)}</td>
+                <td>${item.name}</td>
+                <td class="right">${item.unit ? `${item.qty} ${item.unit}` : item.qty}</td>
+                <td class="right">${formatSom(item.amount)}</td>
+              </tr>
+            `,
+              )
+              .join("")}
+            <tr class="total-row">
+              <td colspan="5" class="right">Jami:</td>
+              <td class="right">${formatSom(total)}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="signs">
+          <div class="sign">Topshirdi (F.I.Sh, imzo)</div>
+          <div class="sign">Qabul qildi: ${customerName}</div>
+        </div>
+      </body>
+    </html>
+  `);
+  win.document.close();
+  win.focus();
+  win.print();
+}
+
+function printCreditReceipt80mm(
+  receipt: CustomerDebtReceipt,
+  customerName: string,
+  customerPhone: string,
+  storeName: string,
+  storePhone: string,
+) {
+  const win = window.open("", "_blank");
+  if (!win) return;
+
+  win.document.write(`
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Chek ${receipt.id}</title>
+        <style>
+          @page { size: 80mm auto; margin: 0; }
+          body { font-family: 'Courier New', monospace; width: 72mm; margin: 0 auto; padding: 4mm; color: #000; font-size: 12px; }
+          h1 { font-size: 14px; margin: 0 0 2px; text-align: center; }
+          .muted { color: #333; font-size: 11px; text-align: center; }
+          .line { border-top: 1px dashed #000; margin: 6px 0; }
+          .row { display: flex; justify-content: space-between; gap: 6px; }
+          table { width: 100%; border-collapse: collapse; font-size: 11px; }
+          th { text-align: left; font-weight: normal; border-bottom: 1px dashed #000; padding-bottom: 2px; }
+          td { padding: 2px 0; vertical-align: top; }
+          .right { text-align: right; }
+          .total { font-weight: bold; font-size: 13px; }
+        </style>
+      </head>
+      <body>
+        <h1>${storeName || "Nasiya cheki"}</h1>
+        ${storePhone ? `<div class="muted">Tel: ${storePhone}</div>` : ""}
+        <div class="line"></div>
+        <div class="row"><span>Chek:</span><span><b>${receipt.id}</b></span></div>
+        <div class="row"><span>Sana:</span><span>${fmtDate(receipt.date)}</span></div>
+        <div class="row"><span>Turi:</span><span>${receipt.title}</span></div>
+        <div class="row"><span>Mijoz:</span><span>${customerName}</span></div>
+        ${customerPhone && customerPhone !== "—" ? `<div class="row"><span>Tel:</span><span>${customerPhone}</span></div>` : ""}
+        <div class="line"></div>
+        ${
+          receipt.items.length > 0
+            ? `<table>
+                <thead>
+                  <tr><th>Tovar</th><th class="right">Miqdor</th><th class="right">Summa</th></tr>
+                </thead>
+                <tbody>
+                  ${receipt.items
+                    .map(
+                      (item) => `
+                    <tr>
+                      <td>${item.name}</td>
+                      <td class="right">${item.qty} ${item.unit}</td>
+                      <td class="right">${formatSom(item.amount)}</td>
+                    </tr>
+                  `,
+                    )
+                    .join("")}
+                </tbody>
+              </table>`
+            : ""
+        }
+        <div class="line"></div>
+        <div class="row total"><span>Jami:</span><span>${formatSom(receipt.amount)}</span></div>
+        ${receipt.paidAmount !== undefined ? `<div class="row"><span>Berilgan:</span><span>${formatSom(receipt.paidAmount)}</span></div>` : ""}
+        ${receipt.debtAmount !== undefined ? `<div class="row"><span>Qoldiq:</span><span>${formatSom(receipt.debtAmount)}</span></div>` : ""}
+        ${receipt.note ? `<div class="line"></div><div class="muted">${receipt.note}</div>` : ""}
+      </body>
+    </html>
+  `);
+  win.document.close();
+  win.focus();
+  win.print();
 }
 
 function nextAgentId() {
@@ -148,17 +644,33 @@ function nextAgentId() {
 }
 
 export function MijozlarPage() {
+  const { settings } = useApp();
   const [tab, setTab] = React.useState<Tab>("nasiya");
   const [detail, setDetail] = React.useState<DetailState>(null);
   const [selectedReceipt, setSelectedReceipt] = React.useState<SelectedReceiptState>(null);
   const [period, setPeriod] = React.useState<Period>("all");
   const [from, setFrom] = React.useState("");
   const [to, setTo] = React.useState("");
-  const [nameFilter, setNameFilter] = React.useState("");
-  const [idFilter, setIdFilter] = React.useState("");
+  const [query, setQuery] = React.useState("");
   const [refreshKey, setRefreshKey] = React.useState(0);
   const [addCreditOpen, setAddCreditOpen] = React.useState(false);
   const [addAgentOpen, setAddAgentOpen] = React.useState(false);
+  const [editingCredit, setEditingCredit] = React.useState<CreditCustomer | null>(null);
+  const [deletingCredit, setDeletingCredit] = React.useState<CreditCustomer | null>(null);
+  const [editingAgent, setEditingAgent] = React.useState<AgentRow | null>(null);
+  const [deletingAgent, setDeletingAgent] = React.useState<AgentRow | null>(null);
+
+  const [receiptPeriod, setReceiptPeriod] = React.useState<Period>("all");
+  const [receiptFrom, setReceiptFrom] = React.useState("");
+  const [receiptTo, setReceiptTo] = React.useState("");
+  const [receiptQuery, setReceiptQuery] = React.useState("");
+
+  const resetReceiptFilters = React.useCallback(() => {
+    setReceiptPeriod("all");
+    setReceiptFrom("");
+    setReceiptTo("");
+    setReceiptQuery("");
+  }, []);
 
   const regularRows = React.useMemo(() => {
     return MOCK_REGULAR_CUSTOMERS.map((customer) => {
@@ -185,12 +697,11 @@ export function MijozlarPage() {
       };
     })
       .filter((row) => {
-        if (nameFilter && !matchesMany([row.name, row.phone], nameFilter)) return false;
-        if (idFilter && !matchesMany([row.id, row.name, row.phone], idFilter)) return false;
+        if (query && !matchesMany([row.id, row.name, row.phone], query)) return false;
         return row.receiptCount > 0;
       })
       .sort((a, b) => b.total - a.total);
-  }, [from, idFilter, nameFilter, period, refreshKey, to]);
+  }, [from, query, period, refreshKey, to]);
 
   const creditRows = React.useMemo(() => {
     return MOCK_CREDIT_CUSTOMERS.map((customer) => {
@@ -200,23 +711,32 @@ export function MijozlarPage() {
       const salesTotal = receipts
         .filter((receipt) => receipt.type === "sale")
         .reduce((sum, receipt) => sum + Math.max(receipt.amount, 0), 0);
+      const lastDebtDate = (customer.receipts ?? [])
+        .filter((receipt) => receipt.type === "sale")
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]?.date;
+      const paid = (customer.receipts ?? [])
+        .filter((receipt) => receipt.type === "payment")
+        .reduce((sum, receipt) => sum + Math.max(receipt.amount, 0), 0);
       return {
         id: customer.id,
         name: `${customer.firstName} ${customer.lastName}`.trim(),
         phone: customer.phone ?? "—",
         botEnabled: Boolean(customer.botEnabled),
         debt: customer.currentDebt,
+        paid,
+        totalDebtEver: customer.currentDebt + paid,
+        dueDate: customer.dueDate,
+        lastDebtDate,
         total: salesTotal,
         receipts,
       };
     })
       .filter((row) => {
-        if (nameFilter && !matchesMany([row.name, row.phone], nameFilter)) return false;
-        if (idFilter && !matchesMany([row.id, row.name, row.phone], idFilter)) return false;
+        if (query && !matchesMany([row.id, row.name, row.phone], query)) return false;
         return row.debt > 0 || row.receipts.length > 0;
       })
       .sort((a, b) => b.debt - a.debt);
-  }, [from, idFilter, nameFilter, period, refreshKey, to]);
+  }, [from, query, period, refreshKey, to]);
 
   const agentRows = React.useMemo(() => {
     const map = new Map<string, AgentRow>();
@@ -243,12 +763,11 @@ export function MijozlarPage() {
 
     return Array.from(map.values())
       .filter((row) => {
-        if (nameFilter && !matchesMany([row.name, row.phone], nameFilter)) return false;
-        if (idFilter && !matchesMany([row.id, row.name, row.phone], idFilter)) return false;
+        if (query && !matchesMany([row.id, row.name, row.phone], query)) return false;
         return true;
       })
       .sort((a, b) => b.total - a.total);
-  }, [from, idFilter, nameFilter, period, refreshKey, to]);
+  }, [from, query, period, refreshKey, to]);
 
   const regularSummary = {
     customers: regularRows.length,
@@ -272,6 +791,25 @@ export function MijozlarPage() {
     setRefreshKey((value) => value + 1);
   }, []);
 
+  const confirmDeleteCredit = () => {
+    if (!deletingCredit) return;
+    const idx = MOCK_CREDIT_CUSTOMERS.findIndex((c) => c.id === deletingCredit.id);
+    if (idx >= 0) MOCK_CREDIT_CUSTOMERS.splice(idx, 1);
+    toast.success(`Nasiyachi o'chirildi: ${fullCustomerName(deletingCredit)}`);
+    setDeletingCredit(null);
+    triggerRefresh();
+  };
+
+  const confirmDeleteAgent = () => {
+    if (!deletingAgent) return;
+    for (let i = MOCK_SUPPLIER_REPORTS.length - 1; i >= 0; i -= 1) {
+      if (MOCK_SUPPLIER_REPORTS[i].agentId === deletingAgent.id) MOCK_SUPPLIER_REPORTS.splice(i, 1);
+    }
+    toast.success(`Agent o'chirildi: ${deletingAgent.name}`);
+    setDeletingAgent(null);
+    triggerRefresh();
+  };
+
   const openRegularReceipts = React.useCallback((row: RegularRow) => {
     setDetail({
       type: "oddiy-receipts",
@@ -280,21 +818,106 @@ export function MijozlarPage() {
     });
   }, []);
 
-  const openCreditReceipts = React.useCallback((row: CreditRow) => {
-    setDetail({
-      type: "nasiya-receipts",
-      title: `${row.name} nasiya cheklari`,
-      rows: row.receipts,
-    });
-  }, []);
+  const openCreditReceipts = React.useCallback(
+    (row: CreditRow) => {
+      resetReceiptFilters();
+      setDetail({
+        type: "nasiya-receipts",
+        title: `${row.name} nasiya cheklari`,
+        rows: row.receipts,
+        customer: { id: row.id, name: row.name, phone: row.phone },
+      });
+    },
+    [resetReceiptFilters],
+  );
 
-  const openAgentReceipts = React.useCallback((row: AgentRow) => {
-    setDetail({
-      type: "agent-receipts",
-      title: `${row.name} agent cheklari`,
-      rows: row.receipts,
+  const openAgentReceipts = React.useCallback(
+    (row: AgentRow) => {
+      resetReceiptFilters();
+      setDetail({
+        type: "agent-receipts",
+        title: `${row.name} agent cheklari`,
+        rows: row.receipts,
+      });
+    },
+    [resetReceiptFilters],
+  );
+
+  const filteredNasiyaReceipts = React.useMemo(() => {
+    if (detail?.type !== "nasiya-receipts") return [];
+    return detail.rows.filter((receipt) => {
+      if (!isInside(receipt.date, receiptPeriod, receiptFrom, receiptTo)) return false;
+      if (!receiptQuery.trim()) return true;
+      const matchesId = matches(receipt.id, receiptQuery);
+      const matchesTotal = amountMatches(receipt.amount, receiptQuery);
+      const matchesItem = receipt.items.some(
+        (item) => matches(item.name, receiptQuery) || amountMatches(item.amount, receiptQuery),
+      );
+      return matchesId || matchesTotal || matchesItem;
     });
-  }, []);
+  }, [detail, receiptPeriod, receiptFrom, receiptTo, receiptQuery]);
+
+  const filteredAgentReceipts = React.useMemo(() => {
+    if (detail?.type !== "agent-receipts") return [];
+    return detail.rows.filter((report) => {
+      if (!isInside(report.date, receiptPeriod, receiptFrom, receiptTo)) return false;
+      if (!receiptQuery.trim()) return true;
+      const matchesId = matches(report.id, receiptQuery);
+      const matchesTotal = amountMatches(report.totalAmount, receiptQuery);
+      const matchesItem = report.items.some(
+        (item) => matches(item.productName, receiptQuery) || amountMatches(item.amount, receiptQuery),
+      );
+      return matchesId || matchesTotal || matchesItem;
+    });
+  }, [detail, receiptPeriod, receiptFrom, receiptTo, receiptQuery]);
+
+  const receiptFilterBar = (
+    <div className="space-y-2 rounded-lg border bg-card/70 p-3">
+      <PeriodFilter
+        value={receiptPeriod}
+        onValueChange={setReceiptPeriod}
+        from={receiptFrom}
+        to={receiptTo}
+        onFromChange={setReceiptFrom}
+        onToChange={setReceiptTo}
+      />
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={receiptQuery}
+          onChange={(e) => setReceiptQuery(e.target.value)}
+          placeholder="Chek raqami, chek summasi yoki mahsulot nomi bo'yicha qidirish"
+          className="h-8 pl-9 text-xs"
+        />
+      </div>
+    </div>
+  );
+
+  const filterBar = (
+    <div className="rounded-lg border bg-card/70 p-3">
+      <div className="grid gap-2 lg:grid-cols-[minmax(0,1.4fr)_auto]">
+        <Field label="Qidiruv" className="min-w-0">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="ID, ism-familiya yoki telefon raqami bo'yicha qidirish"
+              className="pl-9"
+            />
+          </div>
+        </Field>
+        <PeriodFilter
+          value={period}
+          onValueChange={setPeriod}
+          from={from}
+          to={to}
+          onFromChange={setFrom}
+          onToChange={setTo}
+        />
+      </div>
+    </div>
+  );
 
   return (
     <>
@@ -318,40 +941,9 @@ export function MijozlarPage() {
           </Button>
         </div>
 
-        <div className="border-b bg-card/70 p-3">
-          <div className="grid gap-2 lg:grid-cols-[minmax(0,1.4fr)_auto_220px]">
-            <Field label="Ism" className="min-w-0">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={nameFilter}
-                  onChange={(event) => setNameFilter(event.target.value)}
-                  placeholder="Mijoz yoki agent ismi"
-                  className="pl-9"
-                />
-              </div>
-            </Field>
-            <PeriodFilter
-              value={period}
-              onValueChange={setPeriod}
-              from={from}
-              to={to}
-              onFromChange={setFrom}
-              onToChange={setTo}
-            />
-            <Field label="ID">
-              <Input
-                value={idFilter}
-                onChange={(event) => setIdFilter(event.target.value)}
-                placeholder={tab === "agent" ? "AG-0001" : "ID orqali qidirish"}
-              />
-            </Field>
-          </div>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-auto p-4">
+        <div className="min-h-0 flex-1 overflow-hidden p-4">
           {tab === "oddiy" && (
-            <div className="space-y-4">
+            <div className="flex h-full min-h-0 flex-col gap-4">
               <div className="grid gap-3 md:grid-cols-3">
                 <Kpi
                   title="Xizmat ko'rsatilgan xaridor"
@@ -389,11 +981,13 @@ export function MijozlarPage() {
                 />
               </div>
 
-              <Card>
+              {filterBar}
+
+              <Card className="flex min-h-0 flex-1 flex-col">
                 <CardHeader className="border-b py-3">
                   <CardTitle className="text-base">Oddiy xaridorlar ro'yxati</CardTitle>
                 </CardHeader>
-                <CardContent className="overflow-auto p-0">
+                <CardContent className="min-h-0 flex-1 overflow-auto p-0">
                   <table className="w-full min-w-[760px] text-sm">
                     <thead className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
                       <tr>
@@ -461,7 +1055,7 @@ export function MijozlarPage() {
           )}
 
           {tab === "nasiya" && (
-            <div className="space-y-4">
+            <div className="flex h-full min-h-0 flex-col gap-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="grid flex-1 gap-3 md:grid-cols-3">
                   <Kpi title="Nasiyachi soni" value={`${creditSummary.customers} ta`} />
@@ -485,48 +1079,130 @@ export function MijozlarPage() {
                 </Button>
               </div>
 
-              <Card>
+              {filterBar}
+
+              <Card className="flex min-h-0 flex-1 flex-col">
                 <CardHeader className="border-b py-3">
                   <CardTitle className="text-base">Nasiyachilar</CardTitle>
                 </CardHeader>
-                <CardContent className="overflow-auto p-0">
-                  <table className="w-full min-w-[720px] text-sm">
+                <CardContent className="min-h-0 flex-1 overflow-auto p-0">
+                  <table className="w-full min-w-[980px] text-sm">
                     <thead className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
                       <tr>
-                        <th className="px-4 py-3 text-left">Mijoz</th>
-                        <th className="px-4 py-3 text-left">Telefon</th>
-                        <th className="px-4 py-3 text-right">Savdo summasi</th>
+                        <th className="px-4 py-3 text-left">Mijoz nomi</th>
+                        <th className="px-4 py-3 text-left">Telefon raqami</th>
                         <th className="px-4 py-3 text-right">Joriy qarz</th>
+                        <th className="px-4 py-3 text-right">To'lagan</th>
+                        <th className="px-4 py-3 text-right">Umumiy qarz</th>
+                        <th className="px-4 py-3 text-left">Qaytarish sanasi</th>
+                        <th className="px-4 py-3 text-left">Olgan sanasi</th>
+                        <th className="w-32 px-4 py-3 text-center">Amallar</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {creditRows.map((row) => (
-                        <tr key={row.id} className="border-b last:border-b-0 hover:bg-muted/30">
-                          <td className="px-4 py-3 font-semibold">{row.name}</td>
-                          <td className="px-4 py-3">{row.phone}</td>
-                          <td className="px-4 py-3 text-right">
-                            <button
-                              type="button"
-                              onClick={() => openCreditReceipts(row)}
-                              className="font-semibold text-primary hover:underline"
-                            >
-                              {formatSom(row.total)}
-                            </button>
-                          </td>
-                          <td className="px-4 py-3 text-right">
-                            <button
-                              type="button"
-                              onClick={() => openCreditReceipts(row)}
-                              className="font-semibold text-primary hover:underline"
-                            >
-                              {formatSom(row.debt)}
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                      {creditRows.map((row) => {
+                        const status = debtStatus(row.debt, row.dueDate);
+                        return (
+                          <tr key={row.id} className="border-b last:border-b-0 hover:bg-muted/30">
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold">{row.name}</span>
+                                {status !== "normal" && (
+                                  <Badge variant="outline" className={cn("text-[10px]", DEBT_STATUS_BADGE_CLASS[status])}>
+                                    {DEBT_STATUS_LABEL[status]}
+                                  </Badge>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">{row.phone}</td>
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => openCreditReceipts(row)}
+                                className={cn("font-semibold hover:underline", DEBT_STATUS_TEXT_CLASS[status])}
+                              >
+                                {formatSom(row.debt)}
+                              </button>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => openCreditReceipts(row)}
+                                className="font-semibold text-primary hover:underline"
+                              >
+                                {formatSom(row.paid)}
+                              </button>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => openCreditReceipts(row)}
+                                className="font-semibold hover:underline"
+                              >
+                                {formatSom(row.totalDebtEver)}
+                              </button>
+                            </td>
+                            <td className={cn("px-4 py-3", status !== "normal" && status !== "paid" && "font-semibold", DEBT_STATUS_TEXT_CLASS[status])}>
+                              {row.dueDate
+                                ? new Date(row.dueDate).toLocaleDateString("uz-UZ", {
+                                    year: "numeric",
+                                    month: "2-digit",
+                                    day: "2-digit",
+                                  })
+                                : "—"}
+                            </td>
+                            <td className="px-4 py-3 text-muted-foreground">
+                              {row.lastDebtDate
+                                ? new Date(row.lastDebtDate).toLocaleDateString("uz-UZ", {
+                                    year: "numeric",
+                                    month: "2-digit",
+                                    day: "2-digit",
+                                  })
+                                : "—"}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center justify-center gap-1">
+                                <Button
+                                  size="icon"
+                                  variant="outline"
+                                  className="h-8 w-8"
+                                  aria-label="Nasiya cheklarini ko'rish"
+                                  onClick={() => openCreditReceipts(row)}
+                                >
+                                  <Search className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="outline"
+                                  className="h-8 w-8"
+                                  aria-label="Tahrirlash"
+                                  onClick={() => {
+                                    const customer = MOCK_CREDIT_CUSTOMERS.find((c) => c.id === row.id);
+                                    if (customer) setEditingCredit(customer);
+                                  }}
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="outline"
+                                  className="h-8 w-8 text-destructive hover:text-destructive"
+                                  aria-label="O'chirish"
+                                  onClick={() => {
+                                    const customer = MOCK_CREDIT_CUSTOMERS.find((c) => c.id === row.id);
+                                    if (customer) setDeletingCredit(customer);
+                                  }}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                       {creditRows.length === 0 && (
                         <tr>
-                          <td colSpan={4} className="p-8 text-center text-muted-foreground">
+                          <td colSpan={8} className="p-8 text-center text-muted-foreground">
                             Ma'lumot topilmadi
                           </td>
                         </tr>
@@ -539,7 +1215,7 @@ export function MijozlarPage() {
           )}
 
           {tab === "agent" && (
-            <div className="space-y-4">
+            <div className="flex h-full min-h-0 flex-col gap-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="grid flex-1 gap-3 md:grid-cols-3">
                   <Kpi
@@ -586,44 +1262,62 @@ export function MijozlarPage() {
                 </Button>
               </div>
 
-              <Card>
+              {filterBar}
+
+              <Card className="flex min-h-0 flex-1 flex-col">
                 <CardHeader className="border-b py-3">
                   <CardTitle className="text-base">Agentlar ro'yxati</CardTitle>
                 </CardHeader>
-                <CardContent className="overflow-auto p-0">
+                <CardContent className="min-h-0 flex-1 overflow-auto p-0">
                   <table className="w-full min-w-[760px] text-sm">
                     <thead className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
                       <tr>
-                        <th className="px-4 py-3 text-left">Agent</th>
-                        <th className="px-4 py-3 text-left">Telefon</th>
-                        <th className="px-4 py-3 text-center">Cheklar</th>
+                        <th className="px-4 py-3 text-left">Agent nomi</th>
+                        <th className="px-4 py-3 text-left">Telefon raqami</th>
+                        <th className="px-4 py-3 text-right">Joriy qarzimiz</th>
+                        <th className="px-4 py-3 text-right">To'lagan summasi</th>
                         <th className="px-4 py-3 text-right">Umumiy summa</th>
-                        <th className="px-4 py-3 text-right">Qoldiq</th>
+                        <th className="w-32 px-4 py-3 text-center">Amallar</th>
                       </tr>
                     </thead>
                     <tbody>
                       {agentRows.map((row) => (
                         <tr key={row.id} className="border-b last:border-b-0 hover:bg-muted/30">
                           <td className="px-4 py-3">
-                            <div className="font-semibold">{row.name}</div>
-                            <Badge variant="outline" className="mt-1">
-                              {row.id}
-                            </Badge>
-                            {row.botEnabled && (
-                              <Badge variant="secondary" className="ml-1 mt-1 gap-1">
-                                <Bot className="h-3 w-3" />
-                                Bot
-                              </Badge>
-                            )}
+                            <button
+                              type="button"
+                              onClick={() => openAgentReceipts(row)}
+                              className="font-semibold hover:underline"
+                            >
+                              {row.name}
+                            </button>
+                            <div className="mt-1 flex flex-wrap items-center gap-1">
+                              <Badge variant="outline">{row.id}</Badge>
+                              {row.botEnabled && (
+                                <Badge variant="secondary" className="gap-1">
+                                  <Bot className="h-3 w-3" />
+                                  Bot
+                                </Badge>
+                              )}
+                            </div>
                           </td>
                           <td className="px-4 py-3">{row.phone || "—"}</td>
-                          <td className="px-4 py-3 text-center">
+                          <td className="px-4 py-3 text-right">
                             <button
                               type="button"
                               onClick={() => openAgentReceipts(row)}
                               className="font-semibold text-primary hover:underline"
                             >
-                              {row.receipts.length}
+                              {formatSom(row.remaining)}
+                            </button>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => openAgentReceipts(row)}
+                              className="font-semibold text-primary hover:underline"
+                            >
+                              {formatSom(row.paid)}
                             </button>
                           </td>
                           <td className="px-4 py-3 text-right">
@@ -635,20 +1329,42 @@ export function MijozlarPage() {
                               {formatSom(row.total)}
                             </button>
                           </td>
-                          <td className="px-4 py-3 text-right">
-                            <button
-                              type="button"
-                              onClick={() => openAgentReceipts(row)}
-                              className="font-semibold text-primary hover:underline"
-                            >
-                              {formatSom(row.remaining)}
-                            </button>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center justify-center gap-1">
+                              <Button
+                                size="icon"
+                                variant="outline"
+                                className="h-8 w-8"
+                                aria-label="Tovarlar tarixini ko'rish"
+                                onClick={() => openAgentReceipts(row)}
+                              >
+                                <Search className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="outline"
+                                className="h-8 w-8"
+                                aria-label="Tahrirlash"
+                                onClick={() => setEditingAgent(row)}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="outline"
+                                className="h-8 w-8 text-destructive hover:text-destructive"
+                                aria-label="O'chirish"
+                                onClick={() => setDeletingAgent(row)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       ))}
                       {agentRows.length === 0 && (
                         <tr>
-                          <td colSpan={5} className="p-8 text-center text-muted-foreground">
+                          <td colSpan={6} className="p-8 text-center text-muted-foreground">
                             Ma'lumot topilmadi
                           </td>
                         </tr>
@@ -740,11 +1456,12 @@ export function MijozlarPage() {
 
           {detail?.type === "nasiya-receipts" && (
             <div className="space-y-3">
-              {detail.rows.map((receipt) => (
+              {receiptFilterBar}
+              {filteredNasiyaReceipts.map((receipt) => (
                 <button
                   key={receipt.id}
                   type="button"
-                  onClick={() => setSelectedReceipt({ type: "nasiya", receipt })}
+                  onClick={() => setSelectedReceipt({ type: "nasiya", receipt, customer: detail.customer })}
                   className="w-full rounded-lg border p-3 text-left transition hover:bg-muted/40"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -759,6 +1476,9 @@ export function MijozlarPage() {
                   </div>
                 </button>
               ))}
+              {filteredNasiyaReceipts.length === 0 && (
+                <div className="p-8 text-center text-sm text-muted-foreground">Chek topilmadi</div>
+              )}
             </div>
           )}
 
@@ -798,7 +1518,8 @@ export function MijozlarPage() {
 
           {detail?.type === "agent-receipts" && (
             <div className="space-y-3">
-              {detail.rows.map((report) => (
+              {receiptFilterBar}
+              {filteredAgentReceipts.map((report) => (
                 <button
                   key={report.id}
                   type="button"
@@ -822,6 +1543,9 @@ export function MijozlarPage() {
                   </div>
                 </button>
               ))}
+              {filteredAgentReceipts.length === 0 && (
+                <div className="p-8 text-center text-sm text-muted-foreground">Chek topilmadi</div>
+              )}
             </div>
           )}
         </DialogContent>
@@ -864,6 +1588,61 @@ export function MijozlarPage() {
 
           {selectedReceipt?.type === "nasiya" && (
             <div className="space-y-3 rounded-lg border p-4">
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="gap-2"
+                  onClick={() =>
+                    exportCreditReceiptToExcel(
+                      [selectedReceipt.receipt],
+                      selectedReceipt.customer.id,
+                      selectedReceipt.customer.name,
+                    )
+                  }
+                >
+                  <FileSpreadsheet className="h-4 w-4" />
+                  Excel
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="gap-2"
+                  onClick={() =>
+                    printCreditNakladnoy(
+                      [selectedReceipt.receipt],
+                      selectedReceipt.customer.id,
+                      selectedReceipt.customer.name,
+                      selectedReceipt.customer.phone,
+                      settings.receiptSettings.storeName,
+                      settings.receiptSettings.phone,
+                    )
+                  }
+                >
+                  <FileText className="h-4 w-4" />
+                  Nakladnoy
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="gap-2"
+                  onClick={() =>
+                    printCreditReceipt80mm(
+                      selectedReceipt.receipt,
+                      selectedReceipt.customer.name,
+                      selectedReceipt.customer.phone,
+                      settings.receiptSettings.storeName,
+                      settings.receiptSettings.phone,
+                    )
+                  }
+                >
+                  <Printer className="h-4 w-4" />
+                  80sm chek
+                </Button>
+              </div>
               <InfoRow label="Sana" value={fmtDate(selectedReceipt.receipt.date)} />
               <InfoRow label="Turi" value={selectedReceipt.receipt.title} />
               <InfoRow label="Summa" value={formatSom(selectedReceipt.receipt.amount)} />
@@ -890,6 +1669,59 @@ export function MijozlarPage() {
 
           {selectedReceipt?.type === "agent" && (
             <div className="space-y-3 rounded-lg border p-4">
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="gap-2"
+                  onClick={() =>
+                    exportAgentHistoryToExcel(
+                      [selectedReceipt.receipt],
+                      selectedReceipt.receipt.agentId,
+                      selectedReceipt.receipt.agentName,
+                    )
+                  }
+                >
+                  <FileSpreadsheet className="h-4 w-4" />
+                  Excel
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="gap-2"
+                  onClick={() =>
+                    printAgentNakladnoy(
+                      [selectedReceipt.receipt],
+                      selectedReceipt.receipt.agentId,
+                      selectedReceipt.receipt.agentName,
+                      selectedReceipt.receipt.agentPhone,
+                      settings.receiptSettings.storeName,
+                      settings.receiptSettings.phone,
+                    )
+                  }
+                >
+                  <FileText className="h-4 w-4" />
+                  Nakladnoy
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="gap-2"
+                  onClick={() =>
+                    printAgentReceipt80mm(
+                      selectedReceipt.receipt,
+                      settings.receiptSettings.storeName,
+                      settings.receiptSettings.phone,
+                    )
+                  }
+                >
+                  <Printer className="h-4 w-4" />
+                  80sm chek
+                </Button>
+              </div>
               <InfoRow label="Sana" value={fmtDate(selectedReceipt.receipt.date)} />
               <InfoRow label="Agent" value={selectedReceipt.receipt.agentName} />
               <InfoRow label="Agent ID" value={selectedReceipt.receipt.agentId} />
@@ -903,6 +1735,18 @@ export function MijozlarPage() {
               />
               <InfoRow label="Berilgan" value={formatSom(selectedReceipt.receipt.paidAmount)} />
               <InfoRow label="Qoldiq" value={formatSom(selectedReceipt.receipt.remainingDebt)} />
+              {(selectedReceipt.receipt.vehicleName || selectedReceipt.receipt.vehiclePlate) && (
+                <InfoRow
+                  label="Mashina"
+                  value={`${selectedReceipt.receipt.vehicleName || ""}${selectedReceipt.receipt.vehiclePlate ? ` (${selectedReceipt.receipt.vehiclePlate})` : ""}`}
+                />
+              )}
+              {(selectedReceipt.receipt.driverName || selectedReceipt.receipt.driverPhone) && (
+                <InfoRow
+                  label="Haydovchi"
+                  value={`${selectedReceipt.receipt.driverName || ""}${selectedReceipt.receipt.driverPhone ? ` (${selectedReceipt.receipt.driverPhone})` : ""}`}
+                />
+              )}
               <div className="space-y-2">
                 {selectedReceipt.receipt.items.map((item, index) => (
                   <div
@@ -943,6 +1787,55 @@ export function MijozlarPage() {
           setTab("agent");
         }}
       />
+
+      <EditCreditCustomerDialog
+        customer={editingCredit}
+        onClose={() => setEditingCredit(null)}
+        onSaved={triggerRefresh}
+      />
+
+      <AlertDialog open={!!deletingCredit} onOpenChange={(o) => !o && setDeletingCredit(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Nasiyachini o'chirish?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deletingCredit && fullCustomerName(deletingCredit)} — {deletingCredit?.id}
+              {deletingCredit && deletingCredit.currentDebt > 0 && (
+                <> · joriy qarzi: {formatSom(deletingCredit.currentDebt)}</>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Bekor</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeleteCredit}>O'chirish</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <EditAgentDialog
+        agent={editingAgent}
+        onClose={() => setEditingAgent(null)}
+        onSaved={triggerRefresh}
+      />
+
+      <AlertDialog open={!!deletingAgent} onOpenChange={(o) => !o && setDeletingAgent(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Agentni o'chirish?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deletingAgent?.name} — {deletingAgent?.id}
+              {deletingAgent && deletingAgent.remaining > 0 && (
+                <> · qolgan qarzimiz: {formatSom(deletingAgent.remaining)}</>
+              )}
+              {" "}Bu agentga tegishli barcha prixod tarixi ham o'chiriladi.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Bekor</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeleteAgent}>O'chirish</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
@@ -1011,6 +1904,142 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+function EditCreditCustomerDialog({
+  customer,
+  onClose,
+  onSaved,
+}: {
+  customer: CreditCustomer | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [first, setFirst] = React.useState("");
+  const [last, setLast] = React.useState("");
+  const [phone, setPhone] = React.useState("");
+  const [dueDate, setDueDate] = React.useState("");
+  const [withLimit, setWithLimit] = React.useState(false);
+  const [limit, setLimit] = React.useState("");
+  const [currency, setCurrency] = React.useState<Currency>("UZS");
+
+  React.useEffect(() => {
+    setFirst(customer?.firstName ?? "");
+    setLast(customer?.lastName ?? "");
+    setPhone(customer?.phone ?? "");
+    setDueDate(customer?.dueDate ?? "");
+    setWithLimit(Boolean(customer && customer.limit > 0));
+    setLimit(customer && customer.limit > 0 ? String(customer.limit) : "");
+    setCurrency(customer?.limitCurrency ?? "UZS");
+  }, [customer]);
+
+  if (!customer) return null;
+
+  const canSave = first.trim() && last.trim() && phone.trim();
+
+  const save = () => {
+    if (!canSave) return;
+    const target = MOCK_CREDIT_CUSTOMERS.find((c) => c.id === customer.id);
+    if (target) {
+      target.firstName = first.trim();
+      target.lastName = last.trim();
+      target.phone = phone.trim();
+      target.dueDate = dueDate || undefined;
+      target.limit = withLimit ? Number.parseFloat(limit) || 0 : 0;
+      target.limitCurrency = withLimit ? currency : undefined;
+    }
+    toast.success(`Nasiyachi ma'lumotlari yangilandi: ${first.trim()} ${last.trim()}`.trim());
+    onClose();
+    onSaved();
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Pencil className="h-5 w-5 text-primary" />
+            Nasiyachi ma'lumotlarini tahrirlash
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label className="mb-1 block text-xs">Ism *</Label>
+            <Input value={first} onChange={(e) => setFirst(e.target.value)} />
+          </div>
+          <div>
+            <Label className="mb-1 block text-xs">Familya *</Label>
+            <Input value={last} onChange={(e) => setLast(e.target.value)} />
+          </div>
+        </div>
+
+        <div>
+          <Label className="mb-1 block text-xs">Telefon raqami *</Label>
+          <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+998 ..." />
+        </div>
+
+        <div>
+          <Label className="mb-1 block text-xs">Qaytarish sanasi</Label>
+          <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+        </div>
+
+        <div className="rounded-md border p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <Label className="text-sm">Limit</Label>
+              <div className="text-xs text-muted-foreground">
+                {withLimit ? "Nasiyachiga qarz limiti belgilangan" : "Limit belgilanmagan"}
+              </div>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant={withLimit ? "default" : "outline"}
+              onClick={() => setWithLimit((value) => !value)}
+            >
+              {withLimit ? "Limitni olib tashlash" : "Limit qo'yish"}
+            </Button>
+          </div>
+          {withLimit && (
+            <div className="mt-3 grid grid-cols-[1fr_120px] gap-2">
+              <div>
+                <Label className="mb-1 block text-xs">Summa</Label>
+                <Input
+                  value={limit}
+                  onChange={(e) => setLimit(formatNumberInput(e.target.value))}
+                  inputMode="decimal"
+                />
+              </div>
+              <div>
+                <Label className="mb-1 block text-xs">Valyuta</Label>
+                <Select value={currency} onValueChange={(value) => setCurrency(value as Currency)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="UZS">UZS</SelectItem>
+                    <SelectItem value="USD">USD</SelectItem>
+                    <SelectItem value="RUB">RUB</SelectItem>
+                    <SelectItem value="EUR">EUR</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Bekor
+          </Button>
+          <Button onClick={save} disabled={!canSave}>
+            Saqlash
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function AddCreditCustomerDialog({
   open,
   onOpenChange,
@@ -1028,6 +2057,7 @@ function AddCreditCustomerDialog({
   const [currency, setCurrency] = React.useState<Currency>("UZS");
   const [sendBotUpdate, setSendBotUpdate] = React.useState(true);
   const [objects, setObjects] = React.useState<Array<{ id: string; name: string }>>([]);
+  const [openingDebt, setOpeningDebt] = React.useState("");
 
   React.useEffect(() => {
     if (!open) {
@@ -1039,6 +2069,7 @@ function AddCreditCustomerDialog({
       setCurrency("UZS");
       setSendBotUpdate(true);
       setObjects([]);
+      setOpeningDebt("");
     }
   }, [open]);
 
@@ -1046,6 +2077,7 @@ function AddCreditCustomerDialog({
 
   const save = () => {
     if (!canSave) return;
+    const openingDebtValue = Number.parseFloat(openingDebt.replace(/\s/g, "")) || 0;
     const customer: CreditCustomer = {
       id: `c${Date.now()}`,
       firstName: first.trim(),
@@ -1055,8 +2087,24 @@ function AddCreditCustomerDialog({
       role: "mijoz",
       limit: withLimit ? Number.parseFloat(limit) || 0 : 0,
       limitCurrency: withLimit ? currency : "UZS",
-      currentDebt: 0,
+      currentDebt: openingDebtValue,
     };
+    if (openingDebtValue > 0) {
+      customer.receipts = [
+        {
+          id: `cr-${Date.now()}`,
+          date: new Date().toISOString(),
+          type: "sale",
+          status: "unpaid",
+          title: "Boshlang'ich qarz (dastur ishlatishdan oldin)",
+          items: [],
+          amount: openingDebtValue,
+          debtAmount: openingDebtValue,
+          paidAmount: 0,
+          note: "Dasturdan foydalanishdan avvalgi qarz",
+        },
+      ];
+    }
     const cleanedObjects = objects
       .map((item) => ({ ...item, name: item.name.trim() }))
       .filter((item) => item.name);
@@ -1121,6 +2169,19 @@ function AddCreditCustomerDialog({
         <div>
           <Label className="mb-1 block text-xs">Telefon raqami *</Label>
           <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+998 ..." />
+        </div>
+
+        <div>
+          <Label className="mb-1 block text-xs">Bizga qarzi (dastur ishlatishdan oldin)</Label>
+          <Input
+            value={openingDebt}
+            onChange={(e) => setOpeningDebt(formatNumberInput(e.target.value))}
+            inputMode="decimal"
+            placeholder="0"
+          />
+          <p className="mt-1 text-xs text-muted-foreground">
+            Agar mijoz dasturdan foydalanishdan avval ham bizga qarzdor bo'lsa, shu yerga qoldiq summani kiriting
+          </p>
         </div>
 
         <div className="space-y-3">
@@ -1235,6 +2296,99 @@ function AddCreditCustomerDialog({
   );
 }
 
+function EditAgentDialog({
+  agent,
+  onClose,
+  onSaved,
+}: {
+  agent: AgentRow | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = React.useState("");
+  const [phone, setPhone] = React.useState("");
+  const [botEnabled, setBotEnabled] = React.useState(false);
+
+  React.useEffect(() => {
+    setName(agent?.name ?? "");
+    setPhone(agent?.phone ?? "");
+    setBotEnabled(agent?.botEnabled ?? false);
+  }, [agent]);
+
+  if (!agent) return null;
+
+  const canSave = name.trim();
+
+  const save = () => {
+    if (!canSave) return;
+    MOCK_SUPPLIER_REPORTS.forEach((report) => {
+      if (report.agentId !== agent.id) return;
+      report.agentName = name.trim();
+      report.agentPhone = phone.trim();
+      report.botEnabled = botEnabled;
+    });
+    toast.success(`Agent ma'lumotlari yangilandi: ${name.trim()}`);
+    onClose();
+    onSaved();
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Pencil className="h-5 w-5 text-primary" />
+            Agent ma'lumotlarini tahrirlash
+          </DialogTitle>
+        </DialogHeader>
+
+        <div>
+          <Label className="mb-1 block text-xs">Agent ID</Label>
+          <Input value={agent.id} readOnly className="font-mono font-semibold" />
+        </div>
+        <div>
+          <Label className="mb-1 block text-xs">Ism *</Label>
+          <Input value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div>
+          <Label className="mb-1 block text-xs">Telefon</Label>
+          <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+998" />
+        </div>
+
+        <div className="rounded-md border bg-muted/20 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-sm font-semibold">Botga habar yuborish</div>
+              <div className="text-xs text-muted-foreground">
+                Yoqilganda agent prixodlari bot orqali avtomatik yuboriladi
+              </div>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant={botEnabled ? "default" : "outline"}
+              onClick={() => setBotEnabled((value) => !value)}
+              className="gap-2"
+            >
+              <Bot className="h-4 w-4" />
+              {botEnabled ? "Yoqilgan" : "Yoqish"}
+            </Button>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Bekor
+          </Button>
+          <Button onClick={save} disabled={!canSave}>
+            Saqlash
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function AddAgentDialog({
   open,
   onOpenChange,
@@ -1248,6 +2402,7 @@ function AddAgentDialog({
   const [phone, setPhone] = React.useState("");
   const [note, setNote] = React.useState("");
   const [sendBotUpdate, setSendBotUpdate] = React.useState(true);
+  const [openingDebt, setOpeningDebt] = React.useState("");
   const agentId = React.useMemo(() => nextAgentId(), [open]);
 
   React.useEffect(() => {
@@ -1256,6 +2411,7 @@ function AddAgentDialog({
       setPhone("");
       setNote("");
       setSendBotUpdate(true);
+      setOpeningDebt("");
     }
   }, [open]);
 
@@ -1268,6 +2424,7 @@ function AddAgentDialog({
       toast.error("Botga yuborish uchun agent telefonini kiriting");
       return;
     }
+    const openingDebtValue = Number.parseFloat(openingDebt.replace(/\s/g, "")) || 0;
     const report: SupplierReport = {
       id: `sr-${Date.now()}`,
       date: new Date().toISOString(),
@@ -1277,10 +2434,13 @@ function AddAgentDialog({
       agentPhone: phone.trim(),
       botEnabled: sendBotUpdate,
       items: [],
-      totalAmount: 0,
+      totalAmount: openingDebtValue,
       paidAmount: 0,
-      remainingDebt: 0,
-      note: note.trim() || undefined,
+      remainingDebt: openingDebtValue,
+      note:
+        openingDebtValue > 0
+          ? ["Boshlang'ich qarz (dastur ishlatishdan oldin)", note.trim()].filter(Boolean).join(" — ")
+          : note.trim() || undefined,
     };
     MOCK_SUPPLIER_REPORTS.unshift(report);
     if (sendBotUpdate) {
@@ -1326,6 +2486,19 @@ function AddAgentDialog({
           <div>
             <Label className="mb-1 block text-xs">Telefon</Label>
             <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+998" />
+          </div>
+          <div>
+            <Label className="mb-1 block text-xs">Bizning unga qarzimiz (dastur ishlatishdan oldin)</Label>
+            <Input
+              value={openingDebt}
+              onChange={(e) => setOpeningDebt(formatNumberInput(e.target.value))}
+              inputMode="decimal"
+              placeholder="0"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Agar bu agentdan dasturdan foydalanishdan avval ham tovar olib, qarzimiz bo'lsa, shu yerga qoldiq
+              summani kiriting
+            </p>
           </div>
           <div className="rounded-md border bg-muted/20 p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">

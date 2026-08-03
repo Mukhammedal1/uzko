@@ -31,6 +31,7 @@ export type ProductCreateMode = "qabul";
 function TovarlarPage() {
   const [tab, setTab] = React.useState<Tab>("barcha");
   const [createMode, setCreateMode] = React.useState<ProductCreateMode | null>(null);
+  const [selectionSlot, setSelectionSlot] = React.useState<HTMLDivElement | null>(null);
   const { t } = useApp();
 
   return (
@@ -38,7 +39,7 @@ function TovarlarPage() {
       <TopBar />
 
       <main className="responsive-main flex min-h-0 flex-1 flex-col gap-2 bg-muted/40 p-2">
-        <div className="responsive-tabs flex flex-shrink-0 gap-2 overflow-x-auto rounded-lg border bg-card p-2 shadow-sm">
+        <div className="responsive-tabs flex flex-shrink-0 items-center gap-2 overflow-x-auto rounded-lg border bg-card p-2 shadow-sm">
           {TABS.map((item) => {
             const Icon = item.icon;
             const active = tab === item.id;
@@ -55,6 +56,7 @@ function TovarlarPage() {
               </Button>
             );
           })}
+          <div ref={setSelectionSlot} className="ml-auto flex flex-wrap items-center justify-end gap-2" />
         </div>
 
         <section className="responsive-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card shadow-sm">
@@ -62,7 +64,9 @@ function TovarlarPage() {
             <TovarQoshish mode={createMode} onDone={() => setCreateMode(null)} />
           ) : (
             <>
-              {tab === "barcha" && <BarchaTovarlar onSetCreateMode={setCreateMode} />}
+              {tab === "barcha" && (
+                <BarchaTovarlar onSetCreateMode={setCreateMode} selectionSlot={selectionSlot} />
+              )}
               {tab === "tarix" && <TovarlarTarixi />}
             </>
           )}

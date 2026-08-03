@@ -331,6 +331,10 @@ export function recordSupplierReturn(input: {
   items: { productName: string; qty: number; unit: string; amount: number }[];
   totalAmount: number;
   note?: string;
+  vehicleName?: string;
+  vehiclePlate?: string;
+  driverName?: string;
+  driverPhone?: string;
 }) {
   const botEnabled = MOCK_SUPPLIER_REPORTS.some(
     (report) => report.agentId === input.agentId && Boolean(report.botEnabled),
@@ -350,6 +354,10 @@ export function recordSupplierReturn(input: {
     paidAmount: 0,
     remainingDebt: -Math.abs(input.totalAmount),
     note: `Tovar qaytarish${input.note?.trim() ? ` · ${input.note.trim()}` : ""}`,
+    vehicleName: input.vehicleName?.trim() || undefined,
+    vehiclePlate: input.vehiclePlate?.trim() || undefined,
+    driverName: input.driverName?.trim() || undefined,
+    driverPhone: input.driverPhone?.trim() || undefined,
   };
 
   MOCK_SUPPLIER_REPORTS.unshift(report);

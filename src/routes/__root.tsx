@@ -1,7 +1,53 @@
-import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
+import * as React from "react";
+import {
+  Outlet,
+  Link,
+  createRootRoute,
+  HeadContent,
+  Scripts,
+  useLocation,
+  useNavigate,
+} from "@tanstack/react-router";
 import { AppProvider } from "@/lib/app-context";
+import { AuthProvider, useAuth } from "@/lib/auth-context";
 
 import appCss from "../styles.css?url";
+
+const AUTH_ROUTES = new Set(["/login", "/register", "/verify-code"]);
+
+function SplashScreen() {
+  return (
+    <div className="flex min-h-dvh w-full flex-col items-center justify-center gap-4 bg-muted/30">
+      <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-md shadow-sm">
+        <img src="/uzko-logo.jpg" alt="UZKO" className="h-full w-full object-cover" />
+      </div>
+      <div className="h-1 w-32 overflow-hidden rounded-full bg-muted">
+        <div className="h-full w-1/2 animate-pulse rounded-full bg-primary" />
+      </div>
+    </div>
+  );
+}
+
+function AuthGate({ children }: { children: React.ReactNode }) {
+  const { status } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const isAuthRoute = AUTH_ROUTES.has(location.pathname);
+
+  React.useEffect(() => {
+    if (status === "loading") return;
+    if (status === "guest" && !isAuthRoute) {
+      navigate({ to: "/login", replace: true });
+    } else if (status === "authenticated" && isAuthRoute) {
+      navigate({ to: "/", replace: true });
+    }
+  }, [status, isAuthRoute, navigate]);
+
+  if (status === "loading") return <SplashScreen />;
+  if (status === "guest" && !isAuthRoute) return <SplashScreen />;
+  if (status === "authenticated" && isAuthRoute) return <SplashScreen />;
+  return <>{children}</>;
+}
 
 function NotFoundComponent() {
   return (
@@ -78,7 +124,11 @@ function RootShell({ children }: { children: React.ReactNode }) {
 function RootComponent() {
   return (
     <AppProvider>
-      <Outlet />
+      <AuthProvider>
+        <AuthGate>
+          <Outlet />
+        </AuthGate>
+      </AuthProvider>
     </AppProvider>
   );
 }

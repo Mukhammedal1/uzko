@@ -9,13 +9,21 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as VerifyCodeRouteImport } from './routes/verify-code'
 import { Route as UmumiyRouteImport } from './routes/umumiy'
 import { Route as TovarlarRouteImport } from './routes/tovarlar'
 import { Route as SozlamalarRouteImport } from './routes/sozlamalar'
+import { Route as RegisterRouteImport } from './routes/register'
 import { Route as MijozlarRouteImport } from './routes/mijozlar'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as KassaRouteImport } from './routes/kassa'
 import { Route as IndexRouteImport } from './routes/index'
 
+const VerifyCodeRoute = VerifyCodeRouteImport.update({
+  id: '/verify-code',
+  path: '/verify-code',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const UmumiyRoute = UmumiyRouteImport.update({
   id: '/umumiy',
   path: '/umumiy',
@@ -31,9 +39,19 @@ const SozlamalarRoute = SozlamalarRouteImport.update({
   path: '/sozlamalar',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RegisterRoute = RegisterRouteImport.update({
+  id: '/register',
+  path: '/register',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const MijozlarRoute = MijozlarRouteImport.update({
   id: '/mijozlar',
   path: '/mijozlar',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const KassaRoute = KassaRouteImport.update({
@@ -50,60 +68,94 @@ const IndexRoute = IndexRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/kassa': typeof KassaRoute
+  '/login': typeof LoginRoute
   '/mijozlar': typeof MijozlarRoute
+  '/register': typeof RegisterRoute
   '/sozlamalar': typeof SozlamalarRoute
   '/tovarlar': typeof TovarlarRoute
   '/umumiy': typeof UmumiyRoute
+  '/verify-code': typeof VerifyCodeRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/kassa': typeof KassaRoute
+  '/login': typeof LoginRoute
   '/mijozlar': typeof MijozlarRoute
+  '/register': typeof RegisterRoute
   '/sozlamalar': typeof SozlamalarRoute
   '/tovarlar': typeof TovarlarRoute
   '/umumiy': typeof UmumiyRoute
+  '/verify-code': typeof VerifyCodeRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/kassa': typeof KassaRoute
+  '/login': typeof LoginRoute
   '/mijozlar': typeof MijozlarRoute
+  '/register': typeof RegisterRoute
   '/sozlamalar': typeof SozlamalarRoute
   '/tovarlar': typeof TovarlarRoute
   '/umumiy': typeof UmumiyRoute
+  '/verify-code': typeof VerifyCodeRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
     | '/kassa'
+    | '/login'
     | '/mijozlar'
+    | '/register'
     | '/sozlamalar'
     | '/tovarlar'
     | '/umumiy'
+    | '/verify-code'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/kassa' | '/mijozlar' | '/sozlamalar' | '/tovarlar' | '/umumiy'
+  to:
+    | '/'
+    | '/kassa'
+    | '/login'
+    | '/mijozlar'
+    | '/register'
+    | '/sozlamalar'
+    | '/tovarlar'
+    | '/umumiy'
+    | '/verify-code'
   id:
     | '__root__'
     | '/'
     | '/kassa'
+    | '/login'
     | '/mijozlar'
+    | '/register'
     | '/sozlamalar'
     | '/tovarlar'
     | '/umumiy'
+    | '/verify-code'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   KassaRoute: typeof KassaRoute
+  LoginRoute: typeof LoginRoute
   MijozlarRoute: typeof MijozlarRoute
+  RegisterRoute: typeof RegisterRoute
   SozlamalarRoute: typeof SozlamalarRoute
   TovarlarRoute: typeof TovarlarRoute
   UmumiyRoute: typeof UmumiyRoute
+  VerifyCodeRoute: typeof VerifyCodeRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/verify-code': {
+      id: '/verify-code'
+      path: '/verify-code'
+      fullPath: '/verify-code'
+      preLoaderRoute: typeof VerifyCodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/umumiy': {
       id: '/umumiy'
       path: '/umumiy'
@@ -125,11 +177,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SozlamalarRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/register': {
+      id: '/register'
+      path: '/register'
+      fullPath: '/register'
+      preLoaderRoute: typeof RegisterRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/mijozlar': {
       id: '/mijozlar'
       path: '/mijozlar'
       fullPath: '/mijozlar'
       preLoaderRoute: typeof MijozlarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/kassa': {
@@ -152,10 +218,13 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   KassaRoute: KassaRoute,
+  LoginRoute: LoginRoute,
   MijozlarRoute: MijozlarRoute,
+  RegisterRoute: RegisterRoute,
   SozlamalarRoute: SozlamalarRoute,
   TovarlarRoute: TovarlarRoute,
   UmumiyRoute: UmumiyRoute,
+  VerifyCodeRoute: VerifyCodeRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

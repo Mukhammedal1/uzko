@@ -7,7 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
-export type PeriodFilterValue = "all" | "today" | "week" | "month" | "year" | "custom";
+export type PeriodFilterValue = "all" | "today" | "yesterday" | "week" | "month" | "year" | "custom";
 
 type Props = {
   value: PeriodFilterValue;
@@ -17,11 +17,18 @@ type Props = {
   onFromChange: (value: string) => void;
   onToChange: (value: string) => void;
   className?: string;
+  hideAllOption?: boolean;
+  hideSelect?: boolean;
+  /** Bitta kun bosilishi bilanoq (ikkinchi kunni kutmasdan) filtr qo'llansin. */
+  instantSingleDay?: boolean;
+  /** "Kecha" tanlovini ham qo'shadi (faqat shuni qo'llab-quvvatlaydigan sahifalarda). */
+  showYesterdayOption?: boolean;
 };
 
 const OPTIONS: { value: PeriodFilterValue; label: string }[] = [
   { value: "all", label: "Barcha davr" },
   { value: "today", label: "Bugun" },
+  { value: "yesterday", label: "Kecha" },
   { value: "week", label: "Bu hafta" },
   { value: "month", label: "Bu oy" },
   { value: "year", label: "Bu yil" },
@@ -44,6 +51,10 @@ export function PeriodFilter({
   onFromChange,
   onToChange,
   className,
+  hideAllOption,
+  hideSelect,
+  instantSingleDay,
+  showYesterdayOption,
 }: Props) {
   const selectedRange = React.useMemo<DateRange | undefined>(() => {
     const fromDate = parseDate(from);
@@ -51,31 +62,39 @@ export function PeriodFilter({
     return fromDate || toDate ? { from: fromDate, to: toDate } : undefined;
   }, [from, to]);
 
+  const options = OPTIONS.filter((option) => {
+    if (option.value === "all" && hideAllOption) return false;
+    if (option.value === "yesterday" && !showYesterdayOption) return false;
+    return true;
+  });
+
   return (
     <div className={cn("flex flex-wrap items-center gap-2", className)}>
-      <div className="flex items-center gap-2">
-        <span className="text-xs font-semibold text-muted-foreground">Davr:</span>
-        <Select
-          value={value}
-          onValueChange={(next) => {
-            if (next === "custom") return;
-            onValueChange(next as PeriodFilterValue);
-            onFromChange("");
-            onToChange("");
-          }}
-        >
-          <SelectTrigger className="h-7 w-36 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {OPTIONS.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      {!hideSelect && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-muted-foreground">Davr:</span>
+          <Select
+            value={value}
+            onValueChange={(next) => {
+              if (next === "custom") return;
+              onValueChange(next as PeriodFilterValue);
+              onFromChange("");
+              onToChange("");
+            }}
+          >
+            <SelectTrigger className="h-7 w-36 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {options.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       <Popover>
         <PopoverTrigger asChild>
@@ -95,7 +114,9 @@ export function PeriodFilter({
             onSelect={(range) => {
               onFromChange(range?.from ? toDateInput(range.from) : "");
               onToChange(range?.to ? toDateInput(range.to) : "");
-              if (range?.from && range?.to) onValueChange("custom");
+              if (instantSingleDay ? range?.from : range?.from && range?.to) {
+                onValueChange("custom");
+              }
             }}
             numberOfMonths={2}
             className={cn("pointer-events-auto p-3")}

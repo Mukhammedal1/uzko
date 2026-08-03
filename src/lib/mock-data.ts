@@ -17,6 +17,7 @@ export type Product = {
   vitrinaQty: number;
   omborQty: number;
   perBox?: number;
+  preventBelowCost?: boolean;
   // sotuvlar tarixi (oddiy demo) — kunlik sotilgan miqdor (oxirgi N kun)
   salesHistory?: { date: string; qty: number }[];
 };
@@ -101,6 +102,19 @@ export type Receipt = {
   };
   editedAt?: string;
 };
+
+export type EditedReceiptHistory = {
+  id: string;
+  date: string; // tahrir/o'chirish vaqti
+  editedBy: string;
+  receiptId: string;
+  action: "edit" | "delete";
+  oldTotal: number;
+  newTotal: number;
+  changes?: { field: string; label: string; oldValue: string; newValue: string }[];
+};
+
+export const MOCK_RECEIPT_EDIT_HISTORY: EditedReceiptHistory[] = [];
 
 export type OneTimeItemHistory = {
   id: string;
@@ -1592,6 +1606,10 @@ export type SupplierReport = {
   paidAmount: number;
   remainingDebt: number;
   note?: string;
+  vehicleName?: string;
+  vehiclePlate?: string;
+  driverName?: string;
+  driverPhone?: string;
 };
 
 export type ProductHistory = {
@@ -1622,9 +1640,20 @@ export type EditedProductHistory = {
   oldQty: number;
   newQty: number;
   unit: string;
-  action: "edit" | "delete";
+  action: "edit" | "delete" | "writeoff";
+  note?: string;
   changes?: {
-    field: "price" | "costPrice" | "qty" | "unit" | "warehouse" | "shelfLocation" | "minStockAlert";
+    field:
+      | "name"
+      | "barcode"
+      | "price"
+      | "costPrice"
+      | "wholesalePrice"
+      | "qty"
+      | "unit"
+      | "warehouse"
+      | "shelfLocation"
+      | "minStockAlert";
     label: string;
     oldValue: number | string;
     newValue: number | string;
@@ -2211,7 +2240,11 @@ function generateDemoCreditCustomers(): CreditCustomer[] {
       objects:
         index % 4 === 0
           ? [
-              { id: `OBJ-${index + 1}A`, name: "Uy qurilishi", debt: Math.round(currentDebt * 0.62) },
+              {
+                id: `OBJ-${index + 1}A`,
+                name: "Uy qurilishi",
+                debt: Math.round(currentDebt * 0.62),
+              },
               { id: `OBJ-${index + 1}B`, name: "Dala hovli", debt: Math.round(currentDebt * 0.38) },
             ]
           : undefined,
@@ -2406,7 +2439,9 @@ function seedPresentationDemoData() {
   MOCK_PRODUCTS.push(...demoProducts);
 
   const employeeIds = new Set(MOCK_EMPLOYEES.map((employee) => employee.id));
-  MOCK_EMPLOYEES.push(...generateDemoEmployees().filter((employee) => !employeeIds.has(employee.id)));
+  MOCK_EMPLOYEES.push(
+    ...generateDemoEmployees().filter((employee) => !employeeIds.has(employee.id)),
+  );
 
   const regularIds = new Set(MOCK_REGULAR_CUSTOMERS.map((customer) => customer.id));
   MOCK_REGULAR_CUSTOMERS.push(
@@ -2419,7 +2454,9 @@ function seedPresentationDemoData() {
   );
 
   const supplierIds = new Set(MOCK_SUPPLIER_REPORTS.map((report) => report.id));
-  const supplierReports = generateDemoSupplierReports().filter((report) => !supplierIds.has(report.id));
+  const supplierReports = generateDemoSupplierReports().filter(
+    (report) => !supplierIds.has(report.id),
+  );
   MOCK_SUPPLIER_REPORTS.push(...supplierReports);
 
   const receiptIds = new Set(MOCK_RECEIPTS.map((receipt) => receipt.id));
@@ -2435,8 +2472,12 @@ function seedPresentationDemoData() {
       productName: report.items[0]?.productName ?? "Demo tovar",
       qty: report.items[0]?.qty ?? 1,
       unit: report.items[0]?.unit ?? "dona",
-      price: Math.round((report.items[0]?.amount ?? report.totalAmount) / Math.max(1, report.items[0]?.qty ?? 1)),
-      costPrice: Math.round((report.items[0]?.amount ?? report.totalAmount) / Math.max(1, report.items[0]?.qty ?? 1)),
+      price: Math.round(
+        (report.items[0]?.amount ?? report.totalAmount) / Math.max(1, report.items[0]?.qty ?? 1),
+      ),
+      costPrice: Math.round(
+        (report.items[0]?.amount ?? report.totalAmount) / Math.max(1, report.items[0]?.qty ?? 1),
+      ),
       warehouse: MOCK_PRODUCTS[index % MOCK_PRODUCTS.length]?.warehouse ?? "Asosiy ombor",
       agentName: report.agentName,
       agentId: report.agentId,
@@ -2517,6 +2558,22 @@ export function formatSom(value: number): string {
   const rounded = Math.round(value);
   const str = String(Math.abs(rounded)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
   return (rounded < 0 ? "-" : "") + str + " so'm";
+}
+
+export function convertFromSom(sumAmount: number, currencyCode: string): number {
+  if (currencyCode === "UZS") return sumAmount;
+  const rate = MOCK_RATES[currencyCode] ?? 1;
+  return rate > 0 ? sumAmount / rate : sumAmount;
+}
+
+export function formatMoney(sumAmount: number, currencyCode: string = "UZS"): string {
+  if (currencyCode === "UZS") return formatSom(sumAmount);
+  const converted = convertFromSom(sumAmount, currencyCode);
+  const str = converted.toLocaleString("uz-UZ", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+  });
+  return `${str} ${currencyCode}`;
 }
 
 export function costInSom(p: Pick<Product, "costPrice" | "costCurrency">): number {

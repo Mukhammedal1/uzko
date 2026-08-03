@@ -75,6 +75,7 @@ export const TRANSLATIONS: Record<Lang, Record<string, string>> = {
     edited_by: "Kim tahrirladi",
     deleted: "O'chirildi",
     edited: "Tahrirlandi",
+    written_off: "Hisobdan chiqarildi",
     edit: "Edit",
     delete: "Delete",
     source_details: "Qayerdan keldi",
@@ -169,6 +170,7 @@ export const TRANSLATIONS: Record<Lang, Record<string, string>> = {
     edited_by: "Ким таҳрирлади",
     deleted: "Ўчирилди",
     edited: "Таҳрирланди",
+    written_off: "Ҳисобдан чиқарилди",
     edit: "Таҳрир",
     delete: "Ўчириш",
     source_details: "Қаердан келди",
@@ -263,6 +265,7 @@ export const TRANSLATIONS: Record<Lang, Record<string, string>> = {
     edited_by: "Кто изменил",
     deleted: "Удалено",
     edited: "Изменено",
+    written_off: "Списано",
     edit: "Редактировать",
     delete: "Удалить",
     source_details: "Откуда пришло",
@@ -357,6 +360,7 @@ export const TRANSLATIONS: Record<Lang, Record<string, string>> = {
     edited_by: "Edited by",
     deleted: "Deleted",
     edited: "Edited",
+    written_off: "Written off",
     edit: "Edit",
     delete: "Delete",
     source_details: "Source details",
@@ -437,11 +441,27 @@ export type AppSettings = {
   expenseCategories: string[];
   units: string[];
   shelfLocations: string[];
+  quickAddToCart: boolean;
+  labelPrintSettings?: {
+    receiptMode: boolean;
+    includeName: boolean;
+    includePrice: boolean;
+    includeBarcode: boolean;
+    includeCustomCode: boolean;
+    includeShelfLocation: boolean;
+    size: "small" | "medium" | "large";
+    fieldScale: Record<"name" | "barcode" | "code" | "price" | "shelf", number>;
+    paperSize: "thermal58" | "thermal80" | "a6" | "a4";
+    commentEnabled: boolean;
+    comment: string;
+    matchStockQty: boolean;
+  };
 };
 
 const DEFAULT_SETTINGS: AppSettings = {
   username: "Admin",
   confirmCode: "1234",
+  quickAddToCart: true,
   theme: "light",
   lang: "uz",
   companyRegistrationId: "",
@@ -467,7 +487,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     "Agentlarga to'lov",
     "Boshqa",
   ],
-  units: ["dona", "kg", "litr", "metr", "tonna"],
+  units: ["dona", "karobka", "dona | karobka", "kg", "litr", "metr", "tonna"],
   shelfLocations: ["B-001", "B-002", "B-003", "B-004", "B-005"],
   devices: [
     {
@@ -683,6 +703,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           },
           expenseCategories: parsed.expenseCategories ?? DEFAULT_SETTINGS.expenseCategories,
           accessNotifications: parsed.accessNotifications ?? DEFAULT_SETTINGS.accessNotifications,
+          units: Array.from(
+            new Set([...(parsed.units ?? DEFAULT_SETTINGS.units), "karobka", "dona | karobka"]),
+          ),
           shelfLocations:
             parsed.shelfLocations?.some((l: string) => l.includes("-") && l.length > 5) ||
             parsed.shelfLocations?.includes("A-001")

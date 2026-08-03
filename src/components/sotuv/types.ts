@@ -10,6 +10,7 @@ export type CartItem = {
   unit: string;
   source?: ReceiptItem["source"];
   note?: string;
+  priceMode?: PriceMode;
 };
 
 export type Discount =

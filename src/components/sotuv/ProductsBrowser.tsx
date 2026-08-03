@@ -1,13 +1,13 @@
 import * as React from "react";
 import { Input } from "@/components/ui/input";
 import { AlertTriangle, Search } from "lucide-react";
-import { MOCK_PRODUCTS, formatSom, isProductAtLimit } from "@/lib/mock-data";
+import { MOCK_PRODUCTS, formatMoney, isProductAtLimit } from "@/lib/mock-data";
 import type { Product } from "@/lib/mock-data";
 import type { PriceMode } from "./types";
 
-type Props = { onPick: (p: Product) => void; priceMode?: PriceMode };
+type Props = { onPick: (p: Product) => void; priceMode?: PriceMode; currency?: string };
 
-export function ProductsBrowser({ onPick, priceMode = "retail" }: Props) {
+export function ProductsBrowser({ onPick, priceMode = "retail", currency = "UZS" }: Props) {
   const [query, setQuery] = React.useState("");
   const [activeIdx, setActiveIdx] = React.useState(0);
 
@@ -20,8 +20,7 @@ export function ProductsBrowser({ onPick, priceMode = "retail" }: Props) {
         p.name.toLowerCase().includes(q) ||
         p.barcode.includes(q) ||
         p.customCode.toLowerCase().includes(q);
-      const matchesPrice =
-        numericQuery !== null && salePrice(p, priceMode) === numericQuery;
+      const matchesPrice = numericQuery !== null && salePrice(p, priceMode) === numericQuery;
       return matchesText || matchesPrice;
     });
   }, [query, priceMode]);
@@ -107,7 +106,7 @@ export function ProductsBrowser({ onPick, priceMode = "retail" }: Props) {
                       <div className="text-[11px] text-muted-foreground">{p.customCode}</div>
                     </td>
                     <td className="px-3 py-1.5 text-right font-medium tabular-nums">
-                      {formatSom(salePrice(p, priceMode))}
+                      {formatMoney(salePrice(p, priceMode), currency)}
                     </td>
                     <td className="px-3 py-1.5 text-right tabular-nums">
                       <span className={p.vitrinaQty < 10 ? "font-semibold text-destructive" : ""}>
@@ -143,7 +142,11 @@ function salePrice(product: unknown, priceMode: PriceMode = "retail") {
 }
 
 function parseQueryNumber(value: string) {
-  const cleaned = value.trim().replace(/\s/g, "").replace(/,/g, ".").replace(/[^0-9.-]/g, "");
+  const cleaned = value
+    .trim()
+    .replace(/\s/g, "")
+    .replace(/,/g, ".")
+    .replace(/[^0-9.-]/g, "");
   if (!cleaned) return null;
   const number = Number(cleaned);
   return Number.isFinite(number) ? number : null;

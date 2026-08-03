@@ -21,9 +21,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
-import { Search, CalendarDays, Pencil, Printer, Trash2, Plus, Minus, Wifi } from "lucide-react";
+import { Search, CalendarDays, Pencil, Printer, Trash2, Plus, Minus, Wifi, Eye, EyeOff } from "lucide-react";
 import {
   MOCK_RECEIPTS,
+  MOCK_RECEIPT_EDIT_HISTORY,
   formatSom,
   type Receipt,
 } from "@/lib/mock-data";
@@ -31,6 +32,7 @@ import type { DateRange } from "react-day-picker";
 import { toast } from "sonner";
 import { NasiyaSavdolar } from "@/components/kassa/NasiyaSavdolar";
 import { PeriodFilter, type PeriodFilterValue } from "@/components/shared/PeriodFilter";
+import { useApp } from "@/lib/app-context";
 import {
   filterOnlineOrders,
   onlineOrderTotal,
@@ -45,7 +47,23 @@ function isSameDay(a: Date, b: Date) {
   return a.toDateString() === b.toDateString();
 }
 
+function matchesReceiptQuery(r: Receipt, rawQuery: string) {
+  const q = rawQuery.trim().toLowerCase();
+  if (!q) return true;
+  const qDigits = q.replace(/\s/g, "");
+
+  if (r.id.toLowerCase().includes(q)) return true;
+  if (r.cashier.toLowerCase().includes(q)) return true;
+  if (r.customerName && r.customerName.toLowerCase().includes(q)) return true;
+  if (r.items.some((it) => it.name.toLowerCase().includes(q))) return true;
+  if (qDigits && /^\d+$/.test(qDigits)) {
+    if (String(Math.round(r.total)).includes(qDigits)) return true;
+  }
+  return false;
+}
+
 export function KunlikSotuv() {
+  const { settings } = useApp();
   const [query, setQuery] = React.useState("");
   const [range, setRange] = React.useState<DateRange | undefined>();
   const [, force] = React.useState(0);
@@ -53,11 +71,12 @@ export function KunlikSotuv() {
   const [deleting, setDeleting] = React.useState<Receipt | null>(null);
   const [showNasiya, setShowNasiya] = React.useState(false);
   const [showOnlineHistory, setShowOnlineHistory] = React.useState(false);
+  const [showAmounts, setShowAmounts] = React.useState(true);
 
-  const filtered = React.useMemo(() => {
-    const q = query.trim().toLowerCase();
+  // Faqat sana (yoki davr) bo'yicha — chek qidiruvi bunga ta'sir qilmasin,
+  // shu tufayli yuqoridagi umumiy hisobot faqat sana o'zgarganda o'zgaradi.
+  const dateFiltered = React.useMemo(() => {
     return MOCK_RECEIPTS.filter((r) => {
-      if (q && !r.id.toLowerCase().includes(q)) return false;
       const d = new Date(r.date);
       if (range?.from && range?.to) {
         return d >= range.from && d <= new Date(range.to.getTime() + 86_400_000 - 1);
@@ -65,11 +84,14 @@ export function KunlikSotuv() {
       // default: bugun
       return isSameDay(d, new Date("2026-05-07"));
     });
-  }, [query, range]);
+  }, [range]);
 
-  const total = filtered.reduce((s, r) => s + r.total, 0);
+  const filtered = React.useMemo(() => {
+    return dateFiltered.filter((r) => matchesReceiptQuery(r, query));
+  }, [dateFiltered, query]);
+
   const dashboard = React.useMemo(() => {
-    return filtered.reduce(
+    return dateFiltered.reduce(
       (acc, receipt) => {
         acc.total += receipt.total;
         const payment = receipt.paymentBreakdown;
@@ -86,7 +108,7 @@ export function KunlikSotuv() {
       },
       { total: 0, cash: 0, card: 0, currency: 0 },
     );
-  }, [filtered]);
+  }, [dateFiltered]);
 
   const handlePrint = (r: Receipt) => {
     toast.success(`Chek #${r.id} chop etildi`);
@@ -96,6 +118,15 @@ export function KunlikSotuv() {
     if (!deleting) return;
     const idx = MOCK_RECEIPTS.findIndex((x) => x.id === deleting.id);
     if (idx >= 0) MOCK_RECEIPTS.splice(idx, 1);
+    MOCK_RECEIPT_EDIT_HISTORY.unshift({
+      id: `reh-${Date.now()}`,
+      date: new Date().toISOString(),
+      editedBy: settings.username,
+      receiptId: deleting.id,
+      action: "delete",
+      oldTotal: deleting.total,
+      newTotal: 0,
+    });
     setDeleting(null);
     force((n) => n + 1);
     toast.success("Chek o'chirildi");
@@ -140,10 +171,24 @@ export function KunlikSotuv() {
   return (
     <div className="flex h-full flex-col">
       <div className="grid gap-2 border-b bg-muted/10 p-3 md:grid-cols-2 xl:grid-cols-4">
-        <DashboardCard label="Umumiy savdo" value={formatSom(dashboard.total)} accent />
-        <DashboardCard label="Naqd pul" value={formatSom(dashboard.cash)} />
-        <DashboardCard label="Karta" value={formatSom(dashboard.card)} />
-        <DashboardCard label="Valyuta (so'm)" value={formatSom(dashboard.currency)} />
+        <DashboardCard
+          label="Umumiy savdo"
+          value={showAmounts ? formatSom(dashboard.total) : "••••••"}
+          accent
+          action={
+            <button
+              type="button"
+              onClick={() => setShowAmounts((v) => !v)}
+              className="text-muted-foreground hover:text-foreground"
+              aria-label={showAmounts ? "Summani yashirish" : "Summani ko'rsatish"}
+            >
+              {showAmounts ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+            </button>
+          }
+        />
+        <DashboardCard label="Naqd pul" value={showAmounts ? formatSom(dashboard.cash) : "••••••"} />
+        <DashboardCard label="Karta" value={showAmounts ? formatSom(dashboard.card) : "••••••"} />
+        <DashboardCard label="Valyuta (so'm)" value={showAmounts ? formatSom(dashboard.currency) : "••••••"} />
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-b bg-card p-3">
@@ -152,7 +197,7 @@ export function KunlikSotuv() {
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Chek raqami orqali qidirish..."
+            placeholder="Chek raqami, sotuvchi, nasiyachi, mahsulot yoki summa bo'yicha qidirish..."
             className="h-10 pl-9 text-sm"
           />
         </div>
@@ -188,10 +233,6 @@ export function KunlikSotuv() {
           <Wifi className="h-4 w-4" />
           Online savdo tarixi
         </Button>
-        <div className="ml-auto rounded-md border bg-muted/30 px-3 py-1.5 text-right">
-          <div className="text-[10px] uppercase text-muted-foreground">Jami summa</div>
-          <div className="text-sm font-bold tabular-nums text-primary">{formatSom(total)}</div>
-        </div>
       </div>
 
       <div className="flex-1 overflow-auto">
@@ -363,10 +404,12 @@ function DashboardCard({
   label,
   value,
   accent,
+  action,
 }: {
   label: string;
   value: string;
   accent?: boolean;
+  action?: React.ReactNode;
 }) {
   return (
     <div
@@ -376,7 +419,10 @@ function DashboardCard({
           : "rounded-lg border bg-card p-3 shadow-sm"
       }
     >
-      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-xs text-muted-foreground">{label}</div>
+        {action}
+      </div>
       <div className="mt-1 text-xl font-bold tabular-nums text-foreground">{value}</div>
     </div>
   );
@@ -385,6 +431,7 @@ function DashboardCard({
 function EditReceiptDialog({
   receipt, onClose,
 }: { receipt: Receipt | null; onClose: () => void }) {
+  const { settings } = useApp();
   const [items, setItems] = React.useState(receipt?.items ?? []);
 
   React.useEffect(() => {
@@ -406,10 +453,36 @@ function EditReceiptDialog({
   const save = () => {
     const r = MOCK_RECEIPTS.find((x) => x.id === receipt.id);
     if (r) {
+      const oldTotal = r.total;
+      const changes: { field: string; label: string; oldValue: string; newValue: string }[] = [];
+      receipt.items.forEach((oldItem) => {
+        const newItem = items.find((it) => it.productId === oldItem.productId);
+        const newQty = newItem?.qty ?? 0;
+        if (newQty !== oldItem.qty) {
+          changes.push({
+            field: "qty",
+            label: oldItem.name,
+            oldValue: `${oldItem.qty} ${oldItem.unit}`,
+            newValue: `${newQty} ${oldItem.unit}`,
+          });
+        }
+      });
+
       r.items = items.filter((it) => it.qty > 0);
       r.subtotal = r.items.reduce((s, it) => s + it.price * it.qty, 0);
       r.total = Math.max(0, r.subtotal - r.discount);
       r.editedAt = new Date().toISOString();
+
+      MOCK_RECEIPT_EDIT_HISTORY.unshift({
+        id: `reh-${Date.now()}`,
+        date: r.editedAt,
+        editedBy: settings.username,
+        receiptId: r.id,
+        action: "edit",
+        oldTotal,
+        newTotal: r.total,
+        changes,
+      });
     }
     toast.success("Chek tahrirlandi");
     onClose();

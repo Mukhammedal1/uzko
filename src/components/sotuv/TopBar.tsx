@@ -6,16 +6,17 @@ import {
   Check,
   Database,
   Languages,
+  LogOut,
   Settings,
   ShieldCheck,
   ShoppingCart,
-  Store,
   UserRound,
   Wallet,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useApp, type Lang } from "@/lib/app-context";
+import { useAuth } from "@/lib/auth-context";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,7 +29,14 @@ import { toast } from "sonner";
 
 export function TopBar() {
   const { t, settings, updateSettings } = useApp();
+  const { logout } = useAuth();
+  const navigate = useNavigate();
   const unreadCount = settings.accessNotifications.filter((item) => !item.read).length;
+
+  const handleLogout = () => {
+    logout();
+    navigate({ to: "/login", replace: true });
+  };
 
   const langs: { value: Lang; label: string }[] = [
     { value: "uz", label: "UZB" },
@@ -87,8 +95,8 @@ export function TopBar() {
               onClick={handleEnsureCompanyProfile}
               className="relative flex items-center gap-2 rounded-lg border border-transparent p-0.5 text-left transition-colors hover:border-primary/20 hover:bg-primary/5"
             >
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
-                <Store className="h-4 w-4" />
+              <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-md">
+                <img src="/uzko-logo.jpg" alt="UZKO" className="h-full w-full object-cover" />
               </div>
               <div>
                 <div className="text-sm font-bold tracking-tight">UZKO</div>
@@ -123,7 +131,6 @@ export function TopBar() {
                 </div>
               </div>
             </div>
-
           </PopoverContent>
         </Popover>
       </div>
@@ -260,6 +267,16 @@ export function TopBar() {
         >
           <Settings className="h-3.5 w-3.5" />
         </Link>
+
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="flex h-8 w-8 items-center justify-center rounded-md border bg-card text-muted-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground"
+          aria-label="Chiqish"
+          title="Chiqish"
+        >
+          <LogOut className="h-3.5 w-3.5" />
+        </button>
       </div>
     </header>
   );

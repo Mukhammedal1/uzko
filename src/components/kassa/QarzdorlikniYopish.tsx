@@ -19,14 +19,13 @@ import {
 } from "@/components/ui/select";
 import { DebtReceiptsDialog } from "@/components/shared/DebtReceiptDialog";
 import { CustomerSearch } from "@/components/shared/CustomerSearch";
-import { AlertTriangle, HandCoins, Lock, Minus, Plus, Printer, ReceiptText, Search, Users } from "lucide-react";
+import { CalendarClock, HandCoins, Lock, Printer, ReceiptText, Users } from "lucide-react";
 import {
   MOCK_CREDIT_CUSTOMERS,
   formatSom,
   type CreditCustomer,
   type CustomerDebtReceipt,
 } from "@/lib/mock-data";
-import { useApp } from "@/lib/app-context";
 import { fullCustomerName, recordDebtPayment } from "@/lib/data-actions";
 import { formatNumberInput, parseNumberInput } from "@/lib/utils";
 import { toast } from "sonner";
@@ -75,13 +74,14 @@ export function QarzdorlikniYopish({ mode = "both" }: { mode?: "both" | "payment
           </Button>
         ))}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">{tab === "yopish" ? <Yopish /> : <Qarzdorlar />}</div>
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+        {tab === "yopish" ? <Yopish /> : <Qarzdorlar />}
+      </div>
     </div>
   );
 }
 
 function Yopish() {
-  const { settings } = useApp();
   const [search, setSearch] = React.useState("");
   const [customerId, setCustomerId] = React.useState("");
   const [amount, setAmount] = React.useState("");
@@ -90,39 +90,23 @@ function Yopish() {
   const [currencyPreset, setCurrencyPreset] = React.useState<string>("USD");
   const [customCurrency, setCustomCurrency] = React.useState("");
   const [note, setNote] = React.useState("");
+  const [dueDate, setDueDate] = React.useState("");
+  const [dueDateOpen, setDueDateOpen] = React.useState(false);
   const [receiptCustomer, setReceiptCustomer] = React.useState<CreditCustomer | null>(null);
-  const [editCustomer, setEditCustomer] = React.useState<CreditCustomer | null>(null);
-  const [deleteCustomer, setDeleteCustomer] = React.useState<CreditCustomer | null>(null);
   const [, force] = React.useState(0);
 
   const customer = MOCK_CREDIT_CUSTOMERS.find((item) => item.id === customerId);
   const paymentAmount = Math.max(0, parseNumberInput(amount));
   const remainingDebt = customer ? Math.max(0, customer.currentDebt - paymentAmount) : 0;
+  const isPartialPayment = !!customer && paymentAmount > 0 && remainingDebt > 0;
   const currencyCode =
     currencyPreset === "custom" ? customCurrency.trim().toUpperCase() : currencyPreset;
 
   const selectCustomer = (next: CreditCustomer) => {
     setCustomerId(next.id);
     setSearch(fullCustomerName(next));
-  };
-
-  const handleCustomerSaved = (next: CreditCustomer) => {
-    if (customerId === next.id) setSearch(fullCustomerName(next));
-    force((value) => value + 1);
-  };
-
-  const handleCustomerDeleted = (deleted: CreditCustomer) => {
-    const index = MOCK_CREDIT_CUSTOMERS.findIndex((item) => item.id === deleted.id);
-    if (index >= 0) MOCK_CREDIT_CUSTOMERS.splice(index, 1);
-    if (customerId === deleted.id) {
-      setCustomerId("");
-      setSearch("");
-      setAmount("");
-      setNote("");
-    }
-    setDeleteCustomer(null);
-    force((value) => value + 1);
-    toast.success("Mijoz o'chirildi");
+    setDueDate("");
+    setDueDateOpen(false);
   };
 
   const submit = () => {
@@ -147,6 +131,10 @@ function Yopish() {
       methodLabel,
     });
 
+    if (isPartialPayment && dueDate) {
+      customer.dueDate = dueDate;
+    }
+
     toast.success("Qarz so'ndirildi", {
       description: `${payment.customerName}: ${formatSom(paymentAmount)} · qoldiq: ${formatSom(
         customer.currentDebt,
@@ -154,22 +142,16 @@ function Yopish() {
     });
     setAmount("");
     setNote("");
+    setDueDate("");
+    setDueDateOpen(false);
     force((value) => value + 1);
   };
 
   return (
-    <div className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1.3fr)_420px] gap-4 p-4 max-lg:grid-cols-1">
-      <Card>
-        <CardHeader className="border-b">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Search className="h-4 w-4" />
-            Qarz so'ndirish — mijozni qidirish
-          </CardTitle>
-          <div className="text-xs text-muted-foreground">
-            Ism, ID yoki telefon yozilganda qarzdorlar pastda qator ko'rinishida chiqadi.
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3 p-4">
+    <div className="grid h-full grid-cols-[minmax(0,1fr)_380px] gap-4 overflow-hidden p-4 max-lg:grid-cols-1">
+      <div className="flex min-h-0 flex-col gap-2">
+        <Label className="text-xs text-muted-foreground">Mijozni tanlang</Label>
+        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
           <CustomerSearch
             value={search}
             onValueChange={(value) => {
@@ -179,139 +161,133 @@ function Yopish() {
             selectedId={customerId}
             onSelect={selectCustomer}
             onOpenReceipts={setReceiptCustomer}
-            onEditCustomer={setEditCustomer}
-            onDeleteCustomer={setDeleteCustomer}
-            placeholder="Masalan: Dilshod, c3 yoki +998..."
+            placeholder="Ism, ID yoki telefon..."
           />
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
-      <Card>
-        <CardHeader className="border-b">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <HandCoins className="h-4 w-4" />
-            To'lov kiritish
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4 p-4">
-          {customer ? (
-            <div className="rounded-lg border bg-primary/5 p-3">
-              <div className="text-xs text-muted-foreground">Joriy qarzi</div>
-              <div className="mt-1 text-2xl font-bold tabular-nums text-primary">
-                {formatSom(customer.currentDebt)}
-              </div>
+      <div className="flex min-h-0 flex-col gap-4 overflow-y-auto rounded-lg border bg-card p-4">
+        {customer ? (
+          <div className="flex items-center justify-between rounded-lg bg-muted/40 px-4 py-3">
+            <span className="text-sm text-muted-foreground">Joriy qarzi</span>
+            <span className="text-xl font-bold tabular-nums text-primary">
+              {formatSom(customer.currentDebt)}
+            </span>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+            Avval mijozni tanlang
+          </div>
+        )}
+
+        <div className="grid grid-cols-3 gap-2">
+          <Button
+            variant={method === "naqd" ? "default" : "outline"}
+            onClick={() => setMethod("naqd")}
+          >
+            Naqd
+          </Button>
+          <Button
+            variant={method === "karta" ? "default" : "outline"}
+            onClick={() => setMethod("karta")}
+          >
+            Karta
+          </Button>
+          <Button
+            variant={method === "valyuta" ? "default" : "outline"}
+            onClick={() => setMethod("valyuta")}
+          >
+            Valyuta
+          </Button>
+        </div>
+
+        {method === "karta" && (
+          <Select value={cardType} onValueChange={(value) => setCardType(value as typeof cardType)}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CARD_TYPES.map((type) => (
+                <SelectItem key={type} value={type}>
+                  {type}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {method === "valyuta" && (
+          <div className="grid grid-cols-[140px_1fr] gap-2">
+            <Select value={currencyPreset} onValueChange={setCurrencyPreset}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {COMMON_CURRENCIES.map((code) => (
+                  <SelectItem key={code} value={code}>
+                    {code}
+                  </SelectItem>
+                ))}
+                <SelectItem value="custom">Boshqa</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input
+              value={currencyPreset === "custom" ? customCurrency : currencyPreset}
+              onChange={(event) => setCustomCurrency(event.target.value)}
+              disabled={currencyPreset !== "custom"}
+              placeholder="CNY"
+              className="uppercase"
+            />
+          </div>
+        )}
+
+        <Input
+          value={amount}
+          onChange={(event) => setAmount(formatNumberInput(event.target.value))}
+          placeholder={`Summa ${method === "valyuta" && currencyCode ? `(${currencyCode})` : "(so'm)"}`}
+          inputMode="decimal"
+        />
+
+        {isPartialPayment &&
+          (dueDateOpen ? (
+            <div>
+              <Label className="mb-1 block text-xs">Qoldiq qarz uchun yangi muddat</Label>
+              <Input
+                type="date"
+                value={dueDate}
+                onChange={(event) => setDueDate(event.target.value)}
+                autoFocus
+              />
             </div>
           ) : (
-            <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-              Avval mijozni tanlang
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full gap-2"
+              onClick={() => setDueDateOpen(true)}
+            >
+              <CalendarClock className="h-4 w-4" />
+              Muddat belgilash
+            </Button>
+          ))}
+
+        <Input
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          placeholder="Izoh (ixtiyoriy)"
+        />
+
+        <div className="mt-auto space-y-3">
+          {customer && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">
+                {remainingDebt > 0 ? "Qoldiq qarz" : "Qarz holati"}
+              </span>
+              <span className="font-semibold tabular-nums text-primary">
+                {remainingDebt > 0 ? formatSom(remainingDebt) : "To'liq yopiladi"}
+              </span>
             </div>
           )}
-
-          <div>
-            <Label className="mb-1 block text-xs">To'lov turi</Label>
-            <div className="grid grid-cols-3 gap-2">
-              <Button
-                variant={method === "naqd" ? "default" : "outline"}
-                onClick={() => setMethod("naqd")}
-              >
-                Naqd
-              </Button>
-              <Button
-                variant={method === "karta" ? "default" : "outline"}
-                onClick={() => setMethod("karta")}
-              >
-                Karta
-              </Button>
-              <Button
-                variant={method === "valyuta" ? "default" : "outline"}
-                onClick={() => setMethod("valyuta")}
-              >
-                Valyuta
-              </Button>
-            </div>
-          </div>
-
-          {method === "karta" && (
-            <div>
-              <Label className="mb-1 block text-xs">Karta turi</Label>
-              <Select
-                value={cardType}
-                onValueChange={(value) => setCardType(value as typeof cardType)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {CARD_TYPES.map((type) => (
-                    <SelectItem key={type} value={type}>
-                      {type}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-
-          {method === "valyuta" && (
-            <div className="grid grid-cols-[140px_1fr] gap-2">
-              <div>
-                <Label className="mb-1 block text-xs">Valyuta</Label>
-                <Select value={currencyPreset} onValueChange={setCurrencyPreset}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {COMMON_CURRENCIES.map((code) => (
-                      <SelectItem key={code} value={code}>
-                        {code}
-                      </SelectItem>
-                    ))}
-                    <SelectItem value="custom">Boshqa</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="mb-1 block text-xs">Kod</Label>
-                <Input
-                  value={currencyPreset === "custom" ? customCurrency : currencyPreset}
-                  onChange={(event) => setCustomCurrency(event.target.value)}
-                  disabled={currencyPreset !== "custom"}
-                  placeholder="CNY"
-                  className="uppercase"
-                />
-              </div>
-            </div>
-          )}
-
-          <div>
-            <Label className="mb-1 block text-xs">
-              Summa {method === "valyuta" && currencyCode ? `(${currencyCode})` : "(so'm)"}
-            </Label>
-            <Input
-              value={amount}
-              onChange={(event) => setAmount(formatNumberInput(event.target.value))}
-              placeholder="Masalan: 500000"
-              inputMode="decimal"
-            />
-          </div>
-
-          <div>
-            <Label className="mb-1 block text-xs">Izoh</Label>
-            <Input
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              placeholder="Ixtiyoriy"
-            />
-          </div>
-
-          <div className="rounded-lg bg-muted/50 p-3 text-right">
-            <div className="text-xs text-muted-foreground">
-              {remainingDebt > 0 ? "Qoldiq qarz" : "Qarz holati"}
-            </div>
-            <div className="text-xl font-bold tabular-nums text-primary">
-              {customer ? (remainingDebt > 0 ? formatSom(remainingDebt) : "To'liq yopiladi") : "—"}
-            </div>
-          </div>
 
           <Button
             onClick={submit}
@@ -321,178 +297,11 @@ function Yopish() {
             <HandCoins className="h-4 w-4" />
             Qarzni so'ndirish
           </Button>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       <DebtReceiptsDialog customer={receiptCustomer} onClose={() => setReceiptCustomer(null)} />
-      <EditCustomerDialog
-        customer={editCustomer}
-        onClose={() => setEditCustomer(null)}
-        onSaved={handleCustomerSaved}
-      />
-      <DeleteCustomerDialog
-        customer={deleteCustomer}
-        confirmCode={settings.confirmCode}
-        onClose={() => setDeleteCustomer(null)}
-        onDelete={handleCustomerDeleted}
-      />
     </div>
-  );
-}
-
-function EditCustomerDialog({
-  customer,
-  onClose,
-  onSaved,
-}: {
-  customer: CreditCustomer | null;
-  onClose: () => void;
-  onSaved: (customer: CreditCustomer) => void;
-}) {
-  const [phone, setPhone] = React.useState("");
-  const [limit, setLimit] = React.useState("");
-
-  React.useEffect(() => {
-    setPhone(customer?.phone ?? "");
-    setLimit(customer ? String(customer.limit) : "");
-  }, [customer]);
-
-  if (!customer) return null;
-
-  const currentLimit = Math.max(0, Number(limit) || 0);
-  const changeLimit = (delta: number) => {
-    setLimit((value) => String(Math.max(0, (Number(value) || 0) + delta)));
-  };
-  const save = () => {
-    customer.phone = phone.trim() || undefined;
-    customer.limit = currentLimit;
-    toast.success("Mijoz ma'lumotlari saqlandi");
-    onSaved(customer);
-    onClose();
-  };
-
-  return (
-    <Dialog open={!!customer} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>{fullCustomerName(customer)}</DialogTitle>
-        </DialogHeader>
-
-        <div className="space-y-4">
-          <div>
-            <Label className="mb-1.5 block text-xs">Telefon raqam</Label>
-            <Input
-              value={phone}
-              onChange={(event) => setPhone(event.target.value)}
-              placeholder="+998..."
-            />
-          </div>
-
-          <div>
-            <Label className="mb-1.5 block text-xs">Limit</Label>
-            <div className="flex items-center gap-2">
-              <Button type="button" size="icon" variant="outline" onClick={() => changeLimit(-100000)}>
-                <Minus className="h-4 w-4" />
-              </Button>
-              <Input
-                type="number"
-                value={limit}
-                onChange={(event) => setLimit(event.target.value)}
-                className="text-center font-semibold tabular-nums"
-              />
-              <Button type="button" size="icon" variant="outline" onClick={() => changeLimit(100000)}>
-                <Plus className="h-4 w-4" />
-              </Button>
-            </div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              Joriy qarz: {formatSom(customer.currentDebt)} · Qoldiq limit: {formatSom(currentLimit - customer.currentDebt)}
-            </div>
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Bekor
-          </Button>
-          <Button onClick={save}>Saqlash</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function DeleteCustomerDialog({
-  customer,
-  confirmCode,
-  onClose,
-  onDelete,
-}: {
-  customer: CreditCustomer | null;
-  confirmCode: string;
-  onClose: () => void;
-  onDelete: (customer: CreditCustomer) => void;
-}) {
-  const [code, setCode] = React.useState("");
-
-  React.useEffect(() => {
-    setCode("");
-  }, [customer]);
-
-  if (!customer) return null;
-
-  const debtLeft = customer.currentDebt > 0;
-  const canDelete = code.trim() === confirmCode.trim();
-
-  return (
-    <Dialog open={!!customer} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Mijozni o'chirish</DialogTitle>
-        </DialogHeader>
-
-        <div className="space-y-3">
-          <div className="rounded-lg border bg-muted/30 p-3">
-            <div className="font-semibold">{fullCustomerName(customer)}</div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              Telefon: {customer.phone ?? "—"} · Limit: {formatSom(customer.limit)}
-            </div>
-          </div>
-
-          {debtLeft && (
-            <div className="flex gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <div>
-                Bu mijozda hali {formatSom(customer.currentDebt)} qarz qolgan. O'chirish uchun baribir tasdiqlash kodi kerak.
-              </div>
-            </div>
-          )}
-
-          <div>
-            <Label className="mb-1.5 block text-xs">Tasdiqlash kodi</Label>
-            <Input
-              type="password"
-              value={code}
-              onChange={(event) => setCode(event.target.value)}
-              placeholder="••••"
-              onKeyDown={(event) => event.key === "Enter" && canDelete && onDelete(customer)}
-            />
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Bekor
-          </Button>
-          <Button
-            variant="destructive"
-            onClick={() => onDelete(customer)}
-            disabled={!canDelete}
-          >
-            O'chirish
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 
@@ -515,11 +324,13 @@ function Qarzdorlar() {
     { green: [] as CreditCustomer[], yellow: [] as CreditCustomer[], red: [] as CreditCustomer[] },
   );
   const today = new Date("2026-05-07");
-  const soon = customers.filter((customer) => {
-    if (!customer.dueDate) return false;
-    const days = (new Date(customer.dueDate).getTime() - today.getTime()) / 86400000;
-    return days <= 5;
-  }).sort((a, b) => (a.dueDate! < b.dueDate! ? -1 : 1));
+  const soon = customers
+    .filter((customer) => {
+      if (!customer.dueDate) return false;
+      const days = (new Date(customer.dueDate).getTime() - today.getTime()) / 86400000;
+      return days <= 5;
+    })
+    .sort((a, b) => (a.dueDate! < b.dueDate! ? -1 : 1));
   const receipts = React.useMemo(() => {
     if (!picked) return [];
     return (picked.receipts ?? []).filter((receipt) => {
@@ -537,7 +348,12 @@ function Qarzdorlar() {
   return (
     <div className="flex min-h-0 flex-col gap-3 p-3">
       <div className="grid grid-cols-1 gap-3">
-        <Kpi label="Jami Haqimiz" value={formatSom(totalDebt)} accent onClick={() => setListOpen(true)} />
+        <Kpi
+          label="Jami Haqimiz"
+          value={formatSom(totalDebt)}
+          accent
+          onClick={() => setListOpen(true)}
+        />
       </div>
       <div className="grid min-h-[260px] grid-cols-3 gap-3 max-lg:grid-cols-1">
         <Bucket
@@ -765,11 +581,15 @@ function JamiHaqimizDialog({
             >
               <div className="min-w-0">
                 <div className="font-semibold">{fullCustomerName(customer)}</div>
-                <div className="text-xs text-muted-foreground">{customer.phone ?? "Telefon yo'q"} · {customer.id}</div>
+                <div className="text-xs text-muted-foreground">
+                  {customer.phone ?? "Telefon yo'q"} · {customer.id}
+                </div>
               </div>
               <div>
                 <div className="text-[10px] uppercase text-muted-foreground">Qarzi</div>
-                <div className="font-bold tabular-nums text-primary">{formatSom(customer.currentDebt)}</div>
+                <div className="font-bold tabular-nums text-primary">
+                  {formatSom(customer.currentDebt)}
+                </div>
               </div>
               <div>
                 <div className="text-[10px] uppercase text-muted-foreground">Muddat</div>
@@ -779,7 +599,9 @@ function JamiHaqimizDialog({
           ))}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Yopish</Button>
+          <Button variant="outline" onClick={onClose}>
+            Yopish
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -820,21 +642,35 @@ function DebtReceiptInlineDialog({
               Tovarlar
             </div>
             <div className="max-h-64 overflow-auto">
-              {(receipt.items.length ? receipt.items : [{ name: receipt.title, qty: 1, unit: "", amount: Math.abs(receipt.amount) }]).map((item, index) => (
-                <div key={`${item.name}-${index}`} className="flex items-center justify-between gap-3 border-b px-3 py-2 text-sm last:border-b-0">
+              {(receipt.items.length
+                ? receipt.items
+                : [{ name: receipt.title, qty: 1, unit: "", amount: Math.abs(receipt.amount) }]
+              ).map((item, index) => (
+                <div
+                  key={`${item.name}-${index}`}
+                  className="flex items-center justify-between gap-3 border-b px-3 py-2 text-sm last:border-b-0"
+                >
                   <div>
                     <div className="font-medium">{item.name}</div>
-                    <div className="text-xs text-muted-foreground">{item.qty} {item.unit}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {item.qty} {item.unit}
+                    </div>
                   </div>
                   <div className="font-semibold tabular-nums">{formatSom(item.amount)}</div>
                 </div>
               ))}
             </div>
           </div>
-          {receipt.note && <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">{receipt.note}</div>}
+          {receipt.note && (
+            <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
+              {receipt.note}
+            </div>
+          )}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Yopish</Button>
+          <Button variant="outline" onClick={onClose}>
+            Yopish
+          </Button>
           <Button variant="outline" onClick={() => window.print()} className="gap-2">
             <Printer className="h-4 w-4" />
             Print
@@ -854,9 +690,23 @@ function Info({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Kpi({ label, value, accent, onClick }: { label: string; value: string; accent?: boolean; onClick?: () => void }) {
+function Kpi({
+  label,
+  value,
+  accent,
+  onClick,
+}: {
+  label: string;
+  value: string;
+  accent?: boolean;
+  onClick?: () => void;
+}) {
   return (
-    <button type="button" onClick={onClick} className="rounded-lg border bg-card p-4 text-left shadow-sm transition-colors hover:bg-muted/40">
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-lg border bg-card p-4 text-left shadow-sm transition-colors hover:bg-muted/40"
+    >
       <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
       <div className={`mt-1 text-xl font-bold tabular-nums ${accent ? "text-primary" : ""}`}>
         {value}

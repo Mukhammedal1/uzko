@@ -142,21 +142,29 @@ export function FinalizeSaleDialog({ open, onOpenChange, total, onConfirm }: Pro
       currencyInSom,
       paid: Math.min(total, paid),
     };
-  }, [isAutoFullRegularPayment, payment.card, payment.cash, payment.currencyAmount, payment.currencyCode, payment.method, total, currencyRate]);
+  }, [
+    isAutoFullRegularPayment,
+    payment.card,
+    payment.cash,
+    payment.currencyAmount,
+    payment.currencyCode,
+    payment.method,
+    total,
+    currencyRate,
+  ]);
 
   const paidNow = breakdown.paid;
   const remainingToClose = Math.max(0, total - paidNow);
   const isWithinTolerance = remainingToClose <= SALE_PAYMENT_TOLERANCE;
   const effectivePaidNow = isWithinTolerance ? total : paidNow;
   const debtAmount = Math.max(0, total - effectivePaidNow);
-  const remaining = picked ? picked.limit - picked.currentDebt : 0;
   const newDebt = picked ? picked.currentDebt + debtAmount : 0;
   const overLimit = picked ? newDebt > picked.limit : false;
   const hasObjects = Boolean(picked?.objects?.length);
   const selectedObject =
     generalDebtTarget === "general"
       ? null
-      : (picked?.objects ?? []).find((item) => item.id === generalDebtTarget) ?? null;
+      : ((picked?.objects ?? []).find((item) => item.id === generalDebtTarget) ?? null);
 
   const canConfirm =
     type === "oddiy"
@@ -236,188 +244,225 @@ export function FinalizeSaleDialog({ open, onOpenChange, total, onConfirm }: Pro
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-h-[88dvh] max-w-3xl overflow-y-auto p-4">
-          <DialogHeader>
+        <DialogContent className="flex h-[92dvh] max-w-6xl flex-col overflow-hidden p-0">
+          <DialogHeader className="flex-shrink-0 border-b px-4 py-3">
             <DialogTitle className="flex items-center gap-2">
               <ShieldCheck className="h-5 w-5 text-primary" />
               Savdoni yakunlash
             </DialogTitle>
           </DialogHeader>
 
-          <div className="grid gap-3 md:grid-cols-[220px_1fr]">
-            <div className="rounded-md bg-muted/50 p-3 text-center">
-              <div className="text-xs text-muted-foreground">To'lash uchun</div>
-              <div className="mt-1 text-2xl font-bold tabular-nums">{formatSom(total)}</div>
+          <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_420px] gap-4 overflow-hidden p-4 max-lg:grid-cols-1">
+            <div className="flex min-h-0 flex-col gap-3 overflow-y-auto pr-1">
+              <div className="grid gap-3 md:grid-cols-[220px_1fr]">
+                <div className="rounded-md bg-muted/50 p-3 text-center">
+                  <div className="text-xs text-muted-foreground">To'lash uchun</div>
+                  <div className="mt-1 text-2xl font-bold tabular-nums">{formatSom(total)}</div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Xaridor turi</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {TYPE_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => setType(opt.value)}
+                        className={cn(
+                          "flex items-center justify-center gap-2 rounded-md border p-2.5 text-sm font-medium transition-colors",
+                          type === opt.value
+                            ? "border-primary bg-primary/5 text-primary"
+                            : "hover:bg-muted",
+                        )}
+                      >
+                        {opt.icon}
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {type === "nasiya" && (
+                <div className="space-y-2 rounded-md border p-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <Label className="text-sm">Mijoz ism / familya</Label>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-2"
+                      onClick={() => setAddOpen(true)}
+                    >
+                      <UserPlus className="h-4 w-4" />
+                      Yangi nasiyachi
+                    </Button>
+                  </div>
+
+                  <CustomerSearch
+                    value={search}
+                    onValueChange={(value) => {
+                      setSearch(value);
+                      setPicked(null);
+                    }}
+                    selectedId={picked?.id}
+                    onSelect={(customer) => {
+                      setPicked(customer);
+                      setSearch(fullCustomerName(customer));
+                    }}
+                    placeholder="Masalan: Olim Yusupov"
+                    limit={5}
+                    compact
+                    showInitialResults={false}
+                  />
+
+                  {picked && (
+                    <div
+                      className={cn(
+                        "space-y-2.5 rounded-md border p-3 text-sm",
+                        overLimit
+                          ? "border-destructive/40 bg-destructive/5"
+                          : "border-success/30 bg-success/5",
+                      )}
+                    >
+                      <div className="flex items-center gap-2 font-semibold">
+                        {overLimit ? (
+                          <AlertTriangle className="h-4 w-4 text-destructive" />
+                        ) : (
+                          <CheckCircle2 className="h-4 w-4 text-success" />
+                        )}
+                        {picked.firstName} {picked.lastName}
+                        <span className="text-xs font-normal text-muted-foreground">
+                          ({picked.role})
+                        </span>
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                          <span>Joriy qarz</span>
+                          <span data-no-translate>
+                            {formatSom(picked.currentDebt)} / {formatSom(picked.limit)}
+                          </span>
+                        </div>
+                        <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                          <div
+                            className={cn(
+                              "h-full rounded-full",
+                              overLimit ? "bg-destructive" : "bg-primary",
+                            )}
+                            style={{
+                              width: `${Math.min(100, picked.limit > 0 ? (picked.currentDebt / picked.limit) * 100 : 100)}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between rounded-md bg-card px-3 py-2">
+                        <span className="text-xs text-muted-foreground">Yangi umumiy qarz</span>
+                        <span
+                          data-no-translate
+                          className={cn(
+                            "text-lg font-bold tabular-nums",
+                            overLimit ? "text-destructive" : "text-primary",
+                          )}
+                        >
+                          {formatSom(newDebt)}
+                        </span>
+                      </div>
+
+                      {paidNow > 0 && (
+                        <div className="text-xs text-muted-foreground" data-no-translate>
+                          Bu safar to'landi: <b className="text-foreground">{formatSom(paidNow)}</b>
+                        </div>
+                      )}
+
+                      {overLimit && (
+                        <p className="text-xs font-medium text-destructive">
+                          Limitdan oshib ketadi, mahsulot bera olmaysiz
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {picked && hasObjects && (
+                    <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+                      <Label className="text-sm">Qarz qayerga yoziladi</Label>
+                      <Select value={generalDebtTarget} onValueChange={setGeneralDebtTarget}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="general">Umumiy qarzga yozish</SelectItem>
+                          {(picked.objects ?? []).map((item) => (
+                            <SelectItem key={item.id} value={item.id}>
+                              {item.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {type === "nasiya" && picked && (
+                <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <Label className="text-sm">Muddat</Label>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={showDueDate ? "default" : "outline"}
+                      className="h-8 gap-1.5 text-xs"
+                      onClick={() => setShowDueDate((value) => !value)}
+                    >
+                      <CalendarDays className="h-3.5 w-3.5" />
+                      Muddat belgilash
+                    </Button>
+                  </div>
+                  {showDueDate && (
+                    <Input
+                      type="date"
+                      value={dueDate}
+                      onChange={(event) => setDueDate(event.target.value)}
+                    />
+                  )}
+                </div>
+              )}
+
+              {type === "nasiya" && picked && (
+                <div className="space-y-2">
+                  <Label>Izoh</Label>
+                  <Input
+                    value={note}
+                    onChange={(event) => setNote(event.target.value)}
+                    placeholder="Ixtiyoriy izoh..."
+                  />
+                </div>
+              )}
             </div>
 
-            <div className="space-y-2">
-              <Label>Xaridor turi</Label>
-              <div className="grid grid-cols-2 gap-2">
-                {TYPE_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    onClick={() => setType(opt.value)}
-                    className={cn(
-                      "flex items-center justify-center gap-2 rounded-md border p-2.5 text-sm font-medium transition-colors",
-                      type === opt.value
-                        ? "border-primary bg-primary/5 text-primary"
-                        : "hover:bg-muted",
-                    )}
-                  >
-                    {opt.icon}
-                    {opt.label}
-                  </button>
-                ))}
+            <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
+              <PaymentSection
+                total={total}
+                payment={payment}
+                onChange={updatePayment}
+                paidNow={effectivePaidNow}
+                remaining={debtAmount}
+                toleranceHint={isWithinTolerance && remainingToClose > 0 ? remainingToClose : 0}
+                onApplyRemaining={applyRemaining}
+                showMethodChooser
+                autoFullRegularPayment={isAutoFullRegularPayment}
+              />
+
+              <div className="mt-auto flex gap-2">
+                <Button variant="outline" className="flex-1" onClick={() => onOpenChange(false)}>
+                  Bekor
+                </Button>
+                <Button className="flex-1" onClick={handleConfirm} disabled={!canConfirm}>
+                  Yakunlash
+                </Button>
               </div>
             </div>
           </div>
-
-          {type === "nasiya" && (
-            <div className="space-y-2 rounded-md border p-2.5">
-              <div className="flex items-center justify-between gap-2">
-                <Label className="text-sm">Mijoz ism / familya</Label>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-2"
-                  onClick={() => setAddOpen(true)}
-                >
-                  <UserPlus className="h-4 w-4" />
-                  Yangi nasiyachi
-                </Button>
-              </div>
-
-              <CustomerSearch
-                value={search}
-                onValueChange={(value) => {
-                  setSearch(value);
-                  setPicked(null);
-                }}
-                selectedId={picked?.id}
-                onSelect={(customer) => {
-                  setPicked(customer);
-                  setSearch(fullCustomerName(customer));
-                }}
-                placeholder="Masalan: Olim Yusupov"
-                limit={5}
-                compact
-                showInitialResults={false}
-              />
-
-              {picked && (
-                <div
-                  className={cn(
-                    "space-y-1 rounded-md border p-2 text-sm",
-                    overLimit
-                      ? "border-destructive/40 bg-destructive/5"
-                      : "border-success/30 bg-success/5",
-                  )}
-                >
-                  <div className="flex items-center gap-2 font-semibold">
-                    {overLimit ? (
-                      <AlertTriangle className="h-4 w-4 text-destructive" />
-                    ) : (
-                      <CheckCircle2 className="h-4 w-4 text-success" />
-                    )}
-                    {picked.firstName} {picked.lastName}
-                    <span className="text-xs font-normal text-muted-foreground">
-                      ({picked.role})
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
-                    <Row label="Limit" value={formatSom(picked.limit)} />
-                    <Row label="Joriy qarzi" value={formatSom(picked.currentDebt)} />
-                    <Row label="Bo'sh limit" value={formatSom(remaining)} highlight />
-                    <Row label="Bu olishi" value={formatSom(total)} />
-                    <Row label="Kassaga kiradi" value={formatSom(paidNow)} highlight={paidNow > 0} />
-                    <Row label="Nasiyaga qoladi" value={formatSom(debtAmount)} danger={overLimit} />
-                    <Row label="Yangi qarz" value={formatSom(newDebt)} danger={overLimit} />
-                  </div>
-                  {overLimit && (
-                    <p className="text-xs font-medium text-destructive">
-                      Limitdan oshib ketadi, mahsulot bera olmaysiz
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {picked && hasObjects && (
-                <div className="space-y-2 rounded-md border bg-muted/20 p-3">
-                  <Label className="text-sm">Qarz qayerga yoziladi</Label>
-                  <Select value={generalDebtTarget} onValueChange={setGeneralDebtTarget}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="general">Umumiy qarzga yozish</SelectItem>
-                      {(picked.objects ?? []).map((item) => (
-                        <SelectItem key={item.id} value={item.id}>
-                          {item.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            </div>
-          )}
-
-          {type === "nasiya" && picked && (
-            <div className="space-y-2 rounded-md border bg-muted/20 p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <Label className="text-sm">Muddat</Label>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={showDueDate ? "default" : "outline"}
-                  className="h-8 gap-1.5 text-xs"
-                  onClick={() => setShowDueDate((value) => !value)}
-                >
-                  <CalendarDays className="h-3.5 w-3.5" />
-                  Muddat belgilash
-                </Button>
-              </div>
-              {showDueDate && (
-                <Input
-                  type="date"
-                  value={dueDate}
-                  onChange={(event) => setDueDate(event.target.value)}
-                />
-              )}
-            </div>
-          )}
-
-          <PaymentSection
-            total={total}
-            payment={payment}
-            onChange={updatePayment}
-            paidNow={effectivePaidNow}
-            remaining={debtAmount}
-            toleranceHint={isWithinTolerance && remainingToClose > 0 ? remainingToClose : 0}
-            onApplyRemaining={applyRemaining}
-            showMethodChooser
-            autoFullRegularPayment={isAutoFullRegularPayment}
-          />
-
-          {type === "nasiya" && picked && (
-            <div className="space-y-2">
-              <Label>Izoh</Label>
-              <Input
-                value={note}
-                onChange={(event) => setNote(event.target.value)}
-                placeholder="Ixtiyoriy izoh..."
-              />
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
-              Bekor
-            </Button>
-            <Button onClick={handleConfirm} disabled={!canConfirm}>
-              Yakunlash
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -463,7 +508,7 @@ function PaymentSection({
       </div>
 
       {showMethodChooser && (
-        <div className="grid gap-2 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2">
           {PAYMENT_METHODS.map((item) => {
             const Icon = item.icon;
             return (
@@ -472,13 +517,13 @@ function PaymentSection({
                 type="button"
                 onClick={() => onChange({ method: item.value })}
                 className={cn(
-                  "flex items-center justify-center gap-2 rounded-md border p-2 text-sm font-medium transition-colors",
+                  "flex items-center justify-center gap-2 rounded-md border p-2.5 text-sm font-medium transition-colors",
                   payment.method === item.value
                     ? "border-primary bg-primary/5 text-primary"
                     : "hover:bg-muted",
                 )}
               >
-                <Icon className="h-4 w-4" />
+                <Icon className="h-4 w-4 shrink-0" />
                 {item.label}
               </button>
             );
@@ -505,10 +550,13 @@ function PaymentSection({
       )}
 
       {(payment.method === "valyuta" || payment.method === "aralash") && (
-        <div className="grid gap-3 md:grid-cols-[160px_1fr]">
+        <div className="space-y-3">
           <div>
             <Label className="mb-1 block text-xs">Valyuta</Label>
-            <Select value={payment.currencyCode} onValueChange={(value) => onChange({ currencyCode: value })}>
+            <Select
+              value={payment.currencyCode}
+              onValueChange={(value) => onChange({ currencyCode: value })}
+            >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -571,17 +619,21 @@ function MoneyField({
 }) {
   return (
     <div>
-      <Label className="mb-1 block text-xs">{label}</Label>
-      <div className="flex gap-2">
-        <Input
-          value={value}
-          onChange={(event) => onChange(formatNumberInput(event.target.value))}
-          inputMode="decimal"
-        />
-        <Button type="button" variant="outline" onClick={onApplyRemaining} className="shrink-0">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <Label className="text-xs">{label}</Label>
+        <button
+          type="button"
+          onClick={onApplyRemaining}
+          className="text-xs font-medium text-primary hover:underline"
+        >
           Qolganini qo'sh
-        </Button>
+        </button>
       </div>
+      <Input
+        value={value}
+        onChange={(event) => onChange(formatNumberInput(event.target.value))}
+        inputMode="decimal"
+      />
       {helper && <div className="mt-1 text-xs text-muted-foreground">{helper}</div>}
     </div>
   );
@@ -593,33 +645,6 @@ function InfoCell({ label, value }: { label: string; value: string }) {
       <span className="text-muted-foreground">{label}</span>
       <span className="font-semibold tabular-nums">{value}</span>
     </div>
-  );
-}
-
-function Row({
-  label,
-  value,
-  highlight,
-  danger,
-}: {
-  label: string;
-  value: string;
-  highlight?: boolean;
-  danger?: boolean;
-}) {
-  return (
-    <>
-      <span className="text-muted-foreground">{label}:</span>
-      <span
-        className={cn(
-          "text-right font-medium tabular-nums",
-          highlight && "text-success",
-          danger && "font-semibold text-destructive",
-        )}
-      >
-        {value}
-      </span>
-    </>
   );
 }
 
@@ -719,13 +744,7 @@ function AddCustomerDialog({
 
         <div className="space-y-3">
           <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="gap-2"
-              onClick={addObject}
-            >
+            <Button type="button" size="sm" variant="outline" className="gap-2" onClick={addObject}>
               <Plus className="h-4 w-4" />
               Obyekt qo'shish
             </Button>

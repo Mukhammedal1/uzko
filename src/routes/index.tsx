@@ -22,6 +22,13 @@ import type { Product } from "@/lib/mock-data";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   finalizePendingReturnExchange,
   PENDING_RETURN_EXCHANGE_KEY,
   TovarQaytarish,
@@ -41,6 +48,7 @@ type SaleSession = {
   items: CartItem[];
   discount: Discount;
   priceMode: PriceMode;
+  currency: string;
 };
 
 const makeSession = (index: number): SaleSession => ({
@@ -49,10 +57,11 @@ const makeSession = (index: number): SaleSession => ({
   items: [],
   discount: { type: "none" },
   priceMode: "retail",
+  currency: "UZS",
 });
 
 function SotuvchiPage() {
-  const { settings } = useApp();
+  const { settings, updateSettings } = useApp();
   const [sales, setSales] = React.useState<SaleSession[]>(() => [makeSession(1)]);
   const [activeId, setActiveId] = React.useState<string>(() => "");
   const [pickedProduct, setPickedProduct] = React.useState<Product | null>(null);
@@ -81,13 +90,22 @@ function SotuvchiPage() {
   };
 
   const handlePick = (p: Product) => {
+    const needsPrompt =
+      p.unit === "kg" ||
+      (active.priceMode === "wholesale" && p.unit === "dona" && (p.perBox ?? 0) > 1);
+    if (settings.quickAddToCart && !needsPrompt) {
+      handleAddToCart(p, 1, "retail");
+      return;
+    }
     setPickedProduct(p);
     setQtyOpen(true);
   };
 
-  const handleAddToCart = (product: Product, quantity: number) => {
+  const handleAddToCart = (product: Product, quantity: number, priceMode: PriceMode = "retail") => {
     updateActive((s) => {
-      const existing = s.items.find((it) => it.product.id === product.id);
+      const existing = s.items.find(
+        (it) => it.product.id === product.id && (it.priceMode ?? "retail") === priceMode,
+      );
       if (existing) {
         return {
           ...s,
@@ -105,6 +123,7 @@ function SotuvchiPage() {
             product,
             quantity,
             unit: product.unit,
+            priceMode,
           },
         ],
       };
@@ -181,14 +200,19 @@ function SotuvchiPage() {
       items: active.items.map((item) => ({
         productId: item.product.id,
         name: item.product.name,
-        price: salePrice(item.product, active.priceMode),
+        price: salePrice(item.product, item.priceMode ?? active.priceMode),
         qty: item.quantity,
         unit: item.unit,
         source: item.source ?? "catalog",
         note: item.note,
       })),
     });
-    if (payload.customerType === "oddiy" && payload.customerId && payload.customerName && payload.customerPhone) {
+    if (
+      payload.customerType === "oddiy" &&
+      payload.customerId &&
+      payload.customerName &&
+      payload.customerPhone
+    ) {
       const [firstName, ...rest] = payload.customerName.split(" ");
       dispatchRegularSaleReceipt(receipt, {
         id: payload.customerId,
@@ -251,36 +275,61 @@ function SotuvchiPage() {
             onOpenReturn={() => setReturnOpen(true)}
             pendingReturn={pendingReturn}
             onClearPendingReturn={clearPendingReturn}
+            quickAddToCart={settings.quickAddToCart}
+            onToggleQuickAddToCart={(checked) => updateSettings({ quickAddToCart: checked })}
+            currency={active.currency}
           />
         </section>
 
         {/* 2-qism: Mahsulotlar + qidiruv (filter) — bitta blok */}
         <section className="responsive-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card shadow-sm">
-          <ProductsBrowser onPick={handlePick} priceMode={active.priceMode} />
+          <ProductsBrowser
+            onPick={handlePick}
+            priceMode={active.priceMode}
+            currency={active.currency}
+          />
         </section>
       </main>
 
       <BottomBar
         afterCalculatorSlot={
-          <div className="flex items-center rounded-md border bg-muted/30 p-1">
-            <Button
-              type="button"
-              size="sm"
-              variant={active.priceMode === "retail" ? "default" : "ghost"}
-              className="h-7 px-2 text-[11px]"
-              onClick={() => updateActive((s) => ({ ...s, priceMode: "retail" }))}
+          <div className="flex items-center gap-1.5">
+            <Select
+              value={active.currency}
+              onValueChange={(code) => updateActive((s) => ({ ...s, currency: code }))}
             >
-              Oddiy
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant={active.priceMode === "wholesale" ? "default" : "ghost"}
-              className="h-7 px-2 text-[11px]"
-              onClick={() => updateActive((s) => ({ ...s, priceMode: "wholesale" }))}
-            >
-              Optom
-            </Button>
+              <SelectTrigger className="h-7 w-[86px] px-2 text-[11px] font-bold">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {settings.currencies.map((code) => (
+                  <SelectItem key={code} value={code}>
+                    {code}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <div className="flex items-center rounded-md border bg-muted/30 p-1">
+              <Button
+                type="button"
+                size="sm"
+                variant={active.priceMode === "retail" ? "default" : "ghost"}
+                className="h-7 px-2 text-[11px]"
+                onClick={() => updateActive((s) => ({ ...s, priceMode: "retail" }))}
+              >
+                Oddiy
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={active.priceMode === "wholesale" ? "default" : "ghost"}
+                className="h-7 px-2 text-[11px]"
+                onClick={() => updateActive((s) => ({ ...s, priceMode: "wholesale" }))}
+              >
+                Optom
+              </Button>
+            </div>
           </div>
         }
         middleSlot={
@@ -299,7 +348,7 @@ function SotuvchiPage() {
         open={qtyOpen}
         onOpenChange={setQtyOpen}
         onAdd={handleAddToCart}
-        priceMode={active.priceMode}
+        currency={active.currency}
       />
 
       <OnlineSalesDialog
