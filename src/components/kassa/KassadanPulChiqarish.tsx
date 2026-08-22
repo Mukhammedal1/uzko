@@ -4,18 +4,44 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PeriodFilter, type PeriodFilterValue } from "@/components/shared/PeriodFilter";
-import { Banknote, Plus, Minus, CreditCard, DollarSign, Tag, Send, Trash2, ChevronDown, Search, UserRound, ReceiptText } from "lucide-react";
 import {
-  MOCK_WITHDRAWALS, MOCK_SUPPLIER_REPORTS, MOCK_EMPLOYEES, formatSom,
-  type Currency, type CashWithdrawal, type Employee,
+  Banknote,
+  Plus,
+  Minus,
+  CreditCard,
+  DollarSign,
+  Tag,
+  Send,
+  Trash2,
+  ChevronDown,
+  Search,
+  UserRound,
+  ReceiptText,
+} from "lucide-react";
+import {
+  MOCK_WITHDRAWALS,
+  MOCK_SUPPLIER_REPORTS,
+  MOCK_EMPLOYEES,
+  formatSom,
+  type Currency,
+  type CashWithdrawal,
+  type Employee,
 } from "@/lib/mock-data";
 import { useApp } from "@/lib/app-context";
 import { dispatchReceiptMessage } from "@/lib/data-actions";
@@ -26,13 +52,20 @@ const CARD_TYPES = ["Humo", "Uzcard", "Visa"] as const;
 
 export function KassadanPulChiqarish() {
   const { settings, updateSettings, t } = useApp();
-  const categories = settings.expenseCategories ?? [];
+  const categories = React.useMemo(
+    () => (settings.expenseCategories ?? []).map((c) => c.name),
+    [settings.expenseCategories],
+  );
   const [category, setCategory] = React.useState<string>(categories[0] ?? "Boshqa");
   const [newCat, setNewCat] = React.useState("");
   const [categoryOpen, setCategoryOpen] = React.useState(false);
   const [cash, setCash] = React.useState("");
-  const [cards, setCards] = React.useState<{ type: string; amount: string }[]>([{ type: "Humo", amount: "" }]);
-  const [currs, setCurrs] = React.useState<{ code: Currency; amount: string }[]>([{ code: "USD", amount: "" }]);
+  const [cards, setCards] = React.useState<{ type: string; amount: string }[]>([
+    { type: "Humo", amount: "" },
+  ]);
+  const [currs, setCurrs] = React.useState<{ code: Currency; amount: string }[]>([
+    { code: "USD", amount: "" },
+  ]);
   const [note, setNote] = React.useState("");
   const [agentId, setAgentId] = React.useState("");
   const [employeeQuery, setEmployeeQuery] = React.useState("");
@@ -97,14 +130,20 @@ export function KassadanPulChiqarish() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [cards.length, currs.length]);
 
-  const sum = (rows: { amount: string }[]) => rows.reduce((s, row) => s + (parseFloat(row.amount) || 0), 0);
+  const sum = (rows: { amount: string }[]) =>
+    rows.reduce((s, row) => s + (parseFloat(row.amount) || 0), 0);
   const total = (parseFloat(cash) || 0) + sum(cards) + sum(currs);
 
   const addCategory = () => {
     const v = newCat.trim();
     if (!v) return;
     if (!categories.map((c) => c.toLowerCase()).includes(v.toLowerCase())) {
-      updateSettings({ expenseCategories: [...categories, v] });
+      updateSettings({
+        expenseCategories: [
+          ...settings.expenseCategories,
+          { id: `ec-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, name: v },
+        ],
+      });
       setCategory(v);
       toast.success(t("saved"));
     }
@@ -112,16 +151,25 @@ export function KassadanPulChiqarish() {
   };
 
   const deleteCategory = (value: string) => {
-    const next = categories.filter((c) => c !== value);
+    const next = settings.expenseCategories.filter((c) => c.name !== value);
     updateSettings({ expenseCategories: next });
-    if (category === value) setCategory(next[0] ?? "");
+    if (category === value) setCategory(next[0]?.name ?? "");
     toast.success(t("saved"));
   };
 
   const submit = () => {
-    if (total <= 0) { toast.error("Summa kiriting"); return; }
-    if (isAgentCategory && !agentId.trim()) { toast.error("Agent tanlash shart"); return; }
-    if (isEmployeeCategory && !selectedEmployee) { toast.error("Xodim tanlash shart"); return; }
+    if (total <= 0) {
+      toast.error("Summa kiriting");
+      return;
+    }
+    if (isAgentCategory && !agentId.trim()) {
+      toast.error("Agent tanlash shart");
+      return;
+    }
+    if (isEmployeeCategory && !selectedEmployee) {
+      toast.error("Xodim tanlash shart");
+      return;
+    }
     const w: CashWithdrawal = {
       id: `WD-${Date.now()}`,
       date: new Date().toISOString(),
@@ -149,8 +197,13 @@ export function KassadanPulChiqarish() {
       });
     }
     toast.success("Pul chiqarildi", { description: `${category}: ${formatSom(total)}` });
-    setCash(""); setCards([{ type: "Humo", amount: "" }]); setCurrs([{ code: "USD", amount: "" }]);
-    setNote(""); setAgentId(""); setEmployeeId(""); setEmployeeQuery("");
+    setCash("");
+    setCards([{ type: "Humo", amount: "" }]);
+    setCurrs([{ code: "USD", amount: "" }]);
+    setNote("");
+    setAgentId("");
+    setEmployeeId("");
+    setEmployeeQuery("");
   };
 
   return (
@@ -227,17 +280,27 @@ export function KassadanPulChiqarish() {
                       {agents.map((agent) => (
                         <SelectItem key={agent.id} value={agent.id}>
                           <div className="flex flex-col py-0.5">
-                            <span className="font-semibold">{agent.id} — {agent.name}</span>
-                            <span className="text-xs text-muted-foreground">{agent.phone || "Raqam yo'q"} · Qolgan qarz: {formatSom(agent.remainingDebt)}</span>
+                            <span className="font-semibold">
+                              {agent.id} — {agent.name}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {agent.phone || "Raqam yo'q"} · Qolgan qarz:{" "}
+                              {formatSom(agent.remainingDebt)}
+                            </span>
                           </div>
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                   {agents.length === 0 ? (
-                    <div className="mt-2 text-[11px] text-destructive">Hali agent qo'shilmagan. Agentlar Tovar qo'shishdagi “Qayerdan keldi” bo'limidan yaratiladi.</div>
+                    <div className="mt-2 text-[11px] text-destructive">
+                      Hali agent qo'shilmagan. Agentlar Tovar qo'shishdagi “Qayerdan keldi”
+                      bo'limidan yaratiladi.
+                    </div>
                   ) : (
-                    <div className="mt-2 text-[11px] text-muted-foreground">Agent ID qo'lda yozilmaydi — bazadagi agentlar ro'yxatidan tanlanadi.</div>
+                    <div className="mt-2 text-[11px] text-muted-foreground">
+                      Agent ID qo'lda yozilmaydi — bazadagi agentlar ro'yxatidan tanlanadi.
+                    </div>
                   )}
                 </div>
               )}
@@ -245,7 +308,9 @@ export function KassadanPulChiqarish() {
                 <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 p-3">
                   <div className="mb-2 flex items-center gap-2">
                     <UserRound className="h-4 w-4 text-primary" />
-                    <Label className="text-xs font-semibold">Xodim ID yoki ism orqali qidirish *</Label>
+                    <Label className="text-xs font-semibold">
+                      Xodim ID yoki ism orqali qidirish *
+                    </Label>
                   </div>
 
                   <div className="relative">
@@ -271,7 +336,9 @@ export function KassadanPulChiqarish() {
                             }}
                             className="flex w-full items-center justify-between gap-3 rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
                           >
-                            <span className="font-semibold">{employee.id} — {employee.name}</span>
+                            <span className="font-semibold">
+                              {employee.id} — {employee.name}
+                            </span>
                             <span className="text-xs text-muted-foreground">{employee.role}</span>
                           </button>
                         ))}
@@ -326,15 +393,28 @@ export function KassadanPulChiqarish() {
                 <Label className="text-sm font-semibold">To'lov summasi</Label>
               </div>
               <div>
-                <Label className="mb-1.5 block text-xs text-muted-foreground">Naqd pul (so'm)</Label>
-                <Input type="number" value={cash} onChange={(e) => setCash(e.target.value)}
-                  placeholder="0" className="text-lg font-semibold" />
+                <Label className="mb-1.5 block text-xs text-muted-foreground">
+                  Naqd pul (so'm)
+                </Label>
+                <Input
+                  type="number"
+                  value={cash}
+                  onChange={(e) => setCash(e.target.value)}
+                  placeholder="0"
+                  className="text-lg font-semibold"
+                />
               </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <Label className="text-xs text-muted-foreground">Kartalar (so'm)</Label>
-                  <Button size="sm" variant="outline" className="h-7 gap-1"
-                    onClick={() => setCards((current) => [...current, { type: "Humo", amount: "" }])}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 gap-1"
+                    onClick={() =>
+                      setCards((current) => [...current, { type: "Humo", amount: "" }])
+                    }
+                  >
                     <Plus className="h-3.5 w-3.5" /> Qo'shish
                   </Button>
                 </div>
@@ -345,19 +425,33 @@ export function KassadanPulChiqarish() {
                       <Select
                         value={card.type}
                         onValueChange={(value) =>
-                          setCards(cards.map((item, idx) => idx === index ? { ...item, type: value } : item))
+                          setCards(
+                            cards.map((item, idx) =>
+                              idx === index ? { ...item, type: value } : item,
+                            ),
+                          )
                         }
                       >
-                        <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="w-28">
+                          <SelectValue />
+                        </SelectTrigger>
                         <SelectContent>
-                          {CARD_TYPES.map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}
+                          {CARD_TYPES.map((type) => (
+                            <SelectItem key={type} value={type}>
+                              {type}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                       <Input
                         type="number"
                         value={card.amount}
                         onChange={(event) =>
-                          setCards(cards.map((item, idx) => idx === index ? { ...item, amount: event.target.value } : item))
+                          setCards(
+                            cards.map((item, idx) =>
+                              idx === index ? { ...item, amount: event.target.value } : item,
+                            ),
+                          )
                         }
                         placeholder="0"
                         className="flex-1"
@@ -384,50 +478,87 @@ export function KassadanPulChiqarish() {
                   <DollarSign className="h-4 w-4 text-muted-foreground" />
                   <Label className="text-sm font-semibold">Valyuta</Label>
                 </div>
-                <Button size="sm" variant="outline" className="h-7 gap-1"
-                  onClick={() => setCurrs((current) => [...current, { code: "USD", amount: "" }])}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 gap-1"
+                  onClick={() => setCurrs((current) => [...current, { code: "USD", amount: "" }])}
+                >
                   <Plus className="h-3.5 w-3.5" /> Qo'shish
                 </Button>
               </div>
               <div className="space-y-2">
                 {currs.map((c, i) => (
                   <div key={i} className="flex items-center gap-2">
-                    <Select value={c.code}
-                      onValueChange={(v) => setCurrs(currs.map((x, idx) => idx === i ? { ...x, code: v as Currency } : x))}>
-                      <SelectTrigger className="w-24"><SelectValue /></SelectTrigger>
+                    <Select
+                      value={c.code}
+                      onValueChange={(v) =>
+                        setCurrs(
+                          currs.map((x, idx) => (idx === i ? { ...x, code: v as Currency } : x)),
+                        )
+                      }
+                    >
+                      <SelectTrigger className="w-24">
+                        <SelectValue />
+                      </SelectTrigger>
                       <SelectContent>
-                        {CURRENCIES.map((cc) => <SelectItem key={cc} value={cc}>{cc}</SelectItem>)}
+                        {CURRENCIES.map((cc) => (
+                          <SelectItem key={cc} value={cc}>
+                            {cc}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
-                    <Input type="number" placeholder="Summa" value={c.amount}
-                      onChange={(e) => setCurrs(currs.map((x, idx) => idx === i ? { ...x, amount: e.target.value } : x))}
-                      className="flex-1" />
-                    <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive"
+                    <Input
+                      type="number"
+                      placeholder="Summa"
+                      value={c.amount}
+                      onChange={(e) =>
+                        setCurrs(
+                          currs.map((x, idx) => (idx === i ? { ...x, amount: e.target.value } : x)),
+                        )
+                      }
+                      className="flex-1"
+                    />
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 text-destructive"
                       onClick={() => setCurrs(currs.filter((_, idx) => idx !== i))}
-                      disabled={currs.length <= 1}>
+                      disabled={currs.length <= 1}
+                    >
                       <Minus className="h-4 w-4" />
                     </Button>
                   </div>
                 ))}
               </div>
             </div>
-
           </div>
 
           {/* O'ng: Izoh + Tasdiqlash */}
           <div className="grid min-h-0 content-start gap-3">
             {/* Jami KPI */}
             <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
-              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Chiqarilayotgan jami</div>
-              <div className="mt-1 text-xl font-bold tabular-nums text-primary">{formatSom(total)}</div>
-              <div className="mt-1 text-xs text-muted-foreground">Kategoriya: <span className="font-medium text-foreground">{category}</span></div>
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Chiqarilayotgan jami
+              </div>
+              <div className="mt-1 text-xl font-bold tabular-nums text-primary">
+                {formatSom(total)}
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                Kategoriya: <span className="font-medium text-foreground">{category}</span>
+              </div>
             </div>
 
             {/* Izoh */}
             <div className="rounded-lg border bg-card p-3">
               <Label className="mb-2 block text-sm font-semibold">Izoh</Label>
-              <Textarea value={note} onChange={(e) => setNote(e.target.value)}
-                rows={2} placeholder="Ixtiyoriy izoh..." />
+              <Textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                rows={2}
+                placeholder="Ixtiyoriy izoh..."
+              />
             </div>
 
             <div className="rounded-lg border bg-card p-3">
@@ -450,7 +581,9 @@ export function KassadanPulChiqarish() {
 
 function InfoPill({ label, value, wide }: { label: string; value: string; wide?: boolean }) {
   return (
-    <div className={`rounded-md border bg-muted/20 px-2.5 py-1.5 ${wide ? "min-w-[170px] flex-1" : ""}`}>
+    <div
+      className={`rounded-md border bg-muted/20 px-2.5 py-1.5 ${wide ? "min-w-[170px] flex-1" : ""}`}
+    >
       <div className="text-[10px] uppercase text-muted-foreground">{label}</div>
       <div className="truncate text-sm font-semibold tabular-nums">{value}</div>
     </div>
@@ -480,8 +613,7 @@ function EmployeeHistoryDialog({
 
   const rows = React.useMemo(() => {
     if (!employee) return [];
-    return MOCK_WITHDRAWALS
-      .filter((row) => row.employeeId === employee.id)
+    return MOCK_WITHDRAWALS.filter((row) => row.employeeId === employee.id)
       .filter((row) => inDateRange(row.date, period, from, to))
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [employee, period, from, to]);
@@ -508,12 +640,23 @@ function EmployeeHistoryDialog({
             </div>
 
             <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-background p-3">
-              <PeriodFilter value={period} onValueChange={setPeriod} from={from} to={to} onFromChange={setFrom} onToChange={setTo} />
+              <PeriodFilter
+                value={period}
+                onValueChange={setPeriod}
+                from={from}
+                to={to}
+                onFromChange={setFrom}
+                onToChange={setTo}
+              />
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => { setPeriod("all"); setFrom(""); setTo(""); }}
+                onClick={() => {
+                  setPeriod("all");
+                  setFrom("");
+                  setTo("");
+                }}
               >
                 Tozalash
               </Button>
@@ -535,11 +678,17 @@ function EmployeeHistoryDialog({
                     <tr key={row.id} className="border-t">
                       <td className="px-3 py-2 font-mono text-xs">{row.id}</td>
                       <td className="px-3 py-2">
-                        <Badge variant="secondary" className="text-[10px]">{row.category}</Badge>
+                        <Badge variant="secondary" className="text-[10px]">
+                          {row.category}
+                        </Badge>
                       </td>
-                      <td className="px-3 py-2 text-right font-semibold tabular-nums">{formatSom(withdrawalTotal(row))}</td>
+                      <td className="px-3 py-2 text-right font-semibold tabular-nums">
+                        {formatSom(withdrawalTotal(row))}
+                      </td>
                       <td className="px-3 py-2 text-xs text-muted-foreground">{row.note || "-"}</td>
-                      <td className="px-3 py-2 text-xs text-muted-foreground">{new Date(row.date).toLocaleString("uz-UZ")}</td>
+                      <td className="px-3 py-2 text-xs text-muted-foreground">
+                        {new Date(row.date).toLocaleString("uz-UZ")}
+                      </td>
                     </tr>
                   ))}
                   {rows.length === 0 && (
@@ -571,7 +720,9 @@ function isEmployeeExpenseCategory(category: string) {
 }
 
 function withdrawalTotal(row: CashWithdrawal) {
-  return row.cash + row.cardAmount + row.currencies.reduce((sum, currency) => sum + currency.amount, 0);
+  return (
+    row.cash + row.cardAmount + row.currencies.reduce((sum, currency) => sum + currency.amount, 0)
+  );
 }
 
 const historyNow = new Date("2026-05-07T12:00:00");

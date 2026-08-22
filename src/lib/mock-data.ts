@@ -1,3 +1,5 @@
+import type { PermissionKey } from "./app-context";
+
 export type Currency = string;
 
 export type Product = {
@@ -79,6 +81,19 @@ export type ReceiptItem = {
   note?: string;
 };
 
+/** Bitta to'lov usuli bo'yicha real yozuv — kassa hisobotlarida batafsil ko'rsatish uchun. */
+export type PaymentBreakdownRow = {
+  methodId: string;
+  methodName: string;
+  amountSom: number;
+  currency?: string;
+  currencyAmount?: number;
+  rate?: number;
+  rateSource?: "system" | "manual";
+  /** Terminal (karta) to'lovlarida — "Humo" | "Uzcard" */
+  cardType?: string;
+};
+
 export type Receipt = {
   id: string; // chek raqami
   date: string; // ISO datetime
@@ -96,9 +111,14 @@ export type Receipt = {
   paymentBreakdown?: {
     cash: number;
     card: number;
+    /** Bank orqali o'tkazma */
+    transfer?: number;
+    /** Elektron hamyon (Click, Payme va h.k.) */
+    wallet?: number;
     currencyAmount: number;
     currencyCode?: string;
     currencyInSom: number;
+    rows?: PaymentBreakdownRow[];
   };
   editedAt?: string;
 };
@@ -178,6 +198,59 @@ export type Employee = {
   source: "device" | "manual";
   deviceLogin?: string;
   devicePassword?: string;
+};
+
+// ─── Modul ruxsatlari (qurilma → xodim) ─────────────────────────────────────
+
+export const PERMISSION_GROUPS: {
+  module: string;
+  perms: { key: PermissionKey; label: string }[];
+}[] = [
+  {
+    module: "Sotuv",
+    perms: [
+      { key: "sotuv.create", label: "Sotuv qilish" },
+      { key: "sotuv.view", label: "Sotuvlarni ko'rish" },
+    ],
+  },
+  {
+    module: "Kassa",
+    perms: [
+      { key: "kassa.view", label: "Kassani ko'rish" },
+      { key: "kassa.close", label: "Kassani yopish" },
+      { key: "kassa.withdraw", label: "Kassadan pul chiqarish" },
+    ],
+  },
+  {
+    module: "Tovarlar",
+    perms: [
+      { key: "tovarlar.view", label: "Tovarlarni ko'rish" },
+      { key: "tovarlar.create", label: "Tovar qo'shish" },
+      { key: "tovarlar.edit", label: "Tovarni tahrirlash" },
+    ],
+  },
+  {
+    module: "Nasiya",
+    perms: [
+      { key: "nasiya.view", label: "Nasiyalarni ko'rish" },
+      { key: "nasiya.close", label: "Qarzdorlikni yopish" },
+    ],
+  },
+  {
+    module: "Hisobotlar",
+    perms: [{ key: "hisobotlar.view", label: "Hisobotlarni ko'rish" }],
+  },
+  {
+    module: "Boshqaruv",
+    perms: [{ key: "boshqaruv.manage", label: "Boshqaruv (to'liq)" }],
+  },
+];
+
+export const ROLE_DEFAULT_PERMISSIONS: Record<string, PermissionKey[]> = {
+  Kassir: ["sotuv.create", "sotuv.view", "kassa.view", "kassa.close"],
+  Sotuvchi: ["sotuv.create", "sotuv.view"],
+  Omborchi: ["tovarlar.view", "tovarlar.create", "tovarlar.edit"],
+  Menejer: ["sotuv.view", "kassa.view", "tovarlar.view", "nasiya.view", "hisobotlar.view"],
 };
 
 export type DebtPayment = {
@@ -1640,7 +1713,7 @@ export type EditedProductHistory = {
   oldQty: number;
   newQty: number;
   unit: string;
-  action: "edit" | "delete" | "writeoff";
+  action: "edit" | "delete" | "writeoff" | "sanoq";
   note?: string;
   changes?: {
     field:
@@ -1759,6 +1832,103 @@ export const MOCK_EDIT_HISTORY: EditedProductHistory[] = [
   },
 ];
 
+/** "Tovar qo'shish tarixi" (kirim/nakladnoy) yozuvi tahrirlangan yoki o'chirilganda qayd qilinadigan alohida audit tarixi. */
+export type ProductHistoryEditLog = {
+  id: string;
+  date: string; // tahrir/o'chirish vaqti
+  editedBy: string;
+  entryId: string; // ProductHistory.id (qaysi nakladnoy)
+  productName: string;
+  action: "edit" | "delete";
+  oldTotal: number;
+  newTotal: number;
+  changes?: { field: string; label: string; oldValue: string; newValue: string }[];
+};
+
+export const MOCK_PRODUCT_HISTORY_EDIT_LOG: ProductHistoryEditLog[] = [];
+
+// ─── Sanoq (reviziya) ───────────────────────────────────────────────────────
+
+/** Sanoq qaysi qamrovda o'tkazildi: butun baza yoki bitta ombor. */
+export type StockCountScope = "all" | "warehouse";
+
+export type StockCountLine = {
+  productId: string;
+  productName: string;
+  customCode: string;
+  barcode: string;
+  unit: string;
+  warehouse: string;
+  shelfLocation?: string;
+  /** Sanoq boshlangandagi dasturdagi qoldiq. */
+  systemQty: number;
+  /** Xodim kiritgan haqiqiy son. `null` — bu tovar sanalmagan. */
+  countedQty: number | null;
+  /** countedQty - systemQty. Sanalmaganda 0. */
+  diff: number;
+  /** Bir donaning tan narxi so'mda. */
+  costPrice: number;
+  /** diff * costPrice. */
+  diffAmount: number;
+};
+
+export type StockCount = {
+  id: string;
+  date: string;
+  countedBy: string;
+  scope: StockCountScope;
+  /** scope "warehouse" bo'lsa — ombor nomi. */
+  scopeValue?: string;
+  totalLines: number;
+  countedLines: number;
+  matchedLines: number;
+  /** Kamomad — donada (musbat son). */
+  shortageQty: number;
+  /** Ortiqcha — donada (musbat son). */
+  surplusQty: number;
+  /** Kamomad summasi (musbat son). */
+  shortageAmount: number;
+  /** Ortiqcha summasi (musbat son). */
+  surplusAmount: number;
+  /** surplusAmount - shortageAmount. Manfiy bo'lsa — zarar. */
+  netAmount: number;
+  /** Sanalgan tovarlarning dasturdagi qiymati (tan narxda) — aniqlik foizi uchun baza. */
+  countedValue: number;
+  note?: string;
+  /** Oxirgi tahrir sanasi — hech tahrirlanmagan bo'lsa yo'q. */
+  editedAt?: string;
+  /** Nechta marta tahrirlangan. */
+  editCount?: number;
+  lines: StockCountLine[];
+};
+
+export const MOCK_STOCK_COUNTS: StockCount[] = [];
+
+/** Yakunlangan sanoq hujjatiga keyin kiritilgan tuzatish. */
+export type StockCountEdit = {
+  id: string;
+  stockCountId: string;
+  date: string;
+  editedBy: string;
+  note?: string;
+  /** Tahrirdan oldingi va keyingi sof natija. */
+  oldNetAmount: number;
+  newNetAmount: number;
+  changes: {
+    productId: string;
+    productName: string;
+    unit: string;
+    oldCountedQty: number | null;
+    newCountedQty: number | null;
+    /** Tovar qoldig'iga qo'llangan farq. */
+    stockDelta: number;
+    /** stockDelta * tan narx. */
+    amountDelta: number;
+  }[];
+};
+
+export const MOCK_STOCK_COUNT_EDITS: StockCountEdit[] = [];
+
 export const MOCK_MONTHLY_DISCOUNT = 185000;
 
 export const MOCK_RETURN_RECEIPTS: ReturnReceipt[] = [
@@ -1794,6 +1964,39 @@ export const MOCK_RATES: Record<Currency, number> = {
   RUB: 135.5,
   EUR: 13780,
 };
+
+// === To'lov usullari ===
+// TODO: backendda sozlamalar bo'limi tayyor bo'lganda shu ro'yxat
+// API/hook orqali keladi (kassir tartibini, nomini o'zgartira oladigan
+// sozlama sifatida). Hozircha frontendda konstanta.
+
+export type PaymentKind = "cash" | "card" | "currency" | "transfer" | "wallet";
+
+export type PaymentMethod = {
+  id: string;
+  name: string;
+  subtitle?: string;
+  kind: PaymentKind;
+  isPinned: boolean;
+  sortOrder: number;
+  commissionPercent?: number;
+};
+
+export const MOCK_PAYMENT_METHODS: PaymentMethod[] = [
+  { id: "cash", name: "Naqd", kind: "cash", isPinned: true, sortOrder: 1 },
+  {
+    id: "terminal",
+    name: "Terminal",
+    subtitle: "Humo / Uzcard",
+    kind: "card",
+    isPinned: true,
+    sortOrder: 2,
+  },
+  { id: "currency", name: "Valyuta", kind: "currency", isPinned: true, sortOrder: 3 },
+  { id: "transfer", name: "Bank orqali o'tkazma", kind: "transfer", isPinned: false, sortOrder: 4 },
+  { id: "click", name: "Click", kind: "wallet", isPinned: false, sortOrder: 5 },
+  { id: "payme", name: "Payme", kind: "wallet", isPinned: false, sortOrder: 6 },
+];
 
 export const MOCK_WAREHOUSES = [
   "Asosiy ombor",
@@ -2584,4 +2787,38 @@ export function isProductAtLimit(product: Pick<Product, "vitrinaQty" | "minStock
   return typeof product.minStockAlert === "number" && product.minStockAlert >= 0
     ? product.vitrinaQty <= product.minStockAlert
     : false;
+}
+
+export type AgentSummary = {
+  id: string;
+  name: string;
+  phone: string;
+  botEnabled: boolean;
+  totalAmount: number;
+  paidAmount: number;
+  remainingDebt: number;
+};
+
+/** Agentlarni MOCK_SUPPLIER_REPORTS asosida jamlab, ro'yxat sifatida qaytaradi. */
+export function getAgentsList(): AgentSummary[] {
+  const map = new Map<string, AgentSummary>();
+  MOCK_SUPPLIER_REPORTS.forEach((row) => {
+    if (!row.agentId) return;
+    const current = map.get(row.agentId);
+    map.set(row.agentId, {
+      id: row.agentId,
+      name: row.agentName || "Nomsiz agent",
+      phone: row.agentPhone || "",
+      botEnabled: (current?.botEnabled ?? false) || Boolean(row.botEnabled),
+      totalAmount: (current?.totalAmount ?? 0) + row.totalAmount,
+      paidAmount: (current?.paidAmount ?? 0) + row.paidAmount,
+      remainingDebt: (current?.remainingDebt ?? 0) + row.remainingDebt,
+    });
+  });
+  return Array.from(map.values());
+}
+
+/** Yangi agent uchun keyingi navbatdagi ID, masalan `AG-0007`. */
+export function nextAgentId(): string {
+  return `AG-${String(MOCK_SUPPLIER_REPORTS.length + 1).padStart(4, "0")}`;
 }

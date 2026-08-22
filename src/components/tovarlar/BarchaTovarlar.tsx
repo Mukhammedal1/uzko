@@ -21,16 +21,58 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { AlertTriangle, ArrowLeft, Barcode, Check, CheckSquare, Download, Filter, MessageSquareText, Minus, PackageMinus, PackagePlus, Pencil, Plus, Printer, ReceiptText, Save, Search, Tag, Trash2, X } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Barcode,
+  Check,
+  CheckSquare,
+  ChevronDown,
+  Download,
+  FileSpreadsheet,
+  Filter,
+  Link2,
+  MessageSquareText,
+  Minus,
+  PackageMinus,
+  PackagePlus,
+  Pencil,
+  Plus,
+  Printer,
+  ReceiptText,
+  Save,
+  Search,
+  Tag,
+  Trash2,
+  X,
+} from "lucide-react";
 import {
   MOCK_PRODUCTS,
   MOCK_EDIT_HISTORY,
+  MOCK_RATES,
+  MOCK_WITHDRAWALS,
   formatSom,
   costInSom,
   isProductAtLimit,
+  getAgentsList,
+  type AgentSummary,
   type Product,
 } from "@/lib/mock-data";
+import { mergeProductsWithAgent, recordProductAddition } from "@/lib/data-actions";
+import {
+  ExcelYuklashModal,
+  type ImportRow,
+  type ImportPayment,
+} from "@/components/tovarlar/ExcelYuklashModal";
+import {
+  DEFAULT_PRINT_SETTINGS,
+  LABEL_SIZE_PRESETS,
+  printProductLabels,
+  type PrintField,
+  type PrintSettings,
+} from "@/lib/label-print";
 import { useApp } from "@/lib/app-context";
+import { joinBarcodes, makeUniqueBarcode, splitBarcodes } from "@/lib/barcode-utils";
 import type { ProductCreateMode } from "@/routes/tovarlar";
 import { toast } from "sonner";
 
@@ -42,6 +84,7 @@ type EditDraft = {
   warehouse: string;
   shelfLocation: string;
   minStockAlert: string;
+  barcode: string;
 };
 
 type WriteOffRow = {
@@ -62,89 +105,6 @@ type BulkEditRow = {
   shelfLocation: string;
   warehouse: string;
   minStockAlert: string;
-};
-
-type PrintSize = "small" | "medium" | "large";
-type PaperSize = "thermal58" | "thermal80" | "a6" | "a4";
-export type PrintField = "name" | "barcode" | "code" | "price" | "shelf";
-
-export type PrintSettings = {
-  receiptMode: boolean;
-  includeName: boolean;
-  includePrice: boolean;
-  includeBarcode: boolean;
-  includeCustomCode: boolean;
-  includeShelfLocation: boolean;
-  size: PrintSize;
-  fieldScale: Record<PrintField, number>;
-  paperSize: PaperSize;
-  commentEnabled: boolean;
-  comment: string;
-  matchStockQty: boolean;
-};
-
-const LABEL_SIZE_PRESETS: Record<
-  PrintSize,
-  {
-    labelMinHeight: number;
-    padding: number;
-    nameSize: number;
-    barcodeSize: number;
-    codeSize: number;
-    priceSize: number;
-    shelfSize: number;
-    gap: number;
-    columns: number;
-  }
-> = {
-  small: {
-    labelMinHeight: 72,
-    padding: 7,
-    nameSize: 12,
-    barcodeSize: 15,
-    codeSize: 9,
-    priceSize: 13,
-    shelfSize: 9,
-    gap: 6,
-    columns: 3,
-  },
-  medium: {
-    labelMinHeight: 92,
-    padding: 10,
-    nameSize: 15,
-    barcodeSize: 20,
-    codeSize: 11,
-    priceSize: 16,
-    shelfSize: 11,
-    gap: 10,
-    columns: 2,
-  },
-  large: {
-    labelMinHeight: 118,
-    padding: 14,
-    nameSize: 19,
-    barcodeSize: 26,
-    codeSize: 13,
-    priceSize: 22,
-    shelfSize: 13,
-    gap: 12,
-    columns: 1,
-  },
-};
-
-const DEFAULT_PRINT_SETTINGS: PrintSettings = {
-  receiptMode: false,
-  includeName: true,
-  includePrice: false,
-  includeBarcode: true,
-  includeCustomCode: true,
-  includeShelfLocation: false,
-  size: "medium",
-  fieldScale: { name: 100, barcode: 100, code: 100, price: 100, shelf: 100 },
-  paperSize: "thermal80",
-  commentEnabled: false,
-  comment: "",
-  matchStockQty: false,
 };
 
 type Props = {
@@ -169,6 +129,14 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
   const [writeOffOpen, setWriteOffOpen] = React.useState(false);
   const [writeOffRows, setWriteOffRows] = React.useState<WriteOffRow[]>([]);
   const [writeOffReason, setWriteOffReason] = React.useState("");
+  const [addMenuOpen, setAddMenuOpen] = React.useState(false);
+  const [excelModalOpen, setExcelModalOpen] = React.useState(false);
+  const [mergeAgentOpen, setMergeAgentOpen] = React.useState(false);
+  const [mergeAgentId, setMergeAgentId] = React.useState<string>("__new__");
+  const [mergeAgentName, setMergeAgentName] = React.useState("");
+  const [mergeAgentPhone, setMergeAgentPhone] = React.useState("");
+  const [mergeMode, setMergeMode] = React.useState<"current-stock" | "zero-debt">("current-stock");
+  const [mergeNote, setMergeNote] = React.useState("");
   const [printSettings, setPrintSettings] = React.useState<PrintSettings>(
     () => settings.labelPrintSettings ?? DEFAULT_PRINT_SETTINGS,
   );
@@ -181,7 +149,9 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
     warehouse: "",
     shelfLocation: "",
     minStockAlert: "",
+    barcode: "",
   });
+  const [barcodeInput, setBarcodeInput] = React.useState("");
 
   const filtered = React.useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -199,10 +169,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
   }, [query, stockFilter, warehouse, version]);
 
   const totalCount = filtered.reduce((s, p) => s + p.vitrinaQty, 0);
-  const totalCost = filtered.reduce(
-    (s, p) => s + costInSom(p) * p.vitrinaQty,
-    0,
-  );
+  const totalCost = filtered.reduce((s, p) => s + costInSom(p) * p.vitrinaQty, 0);
   const selectedProducts = React.useMemo(
     () => MOCK_PRODUCTS.filter((product) => selectedIds.has(product.id)),
     [selectedIds, version],
@@ -211,7 +178,8 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
     () => Array.from(new Set(selectedProducts.map((product) => product.unit))).join(", "),
     [selectedProducts],
   );
-  const allFilteredSelected = filtered.length > 0 && filtered.every((product) => selectedIds.has(product.id));
+  const allFilteredSelected =
+    filtered.length > 0 && filtered.every((product) => selectedIds.has(product.id));
   const activeFilterCount = (stockFilter === "limited" ? 1 : 0) + (warehouse !== "ALL" ? 1 : 0);
 
   const toggleProduct = (productId: string) => {
@@ -241,20 +209,40 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
       costPrice: String(product.costPrice),
       price: String(product.price),
       vitrinaQty: String(product.vitrinaQty),
-      unit: settings.units.includes(product.unit)
+      unit: settings.units.some((u) => u.name === product.unit)
         ? product.unit
-        : (settings.units[0] ?? product.unit),
-      warehouse: settings.warehouses.includes(product.warehouse)
+        : (settings.units[0]?.name ?? product.unit),
+      warehouse: settings.warehouses.some((w) => w.name === product.warehouse)
         ? product.warehouse
-        : (settings.warehouses[0] ?? product.warehouse),
+        : (settings.warehouses[0]?.name ?? product.warehouse),
       shelfLocation: product.shelfLocation ?? "",
-      minStockAlert:
-        typeof product.minStockAlert === "number" ? String(product.minStockAlert) : "",
+      minStockAlert: typeof product.minStockAlert === "number" ? String(product.minStockAlert) : "",
+      barcode: product.barcode,
     });
+    setBarcodeInput("");
   };
 
   const updateDraft = (patch: Partial<EditDraft>) => {
     setDraft((current) => ({ ...current, ...patch }));
+  };
+
+  const assignDraftBarcode = () => {
+    const currentCodes = splitBarcodes(draft.barcode);
+    const nextCode = makeUniqueBarcode(currentCodes);
+    updateDraft({ barcode: joinBarcodes([...currentCodes, nextCode]) });
+  };
+
+  const removeDraftBarcodeChip = (code: string) => {
+    updateDraft({
+      barcode: joinBarcodes(splitBarcodes(draft.barcode).filter((item) => item !== code)),
+    });
+  };
+
+  const addManualDraftBarcode = () => {
+    const value = barcodeInput.trim();
+    if (!value) return;
+    updateDraft({ barcode: joinBarcodes([...splitBarcodes(draft.barcode), value]) });
+    setBarcodeInput("");
   };
 
   const changeDraftQty = (delta: number) => {
@@ -274,22 +262,30 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
     const oldUnit = p.unit;
     const oldWarehouse = p.warehouse;
     const oldShelf = p.shelfLocation;
+    const oldBarcode = p.barcode;
     const newQty = Math.max(0, Number(draft.vitrinaQty) || 0);
     const newPrice = Math.max(0, Number(draft.price) || 0);
     const newCostPrice = Math.max(0, Number(draft.costPrice) || 0);
     const newUnit = draft.unit.trim() || p.unit;
-    const newWarehouse = settings.warehouses.includes(draft.warehouse)
+    const newWarehouse = settings.warehouses.some((w) => w.name === draft.warehouse)
       ? draft.warehouse
       : p.warehouse;
     const newShelf = draft.shelfLocation;
     const newMinStockAlert =
-      draft.minStockAlert.trim() === ""
-        ? undefined
-        : Math.max(0, Number(draft.minStockAlert) || 0);
+      draft.minStockAlert.trim() === "" ? undefined : Math.max(0, Number(draft.minStockAlert) || 0);
+    const draftBarcodes = splitBarcodes(draft.barcode);
+    const newBarcode = joinBarcodes(
+      draftBarcodes.length > 0 ? draftBarcodes : [makeUniqueBarcode()],
+    );
 
     const changes = [
       oldCostPrice !== newCostPrice
-        ? { field: "costPrice" as const, label: "Tan narx", oldValue: oldCostPrice, newValue: newCostPrice }
+        ? {
+            field: "costPrice" as const,
+            label: "Tan narx",
+            oldValue: oldCostPrice,
+            newValue: newCostPrice,
+          }
         : null,
       oldPrice !== newPrice
         ? { field: "price" as const, label: "Sotuv narx", oldValue: oldPrice, newValue: newPrice }
@@ -301,10 +297,20 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
         ? { field: "unit" as const, label: "Birlik", oldValue: oldUnit, newValue: newUnit }
         : null,
       oldWarehouse !== newWarehouse
-        ? { field: "warehouse" as const, label: "Ombor", oldValue: oldWarehouse, newValue: newWarehouse }
+        ? {
+            field: "warehouse" as const,
+            label: "Ombor",
+            oldValue: oldWarehouse,
+            newValue: newWarehouse,
+          }
         : null,
       oldShelf !== newShelf
-        ? { field: "shelfLocation" as const, label: "Raf", oldValue: oldShelf ?? "", newValue: newShelf }
+        ? {
+            field: "shelfLocation" as const,
+            label: "Raf",
+            oldValue: oldShelf ?? "",
+            newValue: newShelf,
+          }
         : null,
       p.minStockAlert !== newMinStockAlert
         ? {
@@ -312,6 +318,14 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
             label: "Ogohlantirish limiti",
             oldValue: p.minStockAlert ?? "",
             newValue: newMinStockAlert ?? "",
+          }
+        : null,
+      oldBarcode !== newBarcode
+        ? {
+            field: "barcode" as const,
+            label: "Shtrix kod",
+            oldValue: oldBarcode,
+            newValue: newBarcode,
           }
         : null,
     ].filter((item): item is NonNullable<typeof item> => item !== null);
@@ -324,6 +338,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
       p.warehouse = newWarehouse;
       p.shelfLocation = newShelf;
       p.minStockAlert = newMinStockAlert;
+      p.barcode = newBarcode;
       MOCK_EDIT_HISTORY.unshift({
         id: `eh${Date.now()}`,
         date: new Date().toISOString(),
@@ -364,9 +379,17 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
     if (productIds?.length) {
       setSelectedIds(new Set(productIds));
     }
-    const rows = MOCK_PRODUCTS.filter((product) => (productIds?.length ? productIds.includes(product.id) : selectedIds.has(product.id)));
+    const rows = MOCK_PRODUCTS.filter((product) =>
+      productIds?.length ? productIds.includes(product.id) : selectedIds.has(product.id),
+    );
     if (rows.length === 0) return;
-    const currentLimits = Array.from(new Set(rows.map((product) => product.minStockAlert).filter((value): value is number => typeof value === "number")));
+    const currentLimits = Array.from(
+      new Set(
+        rows
+          .map((product) => product.minStockAlert)
+          .filter((value): value is number => typeof value === "number"),
+      ),
+    );
     setLimitInput(currentLimits.length === 1 ? String(currentLimits[0]) : "");
     setLimitOpen(true);
   };
@@ -392,9 +415,9 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
         wholesalePrice: product.wholesalePrice != null ? String(product.wholesalePrice) : "",
         barcode: product.barcode,
         shelfLocation: product.shelfLocation ?? "",
-        warehouse: settings.warehouses.includes(product.warehouse)
+        warehouse: settings.warehouses.some((w) => w.name === product.warehouse)
           ? product.warehouse
-          : (settings.warehouses[0] ?? product.warehouse),
+          : (settings.warehouses[0]?.name ?? product.warehouse),
         minStockAlert: product.minStockAlert != null ? String(product.minStockAlert) : "",
       })),
     );
@@ -441,14 +464,209 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
         unit: p.unit,
         action: "writeoff",
         note: writeOffReason.trim() || undefined,
-        changes: [
-          { field: "qty", label: "Miqdor", oldValue: oldQty, newValue: newQty },
-        ],
+        changes: [{ field: "qty", label: "Miqdor", oldValue: oldQty, newValue: newQty }],
       });
     });
 
     setVersion((v) => v + 1);
     setWriteOffOpen(false);
+    clearSelection();
+  };
+
+  const agents = React.useMemo(() => getAgentsList(), [version]);
+
+  // ─── Exceldan yuklash modali uchun sintetik (number) ID ro'yxatlari ───────
+  const excelCurrencies = React.useMemo(
+    () => settings.currencies.map((code, idx) => ({ id: idx + 1, code, name: code })),
+    [settings.currencies],
+  );
+  const excelStocks = React.useMemo(
+    () => settings.warehouses.map((w, idx) => ({ id: idx + 1, name: w.name })),
+    [settings.warehouses],
+  );
+  const excelShelfNumbers = React.useMemo(
+    () =>
+      settings.shelfLocations.map((loc, idx) => ({
+        id: idx + 1,
+        name: loc.name,
+        stock_id: excelStocks.find((s) => s.name === loc.warehouse)?.id ?? 0,
+      })),
+    [settings.shelfLocations, excelStocks],
+  );
+  const excelAgents = React.useMemo(
+    () => agents.map((agent, idx) => ({ id: idx + 1, name: agent.name })),
+    [agents],
+  );
+
+  const handleExcelSubmit = async (rows: ImportRow[], payment?: ImportPayment) => {
+    const usedBarcodes = new Set(
+      MOCK_PRODUCTS.flatMap((product) => product.barcode.split("|").map((c) => c.trim())).filter(
+        Boolean,
+      ),
+    );
+
+    const purchaseCurrencyId = rows.find((r) => r.purchase_currency_id != null)?.purchase_currency_id;
+    const purchaseCurrencyCode = excelCurrencies.find((c) => c.id === purchaseCurrencyId)?.code ?? "UZS";
+    const purchaseRate = MOCK_RATES[purchaseCurrencyCode] ?? 1;
+    const totalCostSom = rows.reduce(
+      (sum, row) => sum + row.quantity * (row.purchase_price ?? 0) * purchaseRate,
+      0,
+    );
+
+    const agentInfo = payment ? excelAgents.find((a) => a.id === payment.agentId) : undefined;
+    const realAgent = agentInfo ? agents.find((a) => a.name === agentInfo.name) : undefined;
+    const paidAmountSom = payment
+      ? Math.max(0, Math.min(totalCostSom, Math.round(payment.paidAmount * purchaseRate)))
+      : 0;
+
+    rows.forEach((row) => {
+      const stockName =
+        excelStocks.find((s) => s.id === row.stock_id)?.name ?? settings.warehouses[0]?.name ?? "Asosiy ombor";
+      const shelfName = excelShelfNumbers.find((s) => s.id === row.shelf_number_id)?.name ?? "";
+
+      const barcodes = row.barcodes.filter(Boolean);
+      barcodes.forEach((code) => usedBarcodes.add(code));
+      const barcode = barcodes.join(" | ");
+
+      const purchaseCurrency = purchaseCurrencyCode;
+      const retailCurrency =
+        row.retail_currency_id != null
+          ? excelCurrencies.find((c) => c.id === row.retail_currency_id)?.code ?? "UZS"
+          : "UZS";
+      const retailRate = MOCK_RATES[retailCurrency] ?? 1;
+      const wholesaleCurrency =
+        row.wholesale_currency_id != null
+          ? excelCurrencies.find((c) => c.id === row.wholesale_currency_id)?.code ?? "UZS"
+          : "UZS";
+      const wholesaleRate = MOCK_RATES[wholesaleCurrency] ?? 1;
+
+      const priceSom = row.retail_price != null ? Math.round(row.retail_price * retailRate) : 0;
+      const wholesalePriceSom =
+        row.wholesale_price != null ? Math.round(row.wholesale_price * wholesaleRate) : undefined;
+
+      const existing = MOCK_PRODUCTS.find(
+        (product) => product.name.trim().toLowerCase() === row.name.trim().toLowerCase(),
+      );
+
+      let product: Product;
+      if (existing) {
+        existing.omborQty += row.quantity;
+        if (row.purchase_price != null) {
+          existing.costPrice = row.purchase_price;
+          existing.costCurrency = purchaseCurrency;
+        }
+        if (row.retail_price != null) existing.price = priceSom;
+        if (wholesalePriceSom !== undefined) existing.wholesalePrice = wholesalePriceSom;
+        if (shelfName) existing.shelfLocation = shelfName;
+        product = existing;
+      } else {
+        product = {
+          id: `p${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          name: row.name,
+          price: priceSom,
+          wholesalePrice: wholesalePriceSom,
+          costPrice: row.purchase_price ?? 0,
+          costCurrency: purchaseCurrency,
+          barcode: barcode || `8690${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, "0")}`,
+          customCode:
+            row.name.trim().slice(0, 4).toUpperCase().replace(/[^A-Z0-9]/g, "") +
+            Math.floor(Math.random() * 99),
+          unit: settings.units[0]?.name ?? "dona",
+          warehouse: stockName,
+          shelfLocation: shelfName,
+          vitrinaQty: 0,
+          omborQty: row.quantity,
+          salesHistory: [],
+        };
+        MOCK_PRODUCTS.push(product);
+      }
+
+      const rowCostSom = row.quantity * (row.purchase_price ?? 0) * purchaseRate;
+      const paidShare =
+        realAgent && totalCostSom > 0 ? Math.round((paidAmountSom * rowCostSom) / totalCostSom) : 0;
+
+      recordProductAddition({
+        productName: product.name,
+        qty: row.quantity,
+        unit: product.unit,
+        price: product.price,
+        costPrice: rowCostSom,
+        warehouse: stockName,
+        shelfLocation: shelfName,
+        addedBy: settings.username,
+        source: realAgent
+          ? {
+              enabled: true,
+              agentId: realAgent.id,
+              agentName: realAgent.name,
+              agentPhone: realAgent.phone,
+              paidAmount: String(paidShare),
+              note: "Excelldan yuklandi",
+              sendBotUpdate: false,
+            }
+          : undefined,
+      });
+    });
+
+    if (realAgent && payment?.source === "kassa" && paidAmountSom > 0) {
+      MOCK_WITHDRAWALS.push({
+        id: `CH-excel-${Date.now()}`,
+        date: new Date().toISOString(),
+        cashier: settings.username,
+        category: "Agentlarga to'lov",
+        cash: paidAmountSom,
+        cardAmount: 0,
+        currencies: [],
+        note: "Excelldan tovar import qilingandagi to'lov",
+        agentId: realAgent.id,
+      });
+    }
+
+    setVersion((v) => v + 1);
+  };
+
+  const openMergeAgentDialog = () => {
+    if (selectedProducts.length === 0) return;
+    setMergeAgentId(agents[0]?.id ?? "__new__");
+    setMergeAgentName(agents[0]?.name ?? "");
+    setMergeAgentPhone(agents[0]?.phone ?? "");
+    setMergeMode("current-stock");
+    setMergeNote("");
+    setMergeAgentOpen(true);
+  };
+
+  const mergeTotalCost = React.useMemo(
+    () =>
+      selectedProducts.reduce(
+        (sum, product) => sum + (product.vitrinaQty + product.omborQty) * costInSom(product),
+        0,
+      ),
+    [selectedProducts],
+  );
+
+  const confirmMergeAgent = () => {
+    const agentName = mergeAgentName.trim();
+    if (!agentName) {
+      toast.error("Agent nomini kiriting");
+      return;
+    }
+    if (selectedProducts.length === 0) return;
+
+    mergeProductsWithAgent({
+      products: selectedProducts,
+      agentId: mergeAgentId !== "__new__" ? mergeAgentId : undefined,
+      agentName,
+      agentPhone: mergeAgentPhone,
+      mode: mergeMode,
+      addedBy: settings.username,
+      note: mergeNote,
+    });
+
+    toast.success("Tovarlar agentga birlashtirildi", {
+      description: `${selectedProducts.length} ta tovar · ${agentName}`,
+    });
+    setMergeAgentOpen(false);
+    setVersion((v) => v + 1);
     clearSelection();
   };
 
@@ -477,7 +695,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
         row.wholesalePrice.trim() === "" ? undefined : Math.max(0, Number(row.wholesalePrice) || 0);
       const newBarcode = row.barcode.trim() || p.barcode;
       const newShelf = row.shelfLocation;
-      const newWarehouse = settings.warehouses.includes(row.warehouse)
+      const newWarehouse = settings.warehouses.some((w) => w.name === row.warehouse)
         ? row.warehouse
         : p.warehouse;
       const oldMinStockAlert = p.minStockAlert;
@@ -489,7 +707,12 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
           ? { field: "name" as const, label: "Nomi", oldValue: oldName, newValue: newName }
           : null,
         oldCostPrice !== newCostPrice
-          ? { field: "costPrice" as const, label: "Tan narx", oldValue: oldCostPrice, newValue: newCostPrice }
+          ? {
+              field: "costPrice" as const,
+              label: "Tan narx",
+              oldValue: oldCostPrice,
+              newValue: newCostPrice,
+            }
           : null,
         oldPrice !== newPrice
           ? { field: "price" as const, label: "Sotuv narx", oldValue: oldPrice, newValue: newPrice }
@@ -503,13 +726,28 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
             }
           : null,
         oldBarcode !== newBarcode
-          ? { field: "barcode" as const, label: "Shtrix kod", oldValue: oldBarcode, newValue: newBarcode }
+          ? {
+              field: "barcode" as const,
+              label: "Shtrix kod",
+              oldValue: oldBarcode,
+              newValue: newBarcode,
+            }
           : null,
         oldShelf !== newShelf
-          ? { field: "shelfLocation" as const, label: "Raf", oldValue: oldShelf ?? "", newValue: newShelf }
+          ? {
+              field: "shelfLocation" as const,
+              label: "Raf",
+              oldValue: oldShelf ?? "",
+              newValue: newShelf,
+            }
           : null,
         oldWarehouse !== newWarehouse
-          ? { field: "warehouse" as const, label: "Ombor", oldValue: oldWarehouse, newValue: newWarehouse }
+          ? {
+              field: "warehouse" as const,
+              label: "Ombor",
+              oldValue: oldWarehouse,
+              newValue: newWarehouse,
+            }
           : null,
         oldMinStockAlert !== newMinStockAlert
           ? {
@@ -550,9 +788,20 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
     clearSelection();
   };
   const deleteProduct = (productId: string) => {
-    const idx = MOCK_PRODUCTS.findIndex((item) => item.id === productId); if (idx < 0) return; const p = MOCK_PRODUCTS[idx];
+    const idx = MOCK_PRODUCTS.findIndex((item) => item.id === productId);
+    if (idx < 0) return;
+    const p = MOCK_PRODUCTS[idx];
     if (!window.confirm(`${p.name} o'chirilsinmi?`)) return;
-    MOCK_EDIT_HISTORY.unshift({ id: `eh${Date.now()}`, date: new Date().toISOString(), editedBy: settings.username, productName: p.name, oldQty: p.vitrinaQty, newQty: 0, unit: p.unit, action: "delete" });
+    MOCK_EDIT_HISTORY.unshift({
+      id: `eh${Date.now()}`,
+      date: new Date().toISOString(),
+      editedBy: settings.username,
+      productName: p.name,
+      oldQty: p.vitrinaQty,
+      newQty: 0,
+      unit: p.unit,
+      action: "delete",
+    });
     MOCK_PRODUCTS.splice(idx, 1);
     setSelectedIds((current) => {
       const next = new Set(current);
@@ -561,17 +810,44 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
     });
     setVersion((v) => v + 1);
   };
+  const deleteSelectedProducts = () => {
+    if (selectedProducts.length === 0) return;
+    if (!window.confirm(`${selectedProducts.length} ta tovar bazadan o'chirilsinmi?`)) return;
+    const date = new Date().toISOString();
+    selectedProducts.forEach((p) => {
+      MOCK_EDIT_HISTORY.unshift({
+        id: `eh${Date.now()}-${p.id}`,
+        date,
+        editedBy: settings.username,
+        productName: p.name,
+        oldQty: p.vitrinaQty,
+        newQty: 0,
+        unit: p.unit,
+        action: "delete",
+      });
+    });
+    const idsToDelete = new Set(selectedProducts.map((p) => p.id));
+    for (let i = MOCK_PRODUCTS.length - 1; i >= 0; i -= 1) {
+      if (idsToDelete.has(MOCK_PRODUCTS[i].id)) MOCK_PRODUCTS.splice(i, 1);
+    }
+    toast.success("Tovarlar bazadan o'chirildi", {
+      description: `${selectedProducts.length} ta tovar`,
+    });
+    clearSelection();
+    setVersion((v) => v + 1);
+  };
+
   const exportToExcel = () => {
     const rows = filtered.map((p) => ({
       "Tovar nomi": p.name,
-      "Kod": p.customCode,
+      Kod: p.customCode,
       "Shtrix kod": p.barcode,
       "Tan narx": p.costPrice,
       "Tan narx valyutasi": p.costCurrency,
       "Sotuv narxi": p.price,
-      "Soni": p.vitrinaQty,
-      "Birligi": p.unit,
-      "Ombori": p.warehouse,
+      Soni: p.vitrinaQty,
+      Birligi: p.unit,
+      Ombori: p.warehouse,
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(rows);
@@ -620,8 +896,8 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
         onUpdateRow={updateBulkEditRow}
         onSave={saveBulkEdit}
         onCancel={() => setBulkEditOpen(false)}
-        warehouses={settings.warehouses}
-        shelfLocations={settings.shelfLocations}
+        warehouses={settings.warehouses.map((w) => w.name)}
+        shelfLocations={settings.shelfLocations.map((l) => l.name)}
         t={t}
       />
     );
@@ -671,7 +947,9 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                 <SelectContent>
                   <SelectItem value="ALL">Barcha omborlar</SelectItem>
                   {settings.warehouses.map((w) => (
-                    <SelectItem key={w} value={w}>{w}</SelectItem>
+                    <SelectItem key={w.id} value={w.name}>
+                      {w.name}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -702,9 +980,38 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
             className="h-10 pl-9 text-sm"
           />
         </div>
-        <Button className="h-10 gap-2" onClick={() => onSetCreateMode("qabul")}>
-          <PackagePlus className="h-4 w-4" /> Tovar qo'shish
-        </Button>
+        <Popover open={addMenuOpen} onOpenChange={setAddMenuOpen}>
+          <PopoverTrigger asChild>
+            <Button className="h-10 gap-2">
+              <PackagePlus className="h-4 w-4" /> Tovar qo'shish
+              <ChevronDown className="h-3.5 w-3.5 opacity-70" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-64 space-y-1 p-2">
+            <button
+              type="button"
+              onClick={() => {
+                setAddMenuOpen(false);
+                onSetCreateMode("qabul");
+              }}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm font-medium hover:bg-muted"
+            >
+              <PackagePlus className="h-4 w-4" />
+              Mahsulot qo'shish
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAddMenuOpen(false);
+                setExcelModalOpen(true);
+              }}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm font-medium hover:bg-muted"
+            >
+              <FileSpreadsheet className="h-4 w-4" />
+              Exceldan yuklash
+            </button>
+          </PopoverContent>
+        </Popover>
         <Button
           onClick={exportToExcel}
           variant="outline"
@@ -804,9 +1111,55 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                       </span>
                     )}
                   </div>
-                  <div className="text-xs text-muted-foreground">
-                    {p.customCode} · {p.barcode}
-                  </div>
+                  {editingId === p.id ? (
+                    <div
+                      className="mt-1 flex flex-wrap items-center gap-1"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      {splitBarcodes(draft.barcode).map((code) => (
+                        <span
+                          key={code}
+                          className="inline-flex items-center gap-1 rounded-md border bg-muted/40 px-1.5 py-0.5 text-[11px]"
+                        >
+                          {code}
+                          <button
+                            type="button"
+                            onClick={() => removeDraftBarcodeChip(code)}
+                            className="text-muted-foreground hover:text-destructive"
+                            aria-label={`${code} shtrix kodini o'chirish`}
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ))}
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="outline"
+                        className="h-6 w-6 shrink-0"
+                        onClick={assignDraftBarcode}
+                        title="Avtomatik shtrix kod qo'shish"
+                      >
+                        <Barcode className="h-3 w-3" />
+                      </Button>
+                      <Input
+                        value={barcodeInput}
+                        onChange={(e) => setBarcodeInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key !== "Enter") return;
+                          e.preventDefault();
+                          addManualDraftBarcode();
+                        }}
+                        onBlur={addManualDraftBarcode}
+                        placeholder="Kod kiritish..."
+                        className="h-6 w-28 text-[11px]"
+                      />
+                    </div>
+                  ) : (
+                    <div className="text-xs text-muted-foreground">
+                      {p.customCode} · {p.barcode}
+                    </div>
+                  )}
                 </td>
                 <td className="px-4 py-2.5 text-center">
                   {editingId === p.id ? (
@@ -884,7 +1237,9 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                       </Button>
                     </div>
                   ) : (
-                    <span className={p.vitrinaQty < 10 ? "font-semibold text-destructive" : ""}>{p.vitrinaQty}</span>
+                    <span className={p.vitrinaQty < 10 ? "font-semibold text-destructive" : ""}>
+                      {p.vitrinaQty}
+                    </span>
                   )}
                 </td>
                 <td className="px-4 py-2.5 text-muted-foreground">
@@ -898,7 +1253,9 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                       </SelectTrigger>
                       <SelectContent>
                         {settings.units.map((unit) => (
-                          <SelectItem key={unit} value={unit}>{unit}</SelectItem>
+                          <SelectItem key={unit.id} value={unit.name}>
+                            {unit.name}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -910,7 +1267,9 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                   {editingId === p.id ? (
                     <Select
                       value={draft.shelfLocation}
-                      onValueChange={(value) => updateDraft({ shelfLocation: value === "NONE" ? "" : value })}
+                      onValueChange={(value) =>
+                        updateDraft({ shelfLocation: value === "NONE" ? "" : value })
+                      }
                     >
                       <SelectTrigger className="h-8 w-[140px]">
                         <SelectValue placeholder="Tanlang" />
@@ -918,18 +1277,18 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                       <SelectContent>
                         <SelectItem value="NONE">— Tozalash —</SelectItem>
                         {settings.shelfLocations.map((loc) => (
-                          <SelectItem key={loc} value={loc}>{loc}</SelectItem>
+                          <SelectItem key={loc.id} value={loc.name}>
+                            {loc.name}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+                  ) : p.shelfLocation ? (
+                    <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-1 text-xs font-bold text-primary ring-1 ring-inset ring-primary/20">
+                      {p.shelfLocation}
+                    </span>
                   ) : (
-                    p.shelfLocation ? (
-                      <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-1 text-xs font-bold text-primary ring-1 ring-inset ring-primary/20">
-                        {p.shelfLocation}
-                      </span>
-                    ) : (
-                      <span className="text-xs italic text-muted-foreground">belgilanmagan</span>
-                    )
+                    <span className="text-xs italic text-muted-foreground">belgilanmagan</span>
                   )}
                 </td>
                 <td className="px-4 py-2.5 text-muted-foreground">
@@ -943,7 +1302,9 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                       </SelectTrigger>
                       <SelectContent>
                         {settings.warehouses.map((w) => (
-                          <SelectItem key={w} value={w}>{w}</SelectItem>
+                          <SelectItem key={w.id} value={w.name}>
+                            {w.name}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -951,10 +1312,40 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                     p.warehouse
                   )}
                 </td>
-                <td className="px-4 py-2.5 text-right"><div className="flex justify-end gap-1">
-                  {editingId === p.id ? <Button size="icon" variant="outline" className="h-8 w-8" onClick={() => saveProduct(p.id)} title={t("save")}><Save className="h-4 w-4" /></Button> : <Button size="icon" variant="outline" className="h-8 w-8" onClick={() => startEdit(p)} title={t("edit")}><Pencil className="h-4 w-4" /></Button>}
-                  <Button size="icon" variant="outline" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => deleteProduct(p.id)} title={t("delete")}><Trash2 className="h-4 w-4" /></Button>
-                </div></td>
+                <td className="px-4 py-2.5 text-right">
+                  <div className="flex justify-end gap-1">
+                    {editingId === p.id ? (
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        className="h-8 w-8"
+                        onClick={() => saveProduct(p.id)}
+                        title={t("save")}
+                      >
+                        <Save className="h-4 w-4" />
+                      </Button>
+                    ) : (
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        className="h-8 w-8"
+                        onClick={() => startEdit(p)}
+                        title={t("edit")}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    )}
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      className="h-8 w-8 text-destructive hover:text-destructive"
+                      onClick={() => deleteProduct(p.id)}
+                      title={t("delete")}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </td>
               </tr>
             ))}
             {filtered.length === 0 && (
@@ -999,12 +1390,34 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                   type="button"
                   onClick={() => {
                     setEditMenuOpen(false);
+                    openMergeAgentDialog();
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm font-medium hover:bg-muted"
+                >
+                  <Link2 className="h-4 w-4" />
+                  Tovarni agentga birlashtirish
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditMenuOpen(false);
                     openWriteOffDialog();
                   }}
                   className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm font-medium text-destructive hover:bg-destructive/10"
                 >
                   <PackageMinus className="h-4 w-4" />
                   Hisobdan chiqarish
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditMenuOpen(false);
+                    deleteSelectedProducts();
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm font-medium text-destructive hover:bg-destructive/10"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Bazadan o'chirish
                 </button>
               </PopoverContent>
             </Popover>
@@ -1043,7 +1456,8 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
             <div className="rounded-lg border bg-muted/30 p-3 text-sm">
               <div className="font-semibold">{selectedProducts.length} ta mahsulot tanlangan</div>
               <div className="mt-1 text-xs text-muted-foreground">
-                Limit har bir mahsulotning o'z birligida ishlaydi: {selectedUnitsLabel || "birlik aniqlanmagan"}.
+                Limit har bir mahsulotning o'z birligida ishlaydi:{" "}
+                {selectedUnitsLabel || "birlik aniqlanmagan"}.
               </div>
             </div>
             <div className="space-y-2">
@@ -1056,7 +1470,8 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                 placeholder="Masalan: 10"
               />
               <div className="text-xs text-muted-foreground">
-                Mahsulot vitrinadagi qoldiq shu songa teng yoki undan kam bo'lsa, sariq ogohlantirish chiqadi.
+                Mahsulot vitrinadagi qoldiq shu songa teng yoki undan kam bo'lsa, sariq
+                ogohlantirish chiqadi.
               </div>
             </div>
           </div>
@@ -1138,6 +1553,133 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={mergeAgentOpen} onOpenChange={setMergeAgentOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Link2 className="h-5 w-5" />
+              Tovarni agentga birlashtirish
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+              <div className="font-semibold">{selectedProducts.length} ta mahsulot tanlangan</div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                Tovarlar shu agentdan kelgan deb belgilanadi. Keyingi safar shu tovarlar qabul
+                qilinganda agent avtomatik aniqlanadi.
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs">Agent</Label>
+              <Select
+                value={mergeAgentId}
+                onValueChange={(value) => {
+                  setMergeAgentId(value);
+                  if (value === "__new__") {
+                    setMergeAgentName("");
+                    setMergeAgentPhone("");
+                    return;
+                  }
+                  const agent = agents.find((item: AgentSummary) => item.id === value);
+                  if (!agent) return;
+                  setMergeAgentName(agent.name);
+                  setMergeAgentPhone(agent.phone);
+                }}
+              >
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue placeholder="Agent tanlang" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__new__">+ Yangi agent</SelectItem>
+                  {agents.map((agent) => (
+                    <SelectItem key={agent.id} value={agent.id}>
+                      {agent.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {mergeAgentId === "__new__" && (
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Agent ismi</Label>
+                  <Input
+                    value={mergeAgentName}
+                    onChange={(e) => setMergeAgentName(e.target.value)}
+                    placeholder="Masalan: Bekzod Agent"
+                    className="h-9 text-sm"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Telefon (ixtiyoriy)</Label>
+                  <Input
+                    value={mergeAgentPhone}
+                    onChange={(e) => setMergeAgentPhone(e.target.value)}
+                    placeholder="+998 XX XXX XX XX"
+                    className="h-9 text-sm"
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label className="text-xs">Qarz bo'yicha</Label>
+              <div className="grid grid-cols-1 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMergeMode("current-stock")}
+                  className={`rounded-md border p-2.5 text-left text-xs transition-colors ${
+                    mergeMode === "current-stock"
+                      ? "border-primary bg-primary/5"
+                      : "hover:bg-muted"
+                  }`}
+                >
+                  <div className="font-semibold">Joriy qoldiq bo'yicha qarz sifatida</div>
+                  <div className="mt-0.5 text-muted-foreground">
+                    Tanlangan tovarlarning hozirgi qoldig'i tan narxda hisoblanib, agentga qarz
+                    sifatida yoziladi: <span className="font-semibold text-foreground">{formatSom(mergeTotalCost)}</span>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMergeMode("zero-debt")}
+                  className={`rounded-md border p-2.5 text-left text-xs transition-colors ${
+                    mergeMode === "zero-debt" ? "border-primary bg-primary/5" : "hover:bg-muted"
+                  }`}
+                >
+                  <div className="font-semibold">0 qarz bilan birlashtirish</div>
+                  <div className="mt-0.5 text-muted-foreground">
+                    Hozirgi qoldiq uchun qarz yozilmaydi — faqat keyingi safar shu tovarlar qabul
+                    qilinganda agentga qarz hisoblana boshlaydi.
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs">Izoh (ixtiyoriy)</Label>
+              <Input
+                value={mergeNote}
+                onChange={(e) => setMergeNote(e.target.value)}
+                placeholder="Ixtiyoriy izoh"
+                className="h-9 text-sm"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMergeAgentOpen(false)}>
+              Bekor
+            </Button>
+            <Button onClick={confirmMergeAgent} className="gap-2">
+              <Link2 className="h-4 w-4" />
+              Birlashtirish
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={printOpen} onOpenChange={setPrintOpen}>
         <DialogContent className="max-h-[85vh] max-w-6xl overflow-y-auto">
           <DialogHeader>
@@ -1203,7 +1745,10 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                     active={printSettings.includeName}
                     scale={printSettings.fieldScale.name}
                     onToggle={() =>
-                      setPrintSettings((current) => ({ ...current, includeName: !current.includeName }))
+                      setPrintSettings((current) => ({
+                        ...current,
+                        includeName: !current.includeName,
+                      }))
                     }
                     onScaleChange={(next) =>
                       setPrintSettings((current) => ({
@@ -1254,7 +1799,10 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                     active={printSettings.includePrice}
                     scale={printSettings.fieldScale.price}
                     onToggle={() =>
-                      setPrintSettings((current) => ({ ...current, includePrice: !current.includePrice }))
+                      setPrintSettings((current) => ({
+                        ...current,
+                        includePrice: !current.includePrice,
+                      }))
                     }
                     onScaleChange={(next) =>
                       setPrintSettings((current) => ({
@@ -1373,7 +1921,12 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
             <PrintPreview product={selectedProducts[0]} settings={printSettings} />
           </div>
           <DialogFooter className="flex-wrap gap-2 sm:justify-between">
-            <Button type="button" variant="ghost" className="gap-2" onClick={saveLabelPrintDefaults}>
+            <Button
+              type="button"
+              variant="ghost"
+              className="gap-2"
+              onClick={saveLabelPrintDefaults}
+            >
               <Save className="h-4 w-4" />
               Standart qilib saqlash
             </Button>
@@ -1389,6 +1942,17 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {excelModalOpen && (
+        <ExcelYuklashModal
+          currencies={excelCurrencies}
+          stocks={excelStocks}
+          shelfNumbers={excelShelfNumbers}
+          agents={excelAgents}
+          onClose={() => setExcelModalOpen(false)}
+          onSubmit={handleExcelSubmit}
+        />
+      )}
     </div>
   );
 }
@@ -1440,10 +2004,7 @@ function PrintPreview({ product, settings }: { product?: Product; settings: Prin
           </div>
         )}
         {settings.includeCustomCode && (
-          <div
-            className="mt-1 text-slate-500"
-            style={{ fontSize: fieldPx(base.codeSize, "code") }}
-          >
+          <div className="mt-1 text-slate-500" style={{ fontSize: fieldPx(base.codeSize, "code") }}>
             {previewProduct?.customCode || "KOD-001"}
           </div>
         )}
@@ -1527,7 +2088,9 @@ function BulkEditPage({
   const changeFirstRowField = (field: ApplyAllField, value: string) => {
     onUpdateRow(rows[0].id, { [field]: value } as Partial<BulkEditRow>);
     if (applyAll[field]) {
-      rows.slice(1).forEach((row) => onUpdateRow(row.id, { [field]: value } as Partial<BulkEditRow>));
+      rows
+        .slice(1)
+        .forEach((row) => onUpdateRow(row.id, { [field]: value } as Partial<BulkEditRow>));
     }
   };
 
@@ -1535,14 +2098,24 @@ function BulkEditPage({
     setApplyAll((current) => ({ ...current, [field]: checked }));
     if (checked && rows.length > 0) {
       const value = rows[0][field];
-      rows.slice(1).forEach((row) => onUpdateRow(row.id, { [field]: value } as Partial<BulkEditRow>));
+      rows
+        .slice(1)
+        .forEach((row) => onUpdateRow(row.id, { [field]: value } as Partial<BulkEditRow>));
     }
   };
 
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-shrink-0 flex-wrap items-center gap-3 border-b bg-card p-3">
-        <Button type="button" variant="outline" size="icon" className="h-10 w-10" onClick={onCancel} title="Orqaga" aria-label="Orqaga">
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="h-10 w-10"
+          onClick={onCancel}
+          title="Orqaga"
+          aria-label="Orqaga"
+        >
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div>
@@ -1645,7 +2218,9 @@ function BulkEditPage({
                   </SelectTrigger>
                   <SelectContent>
                     {warehouses.map((w) => (
-                      <SelectItem key={w} value={w}>{w}</SelectItem>
+                      <SelectItem key={w} value={w}>
+                        {w}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -1672,7 +2247,9 @@ function BulkEditPage({
                   <SelectContent>
                     <SelectItem value="NONE">— Tozalash —</SelectItem>
                     {shelfLocations.map((loc) => (
-                      <SelectItem key={loc} value={loc}>{loc}</SelectItem>
+                      <SelectItem key={loc} value={loc}>
+                        {loc}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -1764,142 +2341,4 @@ function PrintFieldRow({
       </div>
     </div>
   );
-}
-
-function printProductLabels(queue: { product: Product; copies: number }[], settings: PrintSettings) {
-  const printWindow = window.open("", "_blank", "width=900,height=700");
-  if (!printWindow) return;
-
-  const base = LABEL_SIZE_PRESETS[settings.size];
-  const fieldPx = (basePx: number, field: PrintField) =>
-    Math.round(basePx * (settings.fieldScale[field] / 100));
-  const size = {
-    ...base,
-    nameSize: fieldPx(base.nameSize, "name"),
-    barcodeSize: fieldPx(base.barcodeSize, "barcode"),
-    codeSize: fieldPx(base.codeSize, "code"),
-    priceSize: fieldPx(base.priceSize, "price"),
-    shelfSize: fieldPx(base.shelfSize, "shelf"),
-  };
-  const paper = {
-    thermal58: { page: "58mm auto", bodyWidth: "58mm", padding: "3mm", receiptWidth: "52mm" },
-    thermal80: { page: "80mm auto", bodyWidth: "80mm", padding: "4mm", receiptWidth: "72mm" },
-    a6: { page: "A6", bodyWidth: "105mm", padding: "8mm", receiptWidth: "74mm" },
-    a4: { page: "A4", bodyWidth: "auto", padding: "8mm", receiptWidth: "90mm" },
-  }[settings.paperSize];
-  const comment =
-    settings.commentEnabled && settings.comment.trim()
-      ? `<div class="comment">${escapeHtml(settings.comment.trim())}</div>`
-      : "";
-
-  const labels = queue
-    .flatMap(({ product, copies }) => Array.from({ length: Math.max(1, copies) }, () => product))
-    .map((product) => {
-      const name = settings.includeName
-        ? `<div class="name">${escapeHtml(product.name)}</div>`
-        : "";
-      const price = settings.includePrice
-        ? `<div class="price">${escapeHtml(formatSom(product.price))}</div>`
-        : "";
-      const barcode = settings.includeBarcode
-        ? `<div class="barcode">${escapeHtml(product.barcode)}</div>`
-        : "";
-      const code = settings.includeCustomCode
-        ? `<div class="code">${escapeHtml(product.customCode)}</div>`
-        : "";
-      const shelf = settings.includeShelfLocation
-        ? `<div class="shelf">Polka: ${escapeHtml(product.shelfLocation || "—")}</div>`
-        : "";
-      const receiptHeader = settings.receiptMode
-        ? `<div class="receipt-title">TOVAR CHEKI</div>`
-        : "";
-      return `
-        <section class="label${settings.receiptMode ? " receipt" : ""}">
-          ${receiptHeader}
-          ${name}
-          ${barcode}
-          ${code}
-          ${price}
-          ${shelf}
-          ${comment}
-        </section>
-      `;
-    })
-    .join("");
-
-  printWindow.document.write(`
-    <!doctype html>
-    <html>
-      <head>
-        <title>Tovar yorliqlari</title>
-        <style>
-          * { box-sizing: border-box; }
-          @page { size: ${paper.page}; margin: 0; }
-          body {
-            width: ${paper.bodyWidth};
-            margin: 0 auto;
-            padding: ${paper.padding};
-            font-family: Arial, sans-serif;
-            color: #111827;
-          }
-          .sheet {
-            display: grid;
-            grid-template-columns: repeat(${settings.receiptMode ? 1 : size.columns}, minmax(0, 1fr));
-            gap: ${size.gap}px;
-            ${settings.receiptMode ? `max-width: ${paper.receiptWidth}; margin: 0 auto;` : ""}
-          }
-          .label {
-            min-height: ${size.labelMinHeight}px;
-            border: 1px solid #111827;
-            border-radius: ${settings.receiptMode ? 2 : 6}px;
-            padding: ${size.padding}px;
-            page-break-inside: avoid;
-          }
-          .receipt { border-style: dashed; text-align: center; }
-          .receipt-title {
-            margin-bottom: 6px;
-            border-bottom: 1px dashed #111827;
-            padding-bottom: 4px;
-            font-size: ${Math.max(9, size.codeSize)}px;
-            font-weight: 800;
-            letter-spacing: 0.08em;
-          }
-          .name { font-size: ${size.nameSize}px; font-weight: 700; line-height: 1.2; }
-          .barcode { margin-top: 8px; font-family: "Courier New", monospace; font-size: ${size.barcodeSize}px; letter-spacing: 1px; word-break: break-all; }
-          .code { margin-top: 2px; font-size: ${size.codeSize}px; color: #4b5563; }
-          .shelf { margin-top: 2px; font-size: ${size.shelfSize}px; color: #4b5563; }
-          .price { margin-top: 6px; font-size: ${size.priceSize}px; font-weight: 800; }
-          .comment {
-            margin-top: 7px;
-            border-top: 1px dashed #9ca3af;
-            padding-top: 5px;
-            font-size: ${Math.max(9, size.codeSize)}px;
-            color: #374151;
-          }
-          @media print {
-            body { padding: ${paper.padding}; }
-          }
-        </style>
-      </head>
-      <body>
-        <main class="sheet">${labels}</main>
-        <script>
-          window.onload = () => {
-            window.focus();
-            window.print();
-          };
-        </script>
-      </body>
-    </html>
-  `);
-  printWindow.document.close();
-}
-
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
 }

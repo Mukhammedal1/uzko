@@ -7,9 +7,9 @@ import {
   Database,
   Languages,
   LogOut,
-  Settings,
   ShieldCheck,
   ShoppingCart,
+  SlidersHorizontal,
   UserRound,
   Wallet,
 } from "lucide-react";
@@ -52,6 +52,7 @@ export function TopBar() {
     { to: "/tovarlar", label: t("tovarlar"), Icon: Boxes },
     { to: "/mijozlar", label: "Mijozlar", Icon: UserRound },
     { to: "/umumiy", label: t("umumiy"), Icon: BarChart3 },
+    { to: "/boshqaruv", label: t("boshqaruv"), Icon: SlidersHorizontal },
   ];
 
   const handleEnsureCompanyProfile = () => {
@@ -263,9 +264,10 @@ export function TopBar() {
             className:
               "flex h-8 w-8 items-center justify-center rounded-md border bg-primary text-primary-foreground",
           }}
-          aria-label="Sozlamalar"
+          aria-label="Profil"
+          title="Profil"
         >
-          <Settings className="h-3.5 w-3.5" />
+          <UserRound className="h-3.5 w-3.5" />
         </Link>
 
         <button

@@ -7,8 +7,9 @@ import { Button } from "@/components/ui/button";
 import { BarchaTovarlar } from "@/components/tovarlar/BarchaTovarlar";
 import { TovarQoshish } from "@/components/tovarlar/TovarQoshish";
 import { TovarlarTarixi } from "@/components/tovarlar/TovarlarTarixi";
+import { Sanoq } from "@/components/tovarlar/Sanoq";
 import { useApp } from "@/lib/app-context";
-import { Package, History } from "lucide-react";
+import { Package, History, ClipboardList } from "lucide-react";
 
 export const Route = createFileRoute("/tovarlar")({
   head: () => ({
@@ -22,6 +23,7 @@ export const Route = createFileRoute("/tovarlar")({
 
 const TABS = [
   { id: "barcha", labelKey: "all_products", icon: Package },
+  { id: "sanoq",  labelKey: "stock_count", icon: ClipboardList },
   { id: "tarix",  labelKey: "products_history", icon: History },
 ] as const;
 
@@ -67,6 +69,7 @@ function TovarlarPage() {
               {tab === "barcha" && (
                 <BarchaTovarlar onSetCreateMode={setCreateMode} selectionSlot={selectionSlot} />
               )}
+              {tab === "sanoq" && <Sanoq />}
               {tab === "tarix" && <TovarlarTarixi />}
             </>
           )}

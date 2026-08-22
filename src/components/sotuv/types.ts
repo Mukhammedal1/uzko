@@ -1,4 +1,9 @@
-import type { CustomerType, Product, ReceiptItem } from "@/lib/mock-data";
+import type {
+  CustomerType,
+  PaymentBreakdownRow,
+  Product,
+  ReceiptItem,
+} from "@/lib/mock-data";
 import type { PendingReturnExchange } from "@/components/tovarlar/TovarQaytarish";
 
 export type PriceMode = "retail" | "wholesale";
@@ -26,6 +31,8 @@ export type OneTimeItemInput = {
   note?: string;
 };
 
+export type { PaymentBreakdownRow };
+
 export type FinalizeSaleDetails = {
   customerType: CustomerType;
   customerId?: string;
@@ -36,9 +43,15 @@ export type FinalizeSaleDetails = {
   paymentBreakdown?: {
     cash: number;
     card: number;
+    /** Bank orqali o'tkazma */
+    transfer?: number;
+    /** Elektron hamyon (Click, Payme va h.k.) */
+    wallet?: number;
     currencyAmount: number;
     currencyCode?: string;
     currencyInSom: number;
+    /** To'lov usuli bo'yicha batafsil qatorlar */
+    rows?: PaymentBreakdownRow[];
   };
 };
 

@@ -1,18 +1,31 @@
 import {
   MOCK_CREDIT_CUSTOMERS,
   MOCK_DEBT_PAYMENTS,
+  MOCK_EDIT_HISTORY,
   MOCK_ONE_TIME_ITEMS,
+  MOCK_PRODUCTS,
+  MOCK_PRODUCT_HISTORY,
   MOCK_RECEIPT_DISPATCHES,
   MOCK_RECEIPTS,
   MOCK_REGULAR_CUSTOMERS,
+  MOCK_STOCK_COUNTS,
+  MOCK_STOCK_COUNT_EDITS,
+  MOCK_SUPPLIER_REPORTS,
+  costInSom,
+  nextAgentId,
   type CreditCustomer,
   type CustomerDebtReceipt,
   type CustomerType,
   type DebtPayment,
+  type Product,
   type ReceiptDispatchLog,
   type Receipt,
   type ReceiptItem,
   type RegularCustomer,
+  type StockCount,
+  type StockCountEdit,
+  type StockCountLine,
+  type StockCountScope,
   type SupplierReport,
 } from "@/lib/mock-data";
 
@@ -364,6 +377,326 @@ export function recordSupplierReturn(input: {
   return report;
 }
 
+export type SupplierSource = {
+  enabled: boolean;
+  agentId: string;
+  agentName: string;
+  agentPhone: string;
+  paidAmount: string;
+  note: string;
+  sendBotUpdate: boolean;
+};
+
+/**
+ * Tovar qabuli tarixiga yozuv qo'shadi va agent ko'rsatilgan bo'lsa, unga
+ * qarz sifatida `MOCK_SUPPLIER_REPORTS` ga yozuv qo'shadi.
+ */
+export function recordProductAddition(input: {
+  productName: string;
+  qty: number;
+  unit: string;
+  price: number;
+  costPrice: number;
+  warehouse: string;
+  shelfLocation?: string;
+  addedBy: string;
+  source?: SupplierSource;
+}) {
+  const sourceEnabled = Boolean(input.source?.enabled && input.source.agentName.trim());
+  const totalAmount = input.qty * input.costPrice;
+  const paidAmount = sourceEnabled ? Math.max(0, Number(input.source?.paidAmount) || 0) : undefined;
+  MOCK_PRODUCT_HISTORY.unshift({
+    id: `ph${Date.now()}-${Math.random()}`,
+    date: new Date().toISOString(),
+    addedBy: input.addedBy,
+    productName: input.productName,
+    qty: input.qty,
+    unit: input.unit,
+    price: input.price,
+    costPrice: input.costPrice,
+    warehouse: input.warehouse,
+    shelfLocation: input.shelfLocation,
+    agentName: sourceEnabled ? input.source?.agentName.trim() : undefined,
+    agentId: sourceEnabled ? input.source?.agentId || nextAgentId() : undefined,
+    agentPhone: sourceEnabled ? input.source?.agentPhone.trim() : undefined,
+    paidAmount,
+    remainingDebt: sourceEnabled ? Math.max(0, totalAmount - (paidAmount ?? 0)) : undefined,
+    totalAmount: sourceEnabled ? totalAmount : undefined,
+    note: sourceEnabled ? input.source?.note.trim() : undefined,
+  });
+  if (input.source?.enabled && input.source.agentName.trim()) {
+    MOCK_SUPPLIER_REPORTS.unshift({
+      id: `sr${Date.now()}-${Math.random()}`,
+      date: new Date().toISOString(),
+      addedBy: input.addedBy,
+      agentId: input.source.agentId || nextAgentId(),
+      agentName: input.source.agentName.trim(),
+      agentPhone: input.source.agentPhone.trim(),
+      botEnabled: input.source.sendBotUpdate,
+      items: [
+        { productName: input.productName, qty: input.qty, unit: input.unit, amount: totalAmount },
+      ],
+      totalAmount,
+      paidAmount: paidAmount ?? 0,
+      remainingDebt: Math.max(0, totalAmount - (paidAmount ?? 0)),
+      note: input.source.note.trim(),
+    });
+  }
+}
+
+export type MergeProductsWithAgentInput = {
+  products: Product[];
+  agentId?: string;
+  agentName: string;
+  agentPhone?: string;
+  botEnabled?: boolean;
+  /**
+   * "current-stock" — joriy qoldiq tan narxda hisoblanib, agentga qarz sifatida yoziladi.
+   * "zero-debt" — qarzsiz birlashtiriladi, faqat keyingi qabullardan boshlab qarz hisoblanadi.
+   */
+  mode: "current-stock" | "zero-debt";
+  addedBy: string;
+  note?: string;
+};
+
+/**
+ * Tanlangan tovarlarni bitta agentga bog'laydi. `current-stock` rejimida joriy
+ * qoldiq tan narxi bo'yicha agentga qarz yoziladi; `zero-debt` rejimida qarz
+ * 0 dan boshlanadi — biroq tovar tarixiga agent yozilgani uchun shu tovar
+ * keyingi safar qabul qilinganda (TovarQoshish) agent avtomatik aniqlanib,
+ * o'sha qabuldan boshlab qarz hisoblana boshlaydi.
+ */
+export function mergeProductsWithAgent(input: MergeProductsWithAgentInput) {
+  const date = new Date().toISOString();
+  const agentId = input.agentId || nextAgentId();
+  const agentName = input.agentName.trim();
+  const agentPhone = input.agentPhone?.trim() ?? "";
+  const isDebtMode = input.mode === "current-stock";
+
+  const items: { productName: string; qty: number; unit: string; amount: number }[] = [];
+  let totalAmount = 0;
+
+  input.products.forEach((product) => {
+    const qty = product.vitrinaQty + product.omborQty;
+    const costPrice = costInSom(product);
+    const amount = qty * costPrice;
+    const paidAmount = isDebtMode ? 0 : amount;
+    const remainingDebt = isDebtMode ? amount : 0;
+    totalAmount += amount;
+    items.push({ productName: product.name, qty, unit: product.unit, amount });
+
+    MOCK_PRODUCT_HISTORY.unshift({
+      id: `ph-merge-${Date.now()}-${product.id}`,
+      date,
+      addedBy: input.addedBy,
+      productName: product.name,
+      qty,
+      unit: product.unit,
+      price: product.price,
+      costPrice,
+      warehouse: product.warehouse,
+      shelfLocation: product.shelfLocation,
+      agentName,
+      agentId,
+      agentPhone,
+      paidAmount,
+      remainingDebt,
+      totalAmount: amount,
+      note:
+        input.note?.trim() ||
+        (isDebtMode
+          ? "Joriy qoldiq bo'yicha agentga birlashtirildi"
+          : "0 qarz bilan agentga birlashtirildi"),
+    });
+  });
+
+  const report: SupplierReport = {
+    id: `sr-merge-${Date.now()}`,
+    date,
+    addedBy: input.addedBy,
+    agentId,
+    agentName,
+    agentPhone,
+    botEnabled: Boolean(input.botEnabled),
+    items,
+    totalAmount,
+    paidAmount: isDebtMode ? 0 : totalAmount,
+    remainingDebt: isDebtMode ? totalAmount : 0,
+    note:
+      input.note?.trim() ||
+      (isDebtMode
+        ? "Tovarlar joriy qoldiq bo'yicha agentga birlashtirildi"
+        : "Tovarlar 0 qarz bilan agentga birlashtirildi"),
+  };
+
+  MOCK_SUPPLIER_REPORTS.unshift(report);
+  return report;
+}
+
+export type ApplyStockCountInput = {
+  /** Sessiya boshida `nextStockCountId()` bilan olingan hujjat raqami. */
+  id: string;
+  countedBy: string;
+  scope: StockCountScope;
+  scopeValue?: string;
+  note?: string;
+  lines: StockCountLine[];
+};
+
+/**
+ * Sanoq natijasini qo'llaydi: sanalgan tovarlarning qoldig'ini haqiqiy songa
+ * tenglashtiradi, har bir farq uchun tarixga yozuv qo'yadi va sanoq hujjatini
+ * saqlaydi. `countedQty === null` bo'lgan qatorlar sanalmagan hisoblanadi va
+ * ularga tegilmaydi.
+ */
+export function applyStockCount(input: ApplyStockCountInput): StockCount {
+  const date = new Date().toISOString();
+  const counted = input.lines.filter((line) => line.countedQty !== null);
+
+  counted.forEach((line) => {
+    const product = MOCK_PRODUCTS.find((item) => item.id === line.productId);
+    if (!product) return;
+    const oldQty = product.vitrinaQty;
+    const newQty = Math.max(0, Math.round(line.countedQty ?? 0));
+    if (oldQty === newQty) return;
+
+    product.vitrinaQty = newQty;
+
+    MOCK_EDIT_HISTORY.unshift({
+      id: `eh-sanoq-${Date.now()}-${line.productId}`,
+      date,
+      editedBy: input.countedBy,
+      productName: product.name,
+      oldQty,
+      newQty,
+      unit: product.unit,
+      action: "sanoq",
+      note: input.note?.trim() || undefined,
+      changes: [{ field: "qty", label: "Miqdor", oldValue: oldQty, newValue: newQty }],
+    });
+  });
+
+  const record: StockCount = {
+    id: input.id,
+    date,
+    countedBy: input.countedBy,
+    scope: input.scope,
+    scopeValue: input.scopeValue,
+    note: input.note?.trim() || undefined,
+    lines: input.lines,
+    ...stockCountTotals(input.lines),
+  };
+
+  MOCK_STOCK_COUNTS.unshift(record);
+  return record;
+}
+
+/** Sanoq qatorlaridan jamlanma ko'rsatkichlarni hisoblaydi. */
+export function stockCountTotals(lines: StockCountLine[]) {
+  const counted = lines.filter((line) => line.countedQty !== null);
+  const shortage = counted.filter((line) => line.diff < 0);
+  const surplus = counted.filter((line) => line.diff > 0);
+  const shortageAmount = shortage.reduce((sum, line) => sum + Math.abs(line.diffAmount), 0);
+  const surplusAmount = surplus.reduce((sum, line) => sum + line.diffAmount, 0);
+
+  return {
+    totalLines: lines.length,
+    countedLines: counted.length,
+    matchedLines: counted.filter((line) => line.diff === 0).length,
+    shortageQty: shortage.reduce((sum, line) => sum + Math.abs(line.diff), 0),
+    surplusQty: surplus.reduce((sum, line) => sum + line.diff, 0),
+    shortageAmount,
+    surplusAmount,
+    netAmount: surplusAmount - shortageAmount,
+    countedValue: counted.reduce((sum, line) => sum + line.systemQty * line.costPrice, 0),
+  };
+}
+
+export type EditStockCountInput = {
+  record: StockCount;
+  editedBy: string;
+  note?: string;
+  /** productId -> yangi haqiqiy son. `null` — sanalmagan holatiga qaytarish. */
+  countedQtys: Record<string, number | null>;
+};
+
+/**
+ * Yakunlangan sanoqni tuzatadi. Tovar qoldig'i **farq qadar** siljitiladi
+ * (mutlaq qiymatga tenglashtirilmaydi), shuning uchun sanoqdan keyin bo'lgan
+ * savdolar yo'qolmaydi. Har bir tuzatish alohida tarix yozuvi bo'lib qoladi.
+ */
+export function editStockCount(input: EditStockCountInput): StockCountEdit | null {
+  const { record } = input;
+  const date = new Date().toISOString();
+  const changes: StockCountEdit["changes"] = [];
+
+  record.lines.forEach((line) => {
+    if (!(line.productId in input.countedQtys)) return;
+    const raw = input.countedQtys[line.productId];
+    const newCounted = raw === null ? null : Math.max(0, Math.round(raw));
+    const oldCounted = line.countedQty;
+    if (newCounted === oldCounted) return;
+
+    // Qoldiqni faqat farq qadar siljitamiz.
+    const stockDelta = (newCounted ?? line.systemQty) - (oldCounted ?? line.systemQty);
+    const product = MOCK_PRODUCTS.find((item) => item.id === line.productId);
+
+    if (product && stockDelta !== 0) {
+      const oldQty = product.vitrinaQty;
+      product.vitrinaQty = Math.max(0, oldQty + stockDelta);
+      MOCK_EDIT_HISTORY.unshift({
+        id: `eh-sanoq-edit-${Date.now()}-${line.productId}`,
+        date,
+        editedBy: input.editedBy,
+        productName: product.name,
+        oldQty,
+        newQty: product.vitrinaQty,
+        unit: product.unit,
+        action: "sanoq",
+        note: `${record.id} tahrirlandi${input.note?.trim() ? ` · ${input.note.trim()}` : ""}`,
+        changes: [
+          { field: "qty", label: "Miqdor", oldValue: oldQty, newValue: product.vitrinaQty },
+        ],
+      });
+    }
+
+    changes.push({
+      productId: line.productId,
+      productName: line.productName,
+      unit: line.unit,
+      oldCountedQty: oldCounted,
+      newCountedQty: newCounted,
+      stockDelta,
+      amountDelta: stockDelta * line.costPrice,
+    });
+
+    line.countedQty = newCounted;
+    line.diff = newCounted === null ? 0 : newCounted - line.systemQty;
+    line.diffAmount = line.diff * line.costPrice;
+  });
+
+  if (changes.length === 0) return null;
+
+  const oldNetAmount = record.netAmount;
+  Object.assign(record, stockCountTotals(record.lines));
+  record.editedAt = date;
+  record.editCount = (record.editCount ?? 0) + 1;
+
+  const edit: StockCountEdit = {
+    id: `SNE-${Date.now()}`,
+    stockCountId: record.id,
+    date,
+    editedBy: input.editedBy,
+    note: input.note?.trim() || undefined,
+    oldNetAmount,
+    newNetAmount: record.netAmount,
+    changes,
+  };
+
+  MOCK_STOCK_COUNT_EDITS.unshift(edit);
+  return edit;
+}
+
 export function dispatchReceiptMessage(input: {
   recipientCategory: ReceiptDispatchLog["recipientCategory"];
   recipientId?: string;
@@ -412,6 +745,17 @@ function nextReceiptId() {
     return Number.isFinite(value) ? Math.max(largest, value) : largest;
   }, 100000);
   return `CHK-${max + 1}`;
+}
+
+/**
+ * Yangi sanoq hujjati uchun unikal raqam: `SN-YYMMDD-NN`.
+ * Sana prefiksi tufayli raqamlar kunlar orasida takrorlanmaydi, NN esa
+ * o'sha kun ichidagi tartib raqami.
+ */
+export function nextStockCountId(now = new Date()) {
+  const prefix = `SN-${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+  const todayCount = MOCK_STOCK_COUNTS.filter((record) => record.id.startsWith(prefix)).length;
+  return `${prefix}-${String(todayCount + 1).padStart(2, "0")}`;
 }
 
 function nextOneTimeHistoryId() {

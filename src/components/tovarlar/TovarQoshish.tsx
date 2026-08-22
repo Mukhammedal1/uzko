@@ -2,6 +2,7 @@ import * as React from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -18,27 +19,39 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Barcode, Plus, Check, ChevronDown, Trash2 } from "lucide-react";
+import { Barcode, Plus, Check, ChevronDown, Trash2, Database } from "lucide-react";
 import {
   MOCK_PRODUCTS,
   MOCK_RATES,
   MOCK_PRODUCT_HISTORY,
-  MOCK_SUPPLIER_REPORTS,
   formatSom,
   costInSom,
+  getAgentsList,
+  nextAgentId,
 } from "@/lib/mock-data";
 import type { Currency, Product } from "@/lib/mock-data";
 import { toast } from "sonner";
-import { useApp } from "@/lib/app-context";
-import { dispatchSupplierReceipt } from "@/lib/data-actions";
+import { useApp, type UnitEntry } from "@/lib/app-context";
+import {
+  dispatchSupplierReceipt,
+  recordProductAddition,
+  type SupplierSource,
+} from "@/lib/data-actions";
 import type { ProductCreateMode } from "@/routes/tovarlar";
 import { cn, formatNumberInput, parseNumberInput } from "@/lib/utils";
+import {
+  PrintNewBarcodesDialog,
+  type PrintBarcodeItem,
+} from "@/components/tovarlar/PrintNewBarcodesDialog";
+import { joinBarcodes, makeUniqueBarcode, splitBarcodes } from "@/lib/barcode-utils";
 
 type NewProductRow = {
   id: string;
   existingProductId?: string;
   name: string;
   barcode: string;
+  /** true — shtrix kod tizim tomonidan avtomatik yaratilgan; false — foydalanuvchi o'zi kiritgan/tanlagan */
+  barcodeAuto: boolean;
   qty: string;
   costCurrency: Currency;
   costPrice: string;
@@ -58,20 +71,9 @@ type NewProductRow = {
 
 type PriceModeDefault = { mode: "manual" | "percent"; percent: string };
 
-const BOX_UNIT = "dona | karobka";
-function isBoxUnit(unit: string) {
-  return unit === BOX_UNIT;
+function isBoxUnit(unit: string, units: UnitEntry[]) {
+  return units.find((u) => u.name === unit)?.isBoxUnit === true;
 }
-
-type SupplierSource = {
-  enabled: boolean;
-  agentId: string;
-  agentName: string;
-  agentPhone: string;
-  paidAmount: string;
-  note: string;
-  sendBotUpdate: boolean;
-};
 
 const makeNewProductRow = (
   unit = "dona",
@@ -82,6 +84,7 @@ const makeNewProductRow = (
   id: `row-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
   name: "",
   barcode: "",
+  barcodeAuto: true,
   qty: "",
   costCurrency: "UZS",
   costPrice: "",
@@ -158,68 +161,12 @@ function makeProductCode(name: string) {
   );
 }
 
-function makeBarcode() {
-  return "8690" + String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, "0");
-}
-
-function makeUniqueBarcode(used: Iterable<string> = []) {
-  const usedSet = new Set(
-    [
-      ...MOCK_PRODUCTS.flatMap((product) => splitBarcodes(product.barcode)),
-      ...Array.from(used).flatMap((value) => splitBarcodes(value)),
-    ].filter(Boolean),
-  );
-  let barcode = makeBarcode();
-  while (usedSet.has(barcode)) barcode = makeBarcode();
-  return barcode;
-}
-
-function splitBarcodes(value: string) {
-  return value
-    .split("|")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function joinBarcodes(values: string[]) {
-  return values
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .join(" | ");
-}
-
 function makeAgentId() {
-  const next = MOCK_SUPPLIER_REPORTS.length + 1;
-  return `AG-${String(next).padStart(4, "0")}`;
+  return nextAgentId();
 }
 
 function getAgents() {
-  const map = new Map<
-    string,
-    {
-      id: string;
-      name: string;
-      phone: string;
-      botEnabled: boolean;
-      totalAmount: number;
-      paidAmount: number;
-      remainingDebt: number;
-    }
-  >();
-  MOCK_SUPPLIER_REPORTS.forEach((row) => {
-    if (!row.agentId) return;
-    const current = map.get(row.agentId);
-    map.set(row.agentId, {
-      id: row.agentId,
-      name: row.agentName || "Nomsiz agent",
-      phone: row.agentPhone || "",
-      botEnabled: (current?.botEnabled ?? false) || Boolean(row.botEnabled),
-      totalAmount: (current?.totalAmount ?? 0) + row.totalAmount,
-      paidAmount: (current?.paidAmount ?? 0) + row.paidAmount,
-      remainingDebt: (current?.remainingDebt ?? 0) + row.remainingDebt,
-    });
-  });
-  return Array.from(map.values());
+  return getAgentsList();
 }
 
 function normalizeSearchValue(value: string) {
@@ -233,67 +180,16 @@ function latestProductSource(productName: string) {
   );
 }
 
-function recordProductAddition(input: {
-  productName: string;
-  qty: number;
-  unit: string;
-  price: number;
-  costPrice: number;
-  warehouse: string;
-  addedBy: string;
-  source?: SupplierSource;
-}) {
-  const sourceEnabled = Boolean(input.source?.enabled && input.source.agentName.trim());
-  const totalAmount = input.qty * input.costPrice;
-  const paidAmount = sourceEnabled ? Math.max(0, Number(input.source?.paidAmount) || 0) : undefined;
-  MOCK_PRODUCT_HISTORY.unshift({
-    id: `ph${Date.now()}-${Math.random()}`,
-    date: new Date().toISOString(),
-    addedBy: input.addedBy,
-    productName: input.productName,
-    qty: input.qty,
-    unit: input.unit,
-    price: input.price,
-    costPrice: input.costPrice,
-    warehouse: input.warehouse,
-    agentName: sourceEnabled ? input.source?.agentName.trim() : undefined,
-    agentId: sourceEnabled ? input.source?.agentId || makeAgentId() : undefined,
-    agentPhone: sourceEnabled ? input.source?.agentPhone.trim() : undefined,
-    paidAmount,
-    remainingDebt: sourceEnabled ? Math.max(0, totalAmount - (paidAmount ?? 0)) : undefined,
-    totalAmount: sourceEnabled ? totalAmount : undefined,
-    note: sourceEnabled ? input.source?.note.trim() : undefined,
-  });
-  if (input.source?.enabled && input.source.agentName.trim()) {
-    MOCK_SUPPLIER_REPORTS.unshift({
-      id: `sr${Date.now()}-${Math.random()}`,
-      date: new Date().toISOString(),
-      addedBy: input.addedBy,
-      agentId: input.source.agentId || makeAgentId(),
-      agentName: input.source.agentName.trim(),
-      agentPhone: input.source.agentPhone.trim(),
-      botEnabled: input.source.sendBotUpdate,
-      items: [
-        { productName: input.productName, qty: input.qty, unit: input.unit, amount: totalAmount },
-      ],
-      totalAmount,
-      paidAmount: paidAmount ?? 0,
-      remainingDebt: Math.max(0, totalAmount - (paidAmount ?? 0)),
-      note: input.source.note.trim(),
-    });
-  }
-}
-
 export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () => void }) {
   return <CreateNew onDone={onDone} />;
 }
 
 function CreateNew({ onDone }: { onDone: () => void }) {
   const { settings } = useApp();
-  const defaultWarehouse = settings.warehouses[0] ?? "Asosiy ombor";
+  const defaultWarehouse = settings.warehouses[0]?.name ?? "Asosiy ombor";
   const agents = getAgents();
   const [source, setSource] = React.useState<SupplierSource>({
-    enabled: false,
+    enabled: true,
     agentId: makeAgentId(),
     agentName: "",
     agentPhone: "",
@@ -310,12 +206,14 @@ function CreateNew({ onDone }: { onDone: () => void }) {
     percent: "",
   });
   const [rows, setRows] = React.useState<NewProductRow[]>(() => [
-    makeNewProductRow(settings.units[0] ?? "dona", defaultWarehouse),
+    makeNewProductRow(settings.units[0]?.name ?? "dona", defaultWarehouse),
   ]);
   const [confirmOpen, setConfirmOpen] = React.useState(false);
+  const [printDialogOpen, setPrintDialogOpen] = React.useState(false);
   const [showValidation, setShowValidation] = React.useState(false);
   const [deductFromCashbox, setDeductFromCashbox] = React.useState(true);
   const [showNoteField, setShowNoteField] = React.useState(false);
+  const [bulkSetupMode, setBulkSetupMode] = React.useState(false);
   const selectedAgent = React.useMemo(
     () => agents.find((agent) => agent.id === source.agentId),
     [agents, source.agentId],
@@ -337,7 +235,7 @@ function CreateNew({ onDone }: { onDone: () => void }) {
     setRows((current) => [
       ...current,
       makeNewProductRow(
-        settings.units[0] ?? "dona",
+        settings.units[0]?.name ?? "dona",
         defaultWarehouse,
         priceDefault,
         wholesaleDefault,
@@ -354,7 +252,28 @@ function CreateNew({ onDone }: { onDone: () => void }) {
     const used = rows.filter((item) => item.id !== id).map((item) => item.barcode);
     const nextCode = makeUniqueBarcode(used);
     const currentCodes = splitBarcodes(row?.barcode ?? "");
-    updateRow(id, { barcode: joinBarcodes([...currentCodes, nextCode]) });
+    updateRow(id, {
+      barcode: joinBarcodes([...currentCodes, nextCode]),
+      barcodeAuto: currentCodes.length === 0 ? true : (row?.barcodeAuto ?? true),
+    });
+  };
+
+  /** "Shtrix kod chop etish" bosilganda — bo'sh qatorlarga oldindan shtrix kod tayinlaydi,
+   * shunda chop etilgan kod keyinchalik saqlanganda ("Qabul qilish") o'zgarmay saqlanadi. */
+  const ensureBarcodesAssigned = () => {
+    const usedBarcodes = new Set(
+      MOCK_PRODUCTS.flatMap((product) => splitBarcodes(product.barcode)),
+    );
+    rows.forEach((row) => splitBarcodes(row.barcode).forEach((code) => usedBarcodes.add(code)));
+    setRows((current) =>
+      current.map((row) => {
+        if (!row.name.trim() || !(parseNumberInput(row.qty) > 0)) return row;
+        if (splitBarcodes(row.barcode).length > 0) return row;
+        const code = makeUniqueBarcode(usedBarcodes);
+        usedBarcodes.add(code);
+        return { ...row, barcode: code, barcodeAuto: true };
+      }),
+    );
   };
 
   const removeBarcodeChip = (id: string, code: string) => {
@@ -370,6 +289,7 @@ function CreateNew({ onDone }: { onDone: () => void }) {
       existingProductId: product.id,
       name: product.name,
       barcode: product.barcode,
+      barcodeAuto: false,
       costCurrency: currency,
       costPrice: formatNumberInput(product.costPrice),
       saleCurrency: currency,
@@ -380,7 +300,7 @@ function CreateNew({ onDone }: { onDone: () => void }) {
       wholesalePricePercent: "",
       wholesalePrice: somToMoneyInput(product.wholesalePrice, currency),
       unit: product.unit,
-      warehouse: settings.warehouses.includes(product.warehouse)
+      warehouse: settings.warehouses.some((w) => w.name === product.warehouse)
         ? product.warehouse
         : defaultWarehouse,
       shelfLocation: product.shelfLocation ?? "",
@@ -403,7 +323,7 @@ function CreateNew({ onDone }: { onDone: () => void }) {
 
   const validRows = rows
     .map((row) => {
-      const boxUnit = isBoxUnit(row.unit);
+      const boxUnit = isBoxUnit(row.unit, settings.units);
       const perBoxNumber = Math.max(0, parseNumberInput(row.perBox) || 0);
       const enteredQty = Math.max(0, parseNumberInput(row.qty) || 0);
       return {
@@ -416,39 +336,55 @@ function CreateNew({ onDone }: { onDone: () => void }) {
         costNumber: Math.max(0, parseNumberInput(row.costPrice) || 0),
         priceSom: moneyInputToSom(row.price, row.saleCurrency),
         wholesalePriceSom: moneyInputToSom(row.wholesalePrice, row.saleCurrency),
-        unitValue: boxUnit ? "dona" : ((row.unit.trim() || settings.units[0]) ?? "dona"),
+        unitValue: boxUnit ? "dona" : row.unit.trim() || settings.units[0]?.name || "dona",
         barcodeValue: joinBarcodes(splitBarcodes(row.barcode)),
       };
     })
     .filter(
-      (row) => row.name && row.qtyNumber > 0 && (!isBoxUnit(row.unit) || row.perBoxNumber > 0),
+      (row) =>
+        row.name &&
+        row.qtyNumber > 0 &&
+        (!isBoxUnit(row.unit, settings.units) || row.perBoxNumber > 0),
     );
+
+  const printItems: PrintBarcodeItem[] = validRows.map((row) => {
+    const existingProduct = row.existingProductId
+      ? MOCK_PRODUCTS.find((product) => product.id === row.existingProductId)
+      : undefined;
+    return {
+      key: row.id,
+      product: {
+        name: row.name,
+        barcode: row.barcodeValue,
+        customCode: existingProduct?.customCode ?? "",
+        price: row.priceSom,
+        shelfLocation: row.shelfLocationValue,
+      },
+      qtyAdded: row.qtyNumber,
+      barcodeAuto: row.barcodeAuto,
+    };
+  });
+
+  const openPrintDialog = () => {
+    ensureBarcodesAssigned();
+    setPrintDialogOpen(true);
+  };
 
   const totalCostSom = validRows.reduce(
     (sum, row) => sum + row.qtyNumber * row.costNumber * (MOCK_RATES[row.costCurrency] ?? 1),
     0,
   );
+  const totalSaleSom = validRows.reduce((sum, row) => sum + row.qtyNumber * row.priceSom, 0);
   const openConfirm = () => {
     setShowValidation(true);
     if (validRows.length === 0) return toast.error("Kamida bitta tovar nomi va sonini kiriting");
-    if (!source.enabled) {
-      setSource({
-        enabled: false,
-        agentId: makeAgentId(),
-        agentName: "",
-        agentPhone: "",
-        paidAmount: "0",
-        note: "",
-        sendBotUpdate: true,
-      });
-    }
     setConfirmOpen(true);
   };
 
   const finalizeReceiving = () => {
-    const totalPaid = Math.max(0, parseNumberInput(source.paidAmount) || 0);
-    const sourceEnabled = Boolean(source.enabled && source.agentName.trim());
-    if (source.enabled && !source.agentName.trim()) {
+    const totalPaid = bulkSetupMode ? 0 : Math.max(0, parseNumberInput(source.paidAmount) || 0);
+    const sourceEnabled = !bulkSetupMode && Boolean(source.enabled && source.agentName.trim());
+    if (!bulkSetupMode && source.enabled && !source.agentName.trim()) {
       toast.error("Agent ismini kiriting yoki hech qisi yo'q deb belgilang");
       return;
     }
@@ -495,7 +431,7 @@ function CreateNew({ onDone }: { onDone: () => void }) {
       newProd.warehouse = rowWarehouse;
       newProd.shelfLocation = row.shelfLocationValue;
       newProd.preventBelowCost = row.preventBelowCost;
-      if (isBoxUnit(row.unit)) newProd.perBox = row.perBoxNumber;
+      if (isBoxUnit(row.unit, settings.units)) newProd.perBox = row.perBoxNumber;
       newProd.omborQty += row.qtyNumber;
       if (!existingProduct) MOCK_PRODUCTS.push(newProd);
 
@@ -552,8 +488,8 @@ function CreateNew({ onDone }: { onDone: () => void }) {
 
     setConfirmOpen(false);
     setShowValidation(false);
-    toast.success("Mahsulotlar qabul qilindi", {
-      description: `${validRows.length} xil mahsulot qabul qilindi`,
+    toast.success(bulkSetupMode ? "Mahsulotlar bazaga qo'shildi" : "Mahsulotlar qabul qilindi", {
+      description: `${validRows.length} xil mahsulot ${bulkSetupMode ? "bazaga kiritildi" : "qabul qilindi"}`,
     });
     onDone();
   };
@@ -562,10 +498,24 @@ function CreateNew({ onDone }: { onDone: () => void }) {
     <div className="flex h-full min-h-0 flex-col gap-3">
       <section className="flex min-h-0 flex-1 flex-col rounded-lg border bg-card shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b p-3">
-          <div>
-            <div className="text-sm font-semibold">Mahsulot qabul qilish</div>
-            <div className="text-[11px] text-muted-foreground">
-              Qatorlar ko'payganda faqat shu ro'yxat scroll qiladi.
+          <div className="flex flex-wrap items-center gap-3">
+            <div>
+              <div className="text-sm font-semibold">Mahsulot qabul qilish</div>
+              <div className="text-[11px] text-muted-foreground">
+                Qatorlar ko'payganda faqat shu ro'yxat scroll qiladi.
+              </div>
+            </div>
+            <div
+              className="flex h-8 items-center gap-1.5 rounded-md border bg-muted/30 px-2 text-[11px] font-semibold text-muted-foreground"
+              title="ERP tizimini ilk marta sozlab, mahsulotlarni bazaga kiritib olish uchun — agent va kassa savollarisiz, faqat son va summalar"
+            >
+              <Database className="h-3.5 w-3.5" />
+              <span className="hidden xl:inline">Bazani shakllantirish</span>
+              <Switch
+                checked={bulkSetupMode}
+                onCheckedChange={setBulkSetupMode}
+                className="ml-0.5"
+              />
             </div>
           </div>
           <Button onClick={openConfirm} className="h-8 gap-2 text-xs">
@@ -580,7 +530,7 @@ function CreateNew({ onDone }: { onDone: () => void }) {
               const productSuggestions = productSuggestionsFor(row);
               const nameInvalid = showValidation && !row.name.trim();
               const qtyInvalid = showValidation && !(parseNumberInput(row.qty) > 0);
-              const boxUnit = isBoxUnit(row.unit);
+              const boxUnit = isBoxUnit(row.unit, settings.units);
               const perBoxInvalid =
                 showValidation && boxUnit && !(parseNumberInput(row.perBox) > 0);
               return (
@@ -696,7 +646,7 @@ function CreateNew({ onDone }: { onDone: () => void }) {
 
                       <Field label="Birligi">
                         <Select
-                          value={row.unit || settings.units[0] || "dona"}
+                          value={row.unit || settings.units[0]?.name || "dona"}
                           onValueChange={(value) => updateRow(row.id, { unit: value })}
                         >
                           <SelectTrigger className="h-9 text-xs">
@@ -704,8 +654,8 @@ function CreateNew({ onDone }: { onDone: () => void }) {
                           </SelectTrigger>
                           <SelectContent>
                             {settings.units.map((unit) => (
-                              <SelectItem key={unit} value={unit}>
-                                {unit}
+                              <SelectItem key={unit.id} value={unit.name}>
+                                {unit.name}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -945,7 +895,9 @@ function CreateNew({ onDone }: { onDone: () => void }) {
                           <div className="flex gap-1">
                             <Input
                               value={row.barcode}
-                              onChange={(e) => updateRow(row.id, { barcode: e.target.value })}
+                              onChange={(e) =>
+                                updateRow(row.id, { barcode: e.target.value, barcodeAuto: false })
+                              }
                               placeholder="Shtrix kod"
                               className="h-9 min-w-0 text-xs"
                             />
@@ -973,8 +925,8 @@ function CreateNew({ onDone }: { onDone: () => void }) {
                           </SelectTrigger>
                           <SelectContent>
                             {settings.warehouses.map((w) => (
-                              <SelectItem key={w} value={w}>
-                                {w}
+                              <SelectItem key={w.id} value={w.name}>
+                                {w.name}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -996,8 +948,8 @@ function CreateNew({ onDone }: { onDone: () => void }) {
                           <SelectContent>
                             <SelectItem value="__empty__">Tanlanmagan</SelectItem>
                             {settings.shelfLocations.map((loc) => (
-                              <SelectItem key={loc} value={loc}>
-                                {loc}
+                              <SelectItem key={loc.id} value={loc.name}>
+                                {loc.name}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -1027,53 +979,33 @@ function CreateNew({ onDone }: { onDone: () => void }) {
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Qabul ma'lumotlari</DialogTitle>
+            <DialogTitle>{bulkSetupMode ? "Bazani shakllantirish" : "Qabul ma'lumotlari"}</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4">
             <div className="rounded-lg border bg-muted/10 p-3 text-center">
-              <div className="text-sm text-muted-foreground">
-                {validRows.length} ta mahsulot
-              </div>
-              <div className="text-xl font-bold">{formatSom(totalCostSom)}</div>
+              <div className="text-sm text-muted-foreground">{validRows.length} ta mahsulot</div>
+              {bulkSetupMode ? (
+                <div className="mt-2 grid grid-cols-2 gap-2 text-left">
+                  <div className="rounded-md border bg-card p-2">
+                    <div className="text-[11px] text-muted-foreground">Tan narx bo'yicha</div>
+                    <div className="text-base font-bold">{formatSom(totalCostSom)}</div>
+                  </div>
+                  <div className="rounded-md border bg-card p-2">
+                    <div className="text-[11px] text-muted-foreground">Sotuv narxi bo'yicha</div>
+                    <div className="text-base font-bold">{formatSom(totalSaleSom)}</div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-xl font-bold">{formatSom(totalCostSom)}</div>
+              )}
             </div>
 
+            {!bulkSetupMode && (
             <div>
               <div className="mb-1.5 text-xs font-medium text-muted-foreground">
                 Kimdan qabul qilindi?
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  type="button"
-                  variant={!source.enabled ? "default" : "outline"}
-                  onClick={() =>
-                    setSource({
-                      enabled: false,
-                      agentId: makeAgentId(),
-                      agentName: "",
-                      agentPhone: "",
-                      paidAmount: "0",
-                      note: "",
-                      sendBotUpdate: true,
-                    })
-                  }
-                >
-                  Agentsiz
-                </Button>
-                <Button
-                  type="button"
-                  variant={source.enabled ? "default" : "outline"}
-                  onClick={() => {
-                    if (source.enabled) return;
-                    setSource((current) => ({ ...current, enabled: true }));
-                  }}
-                >
-                  Agent tanlash
-                </Button>
-              </div>
-            </div>
-
-            {source.enabled && (
               <div className="space-y-3 rounded-lg border p-3">
                 <div>
                   <Label className="mb-1 block text-xs">Agent</Label>
@@ -1169,28 +1101,41 @@ function CreateNew({ onDone }: { onDone: () => void }) {
                   </div>
                 </div>
               </div>
+            </div>
             )}
 
-            {showNoteField ? (
-              <div>
-                <Label className="mb-1 block text-xs">Izoh</Label>
-                <Input
-                  value={source.note}
-                  onChange={(e) => setSource({ ...source, note: e.target.value })}
-                  placeholder="Ixtiyoriy izoh"
-                  className="h-9 text-sm"
-                  autoFocus
-                />
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setShowNoteField(true)}
-                className="text-xs font-medium text-primary hover:underline"
-              >
-                + Izoh qo'shish
-              </button>
-            )}
+            {!bulkSetupMode &&
+              (showNoteField ? (
+                <div>
+                  <Label className="mb-1 block text-xs">Izoh</Label>
+                  <Input
+                    value={source.note}
+                    onChange={(e) => setSource({ ...source, note: e.target.value })}
+                    placeholder="Ixtiyoriy izoh"
+                    className="h-9 text-sm"
+                    autoFocus
+                  />
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowNoteField(true)}
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  + Izoh qo'shish
+                </button>
+              ))}
+
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full gap-2"
+              onClick={openPrintDialog}
+              disabled={validRows.length === 0}
+            >
+              <Barcode className="h-4 w-4" />
+              Shtrix kod chop etish
+            </Button>
           </div>
 
           <DialogFooter>
@@ -1201,11 +1146,17 @@ function CreateNew({ onDone }: { onDone: () => void }) {
               className="bg-blue-600 text-white hover:bg-blue-700"
               onClick={finalizeReceiving}
             >
-              Qabul qilish ({formatSom(totalCostSom)})
+              {bulkSetupMode ? `Saqlash (${validRows.length} ta)` : `Qabul qilish (${formatSom(totalCostSom)})`}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <PrintNewBarcodesDialog
+        open={printDialogOpen}
+        onOpenChange={setPrintDialogOpen}
+        items={printItems}
+      />
     </div>
   );
 }

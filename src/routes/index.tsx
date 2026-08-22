@@ -19,15 +19,7 @@ import type {
 import { useApp } from "@/lib/app-context";
 import { addSaleReceipt, dispatchRegularSaleReceipt } from "@/lib/data-actions";
 import type { Product } from "@/lib/mock-data";
-import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   finalizePendingReturnExchange,
   PENDING_RETURN_EXCHANGE_KEY,
@@ -278,6 +270,9 @@ function SotuvchiPage() {
             quickAddToCart={settings.quickAddToCart}
             onToggleQuickAddToCart={(checked) => updateSettings({ quickAddToCart: checked })}
             currency={active.currency}
+            currencies={settings.currencies}
+            onChangeCurrency={(code) => updateActive((s) => ({ ...s, currency: code }))}
+            onChangePriceMode={(mode) => updateActive((s) => ({ ...s, priceMode: mode }))}
           />
         </section>
 
@@ -292,46 +287,6 @@ function SotuvchiPage() {
       </main>
 
       <BottomBar
-        afterCalculatorSlot={
-          <div className="flex items-center gap-1.5">
-            <Select
-              value={active.currency}
-              onValueChange={(code) => updateActive((s) => ({ ...s, currency: code }))}
-            >
-              <SelectTrigger className="h-7 w-[86px] px-2 text-[11px] font-bold">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {settings.currencies.map((code) => (
-                  <SelectItem key={code} value={code}>
-                    {code}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <div className="flex items-center rounded-md border bg-muted/30 p-1">
-              <Button
-                type="button"
-                size="sm"
-                variant={active.priceMode === "retail" ? "default" : "ghost"}
-                className="h-7 px-2 text-[11px]"
-                onClick={() => updateActive((s) => ({ ...s, priceMode: "retail" }))}
-              >
-                Oddiy
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant={active.priceMode === "wholesale" ? "default" : "ghost"}
-                className="h-7 px-2 text-[11px]"
-                onClick={() => updateActive((s) => ({ ...s, priceMode: "wholesale" }))}
-              >
-                Optom
-              </Button>
-            </div>
-          </div>
-        }
         middleSlot={
           <SaleTabsBar
             sales={sales.map((s) => ({ id: s.id, index: s.index, itemCount: s.items.length }))}

@@ -99,6 +99,9 @@ export const TRANSLATIONS: Record<Lang, Record<string, string>> = {
     supplier_payment_expense: "Agentlarga to'lov",
     agent_id: "Agent ID",
     shelf_location: "Polka raqami",
+    stock_count: "Sanoq",
+    stock_counted: "Sanoq qilindi",
+    boshqaruv: "Boshqaruv",
   },
   uz_cyr: {
     sotuv: "Сотув",
@@ -194,6 +197,9 @@ export const TRANSLATIONS: Record<Lang, Record<string, string>> = {
     supplier_payment_expense: "Агентларга тўлов",
     agent_id: "Агент ID",
     shelf_location: "Полка рақами",
+    stock_count: "Саноқ",
+    stock_counted: "Саноқ қилинди",
+    boshqaruv: "Бошқарув",
   },
   ru: {
     sotuv: "Продажа",
@@ -289,6 +295,9 @@ export const TRANSLATIONS: Record<Lang, Record<string, string>> = {
     supplier_payment_expense: "Оплата агентам",
     agent_id: "ID агента",
     shelf_location: "Номер полки",
+    stock_count: "Ревизия",
+    stock_counted: "Ревизия проведена",
+    boshqaruv: "Управление",
   },
   en: {
     sotuv: "Sales",
@@ -384,12 +393,27 @@ export const TRANSLATIONS: Record<Lang, Record<string, string>> = {
     supplier_payment_expense: "Supplier payments",
     agent_id: "Agent ID",
     shelf_location: "Shelf Number",
+    stock_count: "Stock count",
+    stock_counted: "Stock counted",
+    boshqaruv: "Management",
   },
 };
 
 // ─── Device / Qurilma ────────────────────────────────────────────────────────
 
-export type Permission = "sotuv" | "kassa" | "tovarlar" | "sozlamalar";
+export type PermissionKey =
+  | "sotuv.create"
+  | "sotuv.view"
+  | "kassa.view"
+  | "kassa.close"
+  | "kassa.withdraw"
+  | "tovarlar.view"
+  | "tovarlar.create"
+  | "tovarlar.edit"
+  | "nasiya.view"
+  | "nasiya.close"
+  | "hisobotlar.view"
+  | "boshqaruv.manage";
 
 export type Device = {
   id: string;
@@ -398,13 +422,25 @@ export type Device = {
   password?: string;
   model?: string;
   lastConnectedAt?: string;
-  permissions: Permission[];
+  permissions: PermissionKey[];
+  employeeId?: string;
+  active: boolean;
   isMain: boolean;
 };
+
+// ─── Spravochniklar ─────────────────────────────────────────────────────────
+
+export type WarehouseEntry = { id: string; name: string };
+export type ExpenseCategoryEntry = { id: string; name: string; note?: string };
+export type ShelfLocationEntry = { id: string; name: string; warehouse: string };
+export type UnitEntry = { id: string; name: string; abbr: string; isBoxUnit?: boolean };
 
 // ─── App State ───────────────────────────────────────────────────────────────
 
 export type Theme = "light" | "dark";
+
+export type ReceiptWidth = "58" | "80";
+export type ReceiptFontSize = "small" | "normal" | "large";
 
 export type ReceiptSettings = {
   storeName: string;
@@ -412,6 +448,14 @@ export type ReceiptSettings = {
   social: string;
   extraNote: string;
   showProductCode: boolean;
+  showLogo: boolean;
+  showAddress: boolean;
+  address: string;
+  showPhone: boolean;
+  showCashier: boolean;
+  showQr: boolean;
+  width: ReceiptWidth;
+  fontSize: ReceiptFontSize;
 };
 
 export type AccessNotification = {
@@ -436,11 +480,11 @@ export type AppSettings = {
   devices: Device[];
   currentDeviceId: string;
   receiptSettings: ReceiptSettings;
-  warehouses: string[];
+  warehouses: WarehouseEntry[];
   currencies: string[];
-  expenseCategories: string[];
-  units: string[];
-  shelfLocations: string[];
+  expenseCategories: ExpenseCategoryEntry[];
+  units: UnitEntry[];
+  shelfLocations: ShelfLocationEntry[];
   quickAddToCart: boolean;
   labelPrintSettings?: {
     receiptMode: boolean;
@@ -473,22 +517,50 @@ const DEFAULT_SETTINGS: AppSettings = {
     social: "",
     extraNote: "Bu chek faqat narxlarni solishtirish uchun.",
     showProductCode: true,
+    showLogo: true,
+    showAddress: false,
+    address: "",
+    showPhone: true,
+    showCashier: true,
+    showQr: false,
+    width: "80",
+    fontSize: "normal",
   },
-  warehouses: ["Asosiy ombor", "Vitrina ombor", "Sovutgich", "Sabzavot ombor", "Meva ombor"],
+  warehouses: [
+    { id: "wh-1", name: "Asosiy ombor" },
+    { id: "wh-2", name: "Vitrina ombor" },
+    { id: "wh-3", name: "Sovutgich" },
+    { id: "wh-4", name: "Sabzavot ombor" },
+    { id: "wh-5", name: "Meva ombor" },
+  ],
   currencies: ["UZS", "USD", "RUB", "EUR"],
   expenseCategories: [
-    "Tushlik",
-    "Oylik",
-    "Avans",
-    "Premya",
-    "Remont",
-    "Tovar",
-    "Kommunal",
-    "Agentlarga to'lov",
-    "Boshqa",
+    { id: "ec-1", name: "Tushlik" },
+    { id: "ec-2", name: "Oylik" },
+    { id: "ec-3", name: "Avans" },
+    { id: "ec-4", name: "Premya" },
+    { id: "ec-5", name: "Remont" },
+    { id: "ec-6", name: "Tovar" },
+    { id: "ec-7", name: "Kommunal" },
+    { id: "ec-8", name: "Agentlarga to'lov" },
+    { id: "ec-9", name: "Boshqa" },
   ],
-  units: ["dona", "karobka", "dona | karobka", "kg", "litr", "metr", "tonna"],
-  shelfLocations: ["B-001", "B-002", "B-003", "B-004", "B-005"],
+  units: [
+    { id: "u-1", name: "dona", abbr: "dona" },
+    { id: "u-2", name: "karobka", abbr: "kar" },
+    { id: "u-3", name: "dona | karobka", abbr: "dona/kar", isBoxUnit: true },
+    { id: "u-4", name: "kg", abbr: "kg" },
+    { id: "u-5", name: "litr", abbr: "l" },
+    { id: "u-6", name: "metr", abbr: "m" },
+    { id: "u-7", name: "tonna", abbr: "t" },
+  ],
+  shelfLocations: [
+    { id: "sl-1", name: "B-001", warehouse: "Asosiy ombor" },
+    { id: "sl-2", name: "B-002", warehouse: "Asosiy ombor" },
+    { id: "sl-3", name: "B-003", warehouse: "Vitrina ombor" },
+    { id: "sl-4", name: "B-004", warehouse: "Vitrina ombor" },
+    { id: "sl-5", name: "B-005", warehouse: "Sovutgich" },
+  ],
   devices: [
     {
       id: "main",
@@ -496,7 +568,22 @@ const DEFAULT_SETTINGS: AppSettings = {
       login: "admin",
       password: "1234",
       isMain: true,
-      permissions: ["sotuv", "kassa", "tovarlar", "sozlamalar"],
+      active: true,
+      employeeId: "X-005",
+      permissions: [
+        "sotuv.create",
+        "sotuv.view",
+        "kassa.view",
+        "kassa.close",
+        "kassa.withdraw",
+        "tovarlar.view",
+        "tovarlar.create",
+        "tovarlar.edit",
+        "nasiya.view",
+        "nasiya.close",
+        "hisobotlar.view",
+        "boshqaruv.manage",
+      ],
     },
     {
       id: "device2",
@@ -504,7 +591,9 @@ const DEFAULT_SETTINGS: AppSettings = {
       login: "kassa2",
       password: "1234",
       isMain: false,
-      permissions: ["sotuv"],
+      active: true,
+      employeeId: "X-006",
+      permissions: ["sotuv.create", "sotuv.view", "kassa.view", "kassa.close"],
     },
     {
       id: "device3",
@@ -512,7 +601,9 @@ const DEFAULT_SETTINGS: AppSettings = {
       login: "ombor3",
       password: "1234",
       isMain: false,
-      permissions: ["tovarlar"],
+      active: true,
+      employeeId: "X-007",
+      permissions: ["tovarlar.view", "tovarlar.create", "tovarlar.edit"],
     },
   ],
 };
@@ -683,7 +774,7 @@ type AppCtx = {
   settings: AppSettings;
   updateSettings: (patch: Partial<AppSettings>) => void;
   t: (key: string) => string;
-  hasPermission: (perm: Permission) => boolean;
+  hasPermission: (perm: PermissionKey) => boolean;
 };
 
 const AppContext = React.createContext<AppCtx | null>(null);
@@ -694,6 +785,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const stored = typeof localStorage !== "undefined" && localStorage.getItem("uzko_settings");
       if (stored) {
         const parsed = JSON.parse(stored);
+        // Eski format (string[]) saqlangan bo'lsa, o'sha maydon uchun standart qiymatga qaytariladi.
+        const migrateEntries = <T,>(value: unknown, fallback: T[]): T[] =>
+          Array.isArray(value) && (value.length === 0 || typeof value[0] === "object")
+            ? (value as T[])
+            : fallback;
         return {
           ...DEFAULT_SETTINGS,
           ...parsed,
@@ -701,16 +797,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             ...DEFAULT_SETTINGS.receiptSettings,
             ...(parsed.receiptSettings ?? {}),
           },
-          expenseCategories: parsed.expenseCategories ?? DEFAULT_SETTINGS.expenseCategories,
           accessNotifications: parsed.accessNotifications ?? DEFAULT_SETTINGS.accessNotifications,
-          units: Array.from(
-            new Set([...(parsed.units ?? DEFAULT_SETTINGS.units), "karobka", "dona | karobka"]),
+          warehouses: migrateEntries(parsed.warehouses, DEFAULT_SETTINGS.warehouses),
+          expenseCategories: migrateEntries(
+            parsed.expenseCategories,
+            DEFAULT_SETTINGS.expenseCategories,
           ),
-          shelfLocations:
-            parsed.shelfLocations?.some((l: string) => l.includes("-") && l.length > 5) ||
-            parsed.shelfLocations?.includes("A-001")
-              ? DEFAULT_SETTINGS.shelfLocations
-              : (parsed.shelfLocations ?? DEFAULT_SETTINGS.shelfLocations),
+          units: migrateEntries(parsed.units, DEFAULT_SETTINGS.units),
+          shelfLocations: migrateEntries(parsed.shelfLocations, DEFAULT_SETTINGS.shelfLocations),
         };
       }
     } catch {}
@@ -751,7 +845,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return TRANSLATIONS[settings.lang]?.[key] ?? TRANSLATIONS["uz"][key] ?? key;
   };
 
-  const hasPermission = (perm: Permission): boolean => {
+  const hasPermission = (perm: PermissionKey): boolean => {
     const device = settings.devices.find((d) => d.id === settings.currentDeviceId);
     if (!device) return false;
     return device.permissions.includes(perm);

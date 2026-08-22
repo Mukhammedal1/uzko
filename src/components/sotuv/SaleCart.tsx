@@ -17,6 +17,13 @@ import { FinalizeSaleDialog } from "./FinalizeSaleDialog";
 import { DemoReceiptDialog } from "./DemoReceiptDialog";
 import { OneTimeItemDialog } from "./OneTimeItemDialog";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Trash2,
   Tag,
   CheckCheck,
@@ -52,6 +59,9 @@ type Props = {
   quickAddToCart?: boolean;
   onToggleQuickAddToCart?: (checked: boolean) => void;
   currency?: string;
+  currencies?: string[];
+  onChangeCurrency?: (code: string) => void;
+  onChangePriceMode?: (mode: PriceMode) => void;
 };
 
 export function SaleCart({
@@ -72,6 +82,9 @@ export function SaleCart({
   quickAddToCart = false,
   onToggleQuickAddToCart,
   currency = "UZS",
+  currencies,
+  onChangeCurrency,
+  onChangePriceMode,
 }: Props) {
   const [discountOpen, setDiscountOpen] = React.useState(false);
   const [finalizeOpen, setFinalizeOpen] = React.useState(false);
@@ -136,6 +149,44 @@ export function SaleCart({
                   onCheckedChange={onToggleQuickAddToCart}
                   className="ml-0.5"
                 />
+              </div>
+            )}
+
+            {onChangeCurrency && (
+              <Select value={currency} onValueChange={onChangeCurrency}>
+                <SelectTrigger className="h-8 w-[86px] px-2 text-[11px] font-bold">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(currencies ?? [currency]).map((code) => (
+                    <SelectItem key={code} value={code}>
+                      {code}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+
+            {onChangePriceMode && (
+              <div className="flex h-8 items-center rounded-md border bg-muted/30 p-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={priceMode === "retail" ? "default" : "ghost"}
+                  className="h-6 px-2 text-[11px]"
+                  onClick={() => onChangePriceMode("retail")}
+                >
+                  Oddiy
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={priceMode === "wholesale" ? "default" : "ghost"}
+                  className="h-6 px-2 text-[11px]"
+                  onClick={() => onChangePriceMode("wholesale")}
+                >
+                  Optom
+                </Button>
               </div>
             )}
           </div>

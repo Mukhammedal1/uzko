@@ -9,10 +9,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   MOCK_EDIT_HISTORY,
+  MOCK_PRODUCTS,
   MOCK_PRODUCT_HISTORY,
+  MOCK_PRODUCT_HISTORY_EDIT_LOG,
   MOCK_RETURN_RECEIPTS,
   formatSom,
   type ProductHistory,
+  type ProductHistoryEditLog,
   type ReturnReceipt,
 } from "@/lib/mock-data";
 import {
@@ -20,14 +23,27 @@ import {
   returnedByLabel,
 } from "@/components/shared/ReturnReceiptDetailDialog";
 import { useApp } from "@/lib/app-context";
-import { CalendarDays, Eye, FileSpreadsheet, Filter, PackageMinus, PackagePlus, Pencil, Printer, RotateCcw, Search, Trash2 } from "lucide-react";
+import {
+  CalendarDays,
+  Eye,
+  FileSpreadsheet,
+  Filter,
+  History,
+  PackageMinus,
+  PackagePlus,
+  Pencil,
+  Printer,
+  RotateCcw,
+  Search,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 
 function fmtDate(value: string) {
   return new Date(value).toLocaleString("uz-UZ", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
-type Tab = "added" | "edited" | "returned" | "writtenoff";
+type Tab = "added" | "addedlog" | "edited" | "returned" | "writtenoff";
 type EditChange = {
   field: string;
   oldValue: unknown;
@@ -43,6 +59,14 @@ export function TovarlarTarixi() {
     <div className="flex h-full flex-col">
       <div className="flex gap-2 border-b bg-card p-3">
         <Button size="sm" variant={tab === "added" ? "default" : "outline"} onClick={() => setTab("added")}>{t("added_products")}</Button>
+        <Button
+          size="sm"
+          variant={tab === "addedlog" ? "default" : "outline"}
+          onClick={() => setTab("addedlog")}
+          className="gap-2"
+        >
+          <History className="h-4 w-4" /> Kirim tarixi tahrirlari
+        </Button>
         <Button size="sm" variant={tab === "edited" ? "default" : "outline"} onClick={() => setTab("edited")}>{t("edited_products")}</Button>
         <Button size="sm" variant={tab === "returned" ? "default" : "outline"} onClick={() => setTab("returned")} className="gap-2"><RotateCcw className="h-4 w-4" /> Qaytgan tovarlar tarixi</Button>
         <Button size="sm" variant={tab === "writtenoff" ? "default" : "outline"} onClick={() => setTab("writtenoff")} className="gap-2"><PackageMinus className="h-4 w-4" /> Hisobdan chiqarilgan tovarlar tarixi</Button>
@@ -50,6 +74,8 @@ export function TovarlarTarixi() {
       <div className="min-h-0 flex-1 overflow-auto">
         {tab === "added" ? (
           <AddedTable />
+        ) : tab === "addedlog" ? (
+          <AddedEditLogTable />
         ) : tab === "edited" ? (
           <EditedTable />
         ) : tab === "returned" ? (
@@ -63,20 +89,52 @@ export function TovarlarTarixi() {
 }
 
 function AddedTable() {
-  const { t } = useApp();
+  const { t, settings } = useApp();
   const [productQuery, setProductQuery] = React.useState("");
   const [dateMode, setDateMode] = React.useState<DateMode>("all");
   const [from, setFrom] = React.useState("");
   const [to, setTo] = React.useState("");
   const [detailRow, setDetailRow] = React.useState<ProductHistory | null>(null);
+  const [editRow, setEditRow] = React.useState<ProductHistory | null>(null);
+  const [version, setVersion] = React.useState(0);
 
   const filtered = React.useMemo(
     () =>
       MOCK_PRODUCT_HISTORY.filter(
         (h) => matchesProductName(h.productName, productQuery) && matchesDateFilter(h.date, dateMode, from, to),
       ),
-    [productQuery, dateMode, from, to],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [productQuery, dateMode, from, to, version],
   );
+
+  const deleteRow = (row: ProductHistory) => {
+    const ok = window.confirm(
+      `"${row.productName}" — ${fmtDate(row.date)} kirim yozuvini o'chirasizmi? Bu tovar zaxirasidan ham ayiriladi.`,
+    );
+    if (!ok) return;
+
+    const idx = MOCK_PRODUCT_HISTORY.findIndex((h) => h.id === row.id);
+    if (idx >= 0) MOCK_PRODUCT_HISTORY.splice(idx, 1);
+
+    const product = findMatchingProduct(row.productName);
+    if (product) product.omborQty = Math.max(0, product.omborQty - row.qty);
+
+    MOCK_PRODUCT_HISTORY_EDIT_LOG.unshift({
+      id: `phel-${Date.now()}`,
+      date: new Date().toISOString(),
+      editedBy: settings.username,
+      entryId: row.id,
+      productName: row.productName,
+      action: "delete",
+      oldTotal: row.qty * row.costPrice,
+      newTotal: 0,
+    });
+
+    setVersion((v) => v + 1);
+    toast.success("Kirim tarixi yozuvi o'chirildi", {
+      description: "Tovar zaxirasi ham yangilandi",
+    });
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -105,7 +163,7 @@ function AddedTable() {
               <th className="px-4 py-2 text-left">{t("warehouse")}</th>
               <th className="px-4 py-2 text-left">{t("agent")}</th>
               <th className="px-4 py-2 text-left">{t("added_by")}</th>
-              <th className="px-4 py-2 text-center">Ko'rish</th>
+              <th className="px-4 py-2 text-center">Amal</th>
             </tr>
           </thead>
           <tbody>
@@ -123,10 +181,45 @@ function AddedTable() {
                 <td className="px-4 py-2">{h.warehouse}</td>
                 <td className="px-4 py-2">{h.agentName || "-"}</td>
                 <td className="px-4 py-2"><Badge variant="outline">{h.addedBy}</Badge></td>
-                <td className="px-4 py-2 text-center">
-                  <Button size="icon" variant="ghost" className="h-8 w-8" aria-label="Batafsil ko'rish">
-                    <Eye className="h-4 w-4" />
-                  </Button>
+                <td className="px-4 py-2">
+                  <div className="flex justify-center gap-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
+                      aria-label="Batafsil ko'rish"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setDetailRow(h);
+                      }}
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
+                      aria-label="Tahrirlash"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setEditRow(h);
+                      }}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 text-destructive hover:text-destructive"
+                      aria-label="O'chirish"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        deleteRow(h);
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -142,6 +235,334 @@ function AddedTable() {
       </div>
 
       <ProductHistoryDetailDialog row={detailRow} onClose={() => setDetailRow(null)} />
+      <EditProductHistoryDialog
+        row={editRow}
+        onClose={() => setEditRow(null)}
+        onSaved={() => setVersion((v) => v + 1)}
+      />
+    </div>
+  );
+}
+
+/** Nom bo'yicha mos keladigan bazadagi mahsulotni topadi — kirim tarixi tahrirlanganda/o'chirilganda zaxirani moslashtirish uchun. */
+function findMatchingProduct(productName: string) {
+  const normalized = productName.trim().toLowerCase();
+  return MOCK_PRODUCTS.find((p) => p.name.trim().toLowerCase() === normalized);
+}
+
+function EditProductHistoryDialog({
+  row,
+  onClose,
+  onSaved,
+}: {
+  row: ProductHistory | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { settings } = useApp();
+  const [qty, setQty] = React.useState("0");
+  const [price, setPrice] = React.useState("0");
+  const [costPrice, setCostPrice] = React.useState("0");
+  const [warehouse, setWarehouse] = React.useState("");
+  const [shelfLocation, setShelfLocation] = React.useState("__empty__");
+  const [note, setNote] = React.useState("");
+
+  React.useEffect(() => {
+    if (!row) return;
+    setQty(String(row.qty));
+    setPrice(String(row.price));
+    setCostPrice(String(row.costPrice));
+    setWarehouse(row.warehouse);
+    setShelfLocation(row.shelfLocation || "__empty__");
+    setNote(row.note ?? "");
+  }, [row]);
+
+  const save = () => {
+    if (!row) return;
+    const entry = MOCK_PRODUCT_HISTORY.find((h) => h.id === row.id);
+    if (!entry) return;
+
+    const oldQty = entry.qty;
+    const oldPrice = entry.price;
+    const oldCostPrice = entry.costPrice;
+    const oldWarehouse = entry.warehouse;
+    const oldShelf = entry.shelfLocation ?? "";
+    const oldNote = entry.note ?? "";
+    const oldTotal = oldQty * oldCostPrice;
+
+    const newQty = Math.max(0, Number(qty) || 0);
+    const newPrice = Math.max(0, Number(price) || 0);
+    const newCostPrice = Math.max(0, Number(costPrice) || 0);
+    const newWarehouse = warehouse || oldWarehouse;
+    const newShelf = shelfLocation === "__empty__" ? "" : shelfLocation;
+    const newNote = note;
+
+    const changes: { field: string; label: string; oldValue: string; newValue: string }[] = [];
+    if (newQty !== oldQty) {
+      changes.push({
+        field: "qty",
+        label: "Miqdor",
+        oldValue: `${oldQty} ${entry.unit}`,
+        newValue: `${newQty} ${entry.unit}`,
+      });
+    }
+    if (newPrice !== oldPrice) {
+      changes.push({
+        field: "price",
+        label: "Sotuv narxi",
+        oldValue: formatSom(oldPrice),
+        newValue: formatSom(newPrice),
+      });
+    }
+    if (newCostPrice !== oldCostPrice) {
+      changes.push({
+        field: "costPrice",
+        label: "Tan narx",
+        oldValue: formatSom(oldCostPrice),
+        newValue: formatSom(newCostPrice),
+      });
+    }
+    if (newWarehouse !== oldWarehouse) {
+      changes.push({
+        field: "warehouse",
+        label: "Ombor",
+        oldValue: oldWarehouse,
+        newValue: newWarehouse,
+      });
+    }
+    if (newShelf !== oldShelf) {
+      changes.push({
+        field: "shelfLocation",
+        label: "Polka",
+        oldValue: oldShelf || "-",
+        newValue: newShelf || "-",
+      });
+    }
+    if (newNote !== oldNote) {
+      changes.push({
+        field: "note",
+        label: "Izoh",
+        oldValue: oldNote || "-",
+        newValue: newNote || "-",
+      });
+    }
+
+    if (changes.length === 0) {
+      onClose();
+      return;
+    }
+
+    entry.qty = newQty;
+    entry.price = newPrice;
+    entry.costPrice = newCostPrice;
+    entry.warehouse = newWarehouse;
+    entry.shelfLocation = newShelf;
+    entry.note = newNote;
+
+    const product = findMatchingProduct(entry.productName);
+    if (product && newQty !== oldQty) {
+      product.omborQty = Math.max(0, product.omborQty + (newQty - oldQty));
+    }
+
+    MOCK_PRODUCT_HISTORY_EDIT_LOG.unshift({
+      id: `phel-${Date.now()}`,
+      date: new Date().toISOString(),
+      editedBy: settings.username,
+      entryId: entry.id,
+      productName: entry.productName,
+      action: "edit",
+      oldTotal,
+      newTotal: newQty * newCostPrice,
+      changes,
+    });
+
+    onSaved();
+    onClose();
+    toast.success("Kirim tarixi yozuvi tahrirlandi", {
+      description: "O'zgarish alohida tarixga qayd qilindi",
+    });
+  };
+
+  return (
+    <Dialog open={!!row} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-[460px]">
+        <DialogHeader>
+          <DialogTitle>Kirim tarixini tahrirlash</DialogTitle>
+        </DialogHeader>
+        {row && (
+          <div className="space-y-3">
+            <div className="rounded-lg bg-muted/50 p-3 text-sm">
+              <b>{row.productName}</b>
+              <div className="text-muted-foreground">
+                {fmtDate(row.date)} · {row.addedBy}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="mb-1 block text-xs">Miqdor</Label>
+                <Input type="number" value={qty} onChange={(e) => setQty(e.target.value)} />
+              </div>
+              <div>
+                <Label className="mb-1 block text-xs">Sotuv narxi</Label>
+                <Input type="number" value={price} onChange={(e) => setPrice(e.target.value)} />
+              </div>
+              <div>
+                <Label className="mb-1 block text-xs">Tan narx</Label>
+                <Input
+                  type="number"
+                  value={costPrice}
+                  onChange={(e) => setCostPrice(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label className="mb-1 block text-xs">Ombor</Label>
+                <Select value={warehouse} onValueChange={setWarehouse}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {settings.warehouses.map((w) => (
+                      <SelectItem key={w.id} value={w.name}>
+                        {w.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div>
+              <Label className="mb-1 block text-xs">Polka raqami</Label>
+              <Select value={shelfLocation} onValueChange={setShelfLocation}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Tanlang" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__empty__">Tanlanmagan</SelectItem>
+                  {settings.shelfLocations.map((loc) => (
+                    <SelectItem key={loc.id} value={loc.name}>
+                      {loc.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="mb-1 block text-xs">Izoh</Label>
+              <Textarea value={note} onChange={(e) => setNote(e.target.value)} />
+            </div>
+            <p className="rounded-lg bg-orange-50 p-2 text-xs text-orange-700">
+              Miqdor o'zgartirilsa, tovar zaxirasi ham avtomatik moslashtiriladi. O'zgarish "Kirim
+              tarixi tahrirlari" bo'limida qayd qilinadi.
+            </p>
+            <Button onClick={save} className="w-full gap-2">
+              <Pencil className="h-4 w-4" /> Saqlash
+            </Button>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AddedEditLogTable() {
+  const [productQuery, setProductQuery] = React.useState("");
+  const [dateMode, setDateMode] = React.useState<DateMode>("all");
+  const [from, setFrom] = React.useState("");
+  const [to, setTo] = React.useState("");
+
+  const filtered = React.useMemo(
+    () =>
+      MOCK_PRODUCT_HISTORY_EDIT_LOG.filter(
+        (h) =>
+          matchesProductName(h.productName, productQuery) &&
+          matchesDateFilter(h.date, dateMode, from, to),
+      ),
+    [productQuery, dateMode, from, to],
+  );
+
+  return (
+    <div className="flex h-full flex-col">
+      <HistoryFilters
+        productQuery={productQuery}
+        onProductQueryChange={setProductQuery}
+        dateMode={dateMode}
+        onDateModeChange={setDateMode}
+        from={from}
+        onFromChange={setFrom}
+        to={to}
+        onToChange={setTo}
+        summaryLabel="Tahrir/o'chirishlar"
+        summaryValue={`${filtered.length} ta`}
+      />
+
+      <div className="min-h-0 flex-1 overflow-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 z-10 bg-muted/90 backdrop-blur">
+            <tr className="border-b text-xs uppercase text-muted-foreground">
+              <th className="px-4 py-2 text-left">Sana</th>
+              <th className="px-4 py-2 text-left">Tovar</th>
+              <th className="px-4 py-2 text-left">Nakladnoy</th>
+              <th className="px-4 py-2 text-left">Amal</th>
+              <th className="px-4 py-2 text-left">O'zgarishlar</th>
+              <th className="px-4 py-2 text-right">Eski summa</th>
+              <th className="px-4 py-2 text-right">Yangi summa</th>
+              <th className="px-4 py-2 text-left">Kim o'zgartirdi</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((h: ProductHistoryEditLog) => (
+              <tr key={h.id} className="border-b hover:bg-muted/40">
+                <td className="px-4 py-2 text-muted-foreground">{fmtDate(h.date)}</td>
+                <td className="px-4 py-2 font-medium">{h.productName}</td>
+                <td className="px-4 py-2 font-mono text-xs">{h.entryId}</td>
+                <td className="px-4 py-2">
+                  <Badge
+                    variant="outline"
+                    className={
+                      h.action === "delete" ? "border-destructive/40 text-destructive" : ""
+                    }
+                  >
+                    {h.action === "delete" ? "O'chirildi" : "Tahrirlandi"}
+                  </Badge>
+                </td>
+                <td className="px-4 py-2">
+                  <div className="flex max-w-3xl flex-wrap gap-1.5">
+                    {h.changes && h.changes.length > 0 ? (
+                      h.changes.map((c, idx) => (
+                        <span
+                          key={`${h.id}-${idx}`}
+                          className="rounded-md border bg-muted/30 px-2 py-1 text-xs"
+                        >
+                          <span className="font-semibold">{c.label}: </span>
+                          <span className="text-muted-foreground">{c.oldValue}</span>
+                          <span className="px-1 text-muted-foreground">-&gt;</span>
+                          <span className="font-semibold">{c.newValue}</span>
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </div>
+                </td>
+                <td className="px-4 py-2 text-right tabular-nums">{formatSom(h.oldTotal)}</td>
+                <td className="px-4 py-2 text-right font-semibold tabular-nums">
+                  {formatSom(h.newTotal)}
+                </td>
+                <td className="px-4 py-2">
+                  <Badge variant="secondary">{h.editedBy}</Badge>
+                </td>
+              </tr>
+            ))}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
+                  Kirim tarixida hali tahrir yoki o'chirish bo'lmagan
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -221,11 +642,15 @@ function EditedTable() {
                         ? t("deleted")
                         : h.action === "writeoff"
                           ? t("written_off")
-                          : t("edited")}
+                          : h.action === "sanoq"
+                            ? t("stock_counted")
+                            : t("edited")}
                     </Badge>
-                    {h.action === "writeoff" && typeof h.note === "string" && h.note && (
-                      <div className="mt-1 text-xs text-muted-foreground">{h.note}</div>
-                    )}
+                    {(h.action === "writeoff" || h.action === "sanoq") &&
+                      typeof h.note === "string" &&
+                      h.note && (
+                        <div className="mt-1 text-xs text-muted-foreground">{h.note}</div>
+                      )}
                   </td>
                   <td className="px-4 py-2">{h.editedBy}</td>
                 </tr>

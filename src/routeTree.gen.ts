@@ -17,6 +17,7 @@ import { Route as RegisterRouteImport } from './routes/register'
 import { Route as MijozlarRouteImport } from './routes/mijozlar'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as KassaRouteImport } from './routes/kassa'
+import { Route as BoshqaruvRouteImport } from './routes/boshqaruv'
 import { Route as IndexRouteImport } from './routes/index'
 
 const VerifyCodeRoute = VerifyCodeRouteImport.update({
@@ -59,6 +60,11 @@ const KassaRoute = KassaRouteImport.update({
   path: '/kassa',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BoshqaruvRoute = BoshqaruvRouteImport.update({
+  id: '/boshqaruv',
+  path: '/boshqaruv',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -67,6 +73,7 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/boshqaruv': typeof BoshqaruvRoute
   '/kassa': typeof KassaRoute
   '/login': typeof LoginRoute
   '/mijozlar': typeof MijozlarRoute
@@ -78,6 +85,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/boshqaruv': typeof BoshqaruvRoute
   '/kassa': typeof KassaRoute
   '/login': typeof LoginRoute
   '/mijozlar': typeof MijozlarRoute
@@ -90,6 +98,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/boshqaruv': typeof BoshqaruvRoute
   '/kassa': typeof KassaRoute
   '/login': typeof LoginRoute
   '/mijozlar': typeof MijozlarRoute
@@ -103,6 +112,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/boshqaruv'
     | '/kassa'
     | '/login'
     | '/mijozlar'
@@ -114,6 +124,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/boshqaruv'
     | '/kassa'
     | '/login'
     | '/mijozlar'
@@ -125,6 +136,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/boshqaruv'
     | '/kassa'
     | '/login'
     | '/mijozlar'
@@ -137,6 +149,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  BoshqaruvRoute: typeof BoshqaruvRoute
   KassaRoute: typeof KassaRoute
   LoginRoute: typeof LoginRoute
   MijozlarRoute: typeof MijozlarRoute
@@ -205,6 +218,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof KassaRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/boshqaruv': {
+      id: '/boshqaruv'
+      path: '/boshqaruv'
+      fullPath: '/boshqaruv'
+      preLoaderRoute: typeof BoshqaruvRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -217,6 +237,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  BoshqaruvRoute: BoshqaruvRoute,
   KassaRoute: KassaRoute,
   LoginRoute: LoginRoute,
   MijozlarRoute: MijozlarRoute,

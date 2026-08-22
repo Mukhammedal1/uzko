@@ -33,6 +33,13 @@ export function DemoReceiptDialog({
 }: Props) {
   const { settings } = useApp();
   const receipt = settings.receiptSettings;
+  const widthClass = receipt.width === "58" ? "max-w-[280px]" : "max-w-sm";
+  const fontSizeClass =
+    receipt.fontSize === "small"
+      ? "text-[10px]"
+      : receipt.fontSize === "large"
+        ? "text-sm"
+        : "text-xs";
   const now = new Date();
   const dateStr = now.toLocaleString("uz-UZ", {
     year: "numeric",
@@ -48,19 +55,32 @@ export function DemoReceiptDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm">
+      <DialogContent className={widthClass}>
         <DialogHeader className="print:hidden">
           <DialogTitle>Demo chek</DialogTitle>
         </DialogHeader>
 
         <div
           id="demo-receipt"
-          className="receipt-print rounded-md border bg-white p-4 font-mono text-xs text-black"
+          className={`receipt-print rounded-md border bg-white p-4 font-mono text-black ${fontSizeClass}`}
         >
           <div className="text-center">
+            {receipt.showLogo && (
+              <div className="mx-auto mb-1 flex h-8 w-8 items-center justify-center rounded bg-black/80 text-[9px] font-bold text-white">
+                LOGO
+              </div>
+            )}
             <div className="text-sm font-bold">{receipt.storeName || "UZKO SAVDO"}</div>
-            {receipt.phone && <div className="mt-0.5 text-[10px]">Tel: {receipt.phone}</div>}
+            {receipt.showAddress && receipt.address && (
+              <div className="mt-0.5 text-[10px]">{receipt.address}</div>
+            )}
+            {receipt.showPhone && receipt.phone && (
+              <div className="mt-0.5 text-[10px]">Tel: {receipt.phone}</div>
+            )}
             {receipt.social && <div className="text-[10px]">{receipt.social}</div>}
+            {receipt.showCashier && (
+              <div className="mt-0.5 text-[10px]">Kassir: {settings.username}</div>
+            )}
             <div className="mt-0.5 text-[10px]">{dateStr}</div>
             <div className="my-2 border-b border-dashed border-black/40" />
             <div className="rounded border-2 border-black/60 py-1 text-[11px] font-bold tracking-wider">
@@ -80,9 +100,14 @@ export function DemoReceiptDialog({
               {items.map((it) => (
                 <tr key={it.id} className="align-top">
                   <td className="py-0.5">
-                    <div>{it.product.name}{it.source === "one-time" ? " (bir martalik)" : ""}</div>
+                    <div>
+                      {it.product.name}
+                      {it.source === "one-time" ? " (bir martalik)" : ""}
+                    </div>
                     {receipt.showProductCode && (
-                      <div className="text-[10px]">Kod: {it.product.customCode || it.product.barcode}</div>
+                      <div className="text-[10px]">
+                        Kod: {it.product.customCode || it.product.barcode}
+                      </div>
                     )}
                     <div className="text-[10px]">
                       {it.quantity} {it.product.unit} × {formatSom(salePrice(it.product))}
@@ -116,6 +141,12 @@ export function DemoReceiptDialog({
             </div>
           </div>
 
+          {receipt.showQr && (
+            <div className="mt-2 flex justify-center text-[9px]">
+              <div className="rounded border border-black/40 px-3 py-2 text-center">QR-kod</div>
+            </div>
+          )}
+
           <div className="my-2 border-b border-dashed border-black/40" />
           <div className="whitespace-pre-wrap text-center text-[10px]">
             {receipt.extraNote || "Bu chek faqat narxlarni solishtirish uchun."}
@@ -139,7 +170,7 @@ export function DemoReceiptDialog({
 }
 
 function salePrice(product: unknown) {
-  const record = product && typeof product === "object" ? product as Record<string, unknown> : {};
+  const record = product && typeof product === "object" ? (product as Record<string, unknown>) : {};
   return firstPositiveNumber(
     record.price,
     record.salePrice,
@@ -161,6 +192,11 @@ function firstPositiveNumber(...values: unknown[]) {
 function safeNumber(value: unknown) {
   const number = typeof value === "number" ? value : Number(value);
   if (Number.isFinite(number)) return number;
-  const parsed = Number(String(value ?? "").replace(/\s/g, "").replace(/,/g, ".").replace(/[^0-9.-]/g, ""));
+  const parsed = Number(
+    String(value ?? "")
+      .replace(/\s/g, "")
+      .replace(/,/g, ".")
+      .replace(/[^0-9.-]/g, ""),
+  );
   return Number.isFinite(parsed) ? parsed : 0;
 }
