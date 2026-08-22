@@ -9,55 +9,20 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as VerifyCodeRouteImport } from './routes/verify-code'
-import { Route as UmumiyRouteImport } from './routes/umumiy'
-import { Route as TovarlarRouteImport } from './routes/tovarlar'
-import { Route as SozlamalarRouteImport } from './routes/sozlamalar'
-import { Route as RegisterRouteImport } from './routes/register'
-import { Route as MijozlarRouteImport } from './routes/mijozlar'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as KassaRouteImport } from './routes/kassa'
-import { Route as BoshqaruvRouteImport } from './routes/boshqaruv'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as BoshqaruvRouteImport } from './routes/boshqaruv'
+import { Route as KassaRouteImport } from './routes/kassa'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as MijozlarRouteImport } from './routes/mijozlar'
+import { Route as RegisterRouteImport } from './routes/register'
+import { Route as SozlamalarRouteImport } from './routes/sozlamalar'
+import { Route as TovarlarRouteImport } from './routes/tovarlar'
+import { Route as UmumiyRouteImport } from './routes/umumiy'
+import { Route as VerifyCodeRouteImport } from './routes/verify-code'
 
-const VerifyCodeRoute = VerifyCodeRouteImport.update({
-  id: '/verify-code',
-  path: '/verify-code',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const UmumiyRoute = UmumiyRouteImport.update({
-  id: '/umumiy',
-  path: '/umumiy',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const TovarlarRoute = TovarlarRouteImport.update({
-  id: '/tovarlar',
-  path: '/tovarlar',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SozlamalarRoute = SozlamalarRouteImport.update({
-  id: '/sozlamalar',
-  path: '/sozlamalar',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RegisterRoute = RegisterRouteImport.update({
-  id: '/register',
-  path: '/register',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const MijozlarRoute = MijozlarRouteImport.update({
-  id: '/mijozlar',
-  path: '/mijozlar',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const KassaRoute = KassaRouteImport.update({
-  id: '/kassa',
-  path: '/kassa',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BoshqaruvRoute = BoshqaruvRouteImport.update({
@@ -65,9 +30,44 @@ const BoshqaruvRoute = BoshqaruvRouteImport.update({
   path: '/boshqaruv',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const KassaRoute = KassaRouteImport.update({
+  id: '/kassa',
+  path: '/kassa',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MijozlarRoute = MijozlarRouteImport.update({
+  id: '/mijozlar',
+  path: '/mijozlar',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RegisterRoute = RegisterRouteImport.update({
+  id: '/register',
+  path: '/register',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SozlamalarRoute = SozlamalarRouteImport.update({
+  id: '/sozlamalar',
+  path: '/sozlamalar',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TovarlarRoute = TovarlarRouteImport.update({
+  id: '/tovarlar',
+  path: '/tovarlar',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const UmumiyRoute = UmumiyRouteImport.update({
+  id: '/umumiy',
+  path: '/umumiy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VerifyCodeRoute = VerifyCodeRouteImport.update({
+  id: '/verify-code',
+  path: '/verify-code',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -162,60 +162,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/verify-code': {
-      id: '/verify-code'
-      path: '/verify-code'
-      fullPath: '/verify-code'
-      preLoaderRoute: typeof VerifyCodeRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/umumiy': {
-      id: '/umumiy'
-      path: '/umumiy'
-      fullPath: '/umumiy'
-      preLoaderRoute: typeof UmumiyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/tovarlar': {
-      id: '/tovarlar'
-      path: '/tovarlar'
-      fullPath: '/tovarlar'
-      preLoaderRoute: typeof TovarlarRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/sozlamalar': {
-      id: '/sozlamalar'
-      path: '/sozlamalar'
-      fullPath: '/sozlamalar'
-      preLoaderRoute: typeof SozlamalarRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/register': {
-      id: '/register'
-      path: '/register'
-      fullPath: '/register'
-      preLoaderRoute: typeof RegisterRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/mijozlar': {
-      id: '/mijozlar'
-      path: '/mijozlar'
-      fullPath: '/mijozlar'
-      preLoaderRoute: typeof MijozlarRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/kassa': {
-      id: '/kassa'
-      path: '/kassa'
-      fullPath: '/kassa'
-      preLoaderRoute: typeof KassaRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/boshqaruv': {
@@ -225,11 +176,60 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BoshqaruvRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/kassa': {
+      id: '/kassa'
+      path: '/kassa'
+      fullPath: '/kassa'
+      preLoaderRoute: typeof KassaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mijozlar': {
+      id: '/mijozlar'
+      path: '/mijozlar'
+      fullPath: '/mijozlar'
+      preLoaderRoute: typeof MijozlarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/register': {
+      id: '/register'
+      path: '/register'
+      fullPath: '/register'
+      preLoaderRoute: typeof RegisterRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sozlamalar': {
+      id: '/sozlamalar'
+      path: '/sozlamalar'
+      fullPath: '/sozlamalar'
+      preLoaderRoute: typeof SozlamalarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tovarlar': {
+      id: '/tovarlar'
+      path: '/tovarlar'
+      fullPath: '/tovarlar'
+      preLoaderRoute: typeof TovarlarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/umumiy': {
+      id: '/umumiy'
+      path: '/umumiy'
+      fullPath: '/umumiy'
+      preLoaderRoute: typeof UmumiyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/verify-code': {
+      id: '/verify-code'
+      path: '/verify-code'
+      fullPath: '/verify-code'
+      preLoaderRoute: typeof VerifyCodeRouteImport
       parentRoute: typeof rootRouteImport
     }
   }

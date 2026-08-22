@@ -4,7 +4,6 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
-// import { nitro } from "nitro/vite"; // yangi import
 
 export default defineConfig({
   server: {
@@ -37,7 +36,6 @@ export default defineConfig({
         },
       },
     }),
-    // nitro(), // Vercel uchun kerak — nitro avtomatik platformani aniqlaydi
     react(),
   ],
 });
