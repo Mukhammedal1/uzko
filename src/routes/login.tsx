@@ -75,7 +75,7 @@ function BrandBackground() {
 }
 
 function LoginPage() {
-  const { requestLogin } = useAuth();
+  const { login } = useAuth();
   const navigate = useNavigate();
   const [showPassword, setShowPassword] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
@@ -88,14 +88,14 @@ function LoginPage() {
   const onSubmit = async (values: LoginValues) => {
     setSubmitting(true);
     await new Promise((resolve) => setTimeout(resolve, 350));
-    const result = requestLogin(values.phone, values.password, values.rememberMe);
+    const result = login(values.phone, values.password, values.rememberMe);
     setSubmitting(false);
     if (!result.ok) {
       form.setError("password", { message: result.error });
       toast.error(result.error);
       return;
     }
-    navigate({ to: "/verify-code" });
+    navigate({ to: "/", replace: true });
   };
 
   return (

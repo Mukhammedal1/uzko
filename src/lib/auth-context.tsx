@@ -72,30 +72,13 @@ type AuthResult = { ok: true } | { ok: false; error: string };
 
 type Status = "loading" | "guest" | "authenticated";
 
-export type PendingAction =
-  | { type: "login"; phone: string; userId: string; rememberMe: boolean }
-  | { type: "register"; phone: string; input: RegisterInput };
-
 type AuthCtx = {
   status: Status;
   user: AuthUser | null;
   login: (phone: string, password: string, rememberMe: boolean) => AuthResult;
   register: (input: RegisterInput) => AuthResult;
   logout: () => void;
-  pending: PendingAction | null;
-  devOtp: string | null;
-  requestLogin: (phone: string, password: string, rememberMe: boolean) => AuthResult;
-  requestRegister: (input: RegisterInput) => AuthResult;
-  confirmCode: (code: string) => AuthResult;
-  resendCode: () => void;
-  cancelVerification: () => void;
 };
-
-function generateOtp() {
-  return String(Math.floor(1000 + Math.random() * 9000));
-}
-
-const MASTER_OTP = "0000";
 
 const USERS_KEY = "uzko_auth_users";
 const SESSION_KEY = "uzko_auth_session";
@@ -225,83 +208,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setStatus("guest");
   }, []);
 
-  const [pending, setPending] = React.useState<PendingAction | null>(null);
-  const [otp, setOtp] = React.useState<string | null>(null);
-
-  const requestLogin = React.useCallback<AuthCtx["requestLogin"]>(
-    (phoneRaw, password, rememberMe) => {
-      const phone = normalizePhone(phoneRaw);
-      const found = loadUsers().find((u) => u.phone === phone);
-      if (!found || found.password !== password) {
-        return { ok: false, error: "Telefon raqam yoki parol noto'g'ri" };
-      }
-      setPending({ type: "login", phone, userId: found.id, rememberMe });
-      setOtp(generateOtp());
-      return { ok: true };
-    },
-    [],
-  );
-
-  const requestRegister = React.useCallback<AuthCtx["requestRegister"]>((input) => {
-    const phone = normalizePhone(input.phone);
-    const users = loadUsers();
-    if (users.some((u) => u.phone === phone)) {
-      return { ok: false, error: "Bu telefon raqam bilan hisob allaqachon mavjud" };
-    }
-    setPending({ type: "register", phone, input });
-    setOtp(generateOtp());
-    return { ok: true };
-  }, []);
-
-  const confirmCode = React.useCallback<AuthCtx["confirmCode"]>(
-    (code) => {
-      if (!pending || !otp) {
-        return { ok: false, error: "Tasdiqlash muddati tugagan, qaytadan urinib ko'ring" };
-      }
-      if (code !== otp && code !== MASTER_OTP) {
-        return { ok: false, error: "Kod noto'g'ri, qaytadan urinib ko'ring" };
-      }
-      if (pending.type === "login") {
-        const found = loadUsers().find((u) => u.id === pending.userId);
-        if (!found) {
-          return { ok: false, error: "Foydalanuvchi topilmadi" };
-        }
-        writeSession(found.id, pending.rememberMe);
-        setUser(found);
-        setStatus("authenticated");
-      } else {
-        const input = pending.input;
-        const newUser: AuthUser = {
-          id: makeId(),
-          fullName: input.fullName.trim(),
-          companyName: input.companyName.trim(),
-          phone: pending.phone,
-          password: input.password,
-          role: input.role,
-          customRole: input.role === "other" ? input.customRole?.trim() : undefined,
-          createdAt: new Date().toISOString(),
-        };
-        saveUsers([...loadUsers(), newUser]);
-        writeSession(newUser.id, true);
-        setUser(newUser);
-        setStatus("authenticated");
-      }
-      setPending(null);
-      setOtp(null);
-      return { ok: true };
-    },
-    [pending, otp],
-  );
-
-  const resendCode = React.useCallback(() => {
-    setOtp(generateOtp());
-  }, []);
-
-  const cancelVerification = React.useCallback(() => {
-    setPending(null);
-    setOtp(null);
-  }, []);
-
   const value = React.useMemo(
     () => ({
       status,
@@ -309,28 +215,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       login,
       register,
       logout,
-      pending,
-      devOtp: otp,
-      requestLogin,
-      requestRegister,
-      confirmCode,
-      resendCode,
-      cancelVerification,
     }),
-    [
-      status,
-      user,
-      login,
-      register,
-      logout,
-      pending,
-      otp,
-      requestLogin,
-      requestRegister,
-      confirmCode,
-      resendCode,
-      cancelVerification,
-    ],
+    [status, user, login, register, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

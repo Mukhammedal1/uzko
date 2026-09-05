@@ -1,10 +1,11 @@
 import * as React from "react";
 import { CalculatorPopover } from "./CalculatorPopover";
 import { MOCK_RATES } from "@/lib/mock-data";
-import { Calculator, CalendarDays, DollarSign } from "lucide-react";
+import { Calculator, CalendarDays, DollarSign, Maximize, Minimize } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
+import { useFullscreen } from "@/hooks/use-fullscreen";
 
 type Props = {
   /** Kalkulator va valyuta orasiga joylashadigan slot (Sotuv tablari) */
@@ -15,6 +16,7 @@ type Props = {
 export function BottomBar({ middleSlot, afterCalculatorSlot }: Props) {
   const [date, setDate] = React.useState<Date | undefined>(undefined);
   const [dateStr, setDateStr] = React.useState("Sana");
+  const { isFullscreen, toggle: toggleFullscreen } = useFullscreen();
 
   React.useEffect(() => {
     const today = new Date();
@@ -52,6 +54,21 @@ export function BottomBar({ middleSlot, afterCalculatorSlot }: Props) {
   return (
     <div className="uzko-bottombar flex min-h-14 flex-shrink-0 items-center justify-between gap-3 border-t bg-card px-4 py-2">
       <div className="uzko-bottom-left flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-9 w-9"
+          onClick={toggleFullscreen}
+          title={isFullscreen ? "To'liq ekrandan chiqish" : "To'liq ekran"}
+          aria-label={isFullscreen ? "To'liq ekrandan chiqish" : "To'liq ekran"}
+        >
+          {isFullscreen ? (
+            <Minimize className="h-4 w-4 text-primary" />
+          ) : (
+            <Maximize className="h-4 w-4 text-primary" />
+          )}
+        </Button>
+
         <Popover>
           <PopoverTrigger asChild>
             <Button

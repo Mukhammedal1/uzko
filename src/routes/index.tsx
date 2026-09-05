@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import * as React from "react";
+import { ArrowLeft } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
+import { Button } from "@/components/ui/button";
 import { TopBar } from "@/components/sotuv/TopBar";
 import { BottomBar } from "@/components/sotuv/BottomBar";
 import { SaleCart } from "@/components/sotuv/SaleCart";
@@ -8,6 +10,7 @@ import { ProductsBrowser } from "@/components/sotuv/ProductsBrowser";
 import { QuantityModal } from "@/components/sotuv/QuantityModal";
 import { SaleTabsBar } from "@/components/sotuv/SaleTabsBar";
 import { OnlineSalesDialog } from "@/components/sotuv/OnlineSalesDialog";
+import { PosPage } from "@/features/pos/PosPage";
 import type {
   CartItem,
   Discount,
@@ -18,7 +21,8 @@ import type {
 } from "@/components/sotuv/types";
 import { useApp } from "@/lib/app-context";
 import { addSaleReceipt, dispatchRegularSaleReceipt } from "@/lib/data-actions";
-import type { Product } from "@/lib/mock-data";
+import { MOCK_PRODUCTS } from "@/lib/mock-data";
+import type { Product, ReceiptItem } from "@/lib/mock-data";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   finalizePendingReturnExchange,
@@ -53,7 +57,7 @@ const makeSession = (index: number): SaleSession => ({
 });
 
 function SotuvchiPage() {
-  const { settings, updateSettings } = useApp();
+  const { settings } = useApp();
   const [sales, setSales] = React.useState<SaleSession[]>(() => [makeSession(1)]);
   const [activeId, setActiveId] = React.useState<string>(() => "");
   const [pickedProduct, setPickedProduct] = React.useState<Product | null>(null);
@@ -61,6 +65,7 @@ function SotuvchiPage() {
   const [returnOpen, setReturnOpen] = React.useState(false);
   const [onlineSalesOpen, setOnlineSalesOpen] = React.useState(false);
   const [debtPaymentOpen, setDebtPaymentOpen] = React.useState(false);
+  const [posUiOpen, setPosUiOpen] = React.useState(false);
   const [pendingReturn, setPendingReturn] = React.useState<PendingReturnExchange | null>(null);
 
   // birinchi render: activeId ni o'rnatamiz
@@ -169,7 +174,9 @@ function SotuvchiPage() {
     updateActive((s) => ({ ...s, discount: d }));
   };
 
-  const handleFinalize = (payload: FinalizedSalePayload) => {
+  // Chek yaratish + qaytgan tovar kreditini yakunlash — oddiy sotuv oynasi va
+  // POS UI ikkalasi ham shu bitta manbadan foydalanadi.
+  const finalizeSaleCore = (payload: FinalizedSalePayload, items: ReceiptItem[]) => {
     if (pendingReturn) {
       finalizePendingReturnExchange(pendingReturn);
       try {
@@ -189,15 +196,7 @@ function SotuvchiPage() {
       paidAmount: payload.paidAmount,
       debtAmount: payload.debtAmount,
       paymentBreakdown: payload.paymentBreakdown,
-      items: active.items.map((item) => ({
-        productId: item.product.id,
-        name: item.product.name,
-        price: salePrice(item.product, item.priceMode ?? active.priceMode),
-        qty: item.quantity,
-        unit: item.unit,
-        source: item.source ?? "catalog",
-        note: item.note,
-      })),
+      items,
     });
     if (
       payload.customerType === "oddiy" &&
@@ -213,6 +212,21 @@ function SotuvchiPage() {
         phone: payload.customerPhone,
       });
     }
+  };
+
+  const handleFinalize = (payload: FinalizedSalePayload) => {
+    finalizeSaleCore(
+      payload,
+      active.items.map((item) => ({
+        productId: item.product.id,
+        name: item.product.name,
+        price: salePrice(item.product, item.priceMode ?? active.priceMode),
+        qty: item.quantity,
+        unit: item.unit,
+        source: item.source ?? "catalog",
+        note: item.note,
+      })),
+    );
     updateActive((s) => ({ ...s, items: [], discount: { type: "none" } }));
   };
 
@@ -251,39 +265,69 @@ function SotuvchiPage() {
       <TopBar />
 
       <main className="responsive-main flex min-h-0 flex-1 flex-col gap-2 overflow-hidden bg-muted/40 p-2">
-        {/* 1-qism: Savatcha */}
-        <section className="sale-cart-shell flex h-[285px] flex-shrink-0 flex-col overflow-hidden rounded-lg border bg-card shadow-sm">
-          <SaleCart
-            items={active.items}
-            discount={active.discount}
-            priceMode={active.priceMode}
-            onChangeQty={handleChangeQty}
-            onRemove={handleRemove}
-            onSetDiscount={handleSetDiscount}
-            onFinalize={handleFinalize}
-            onAddOneTimeItem={handleAddOneTimeItem}
-            onOpenDebtPayment={() => setDebtPaymentOpen(true)}
-            onOpenOnlineSales={() => setOnlineSalesOpen(true)}
-            onOpenReturn={() => setReturnOpen(true)}
-            pendingReturn={pendingReturn}
-            onClearPendingReturn={clearPendingReturn}
-            quickAddToCart={settings.quickAddToCart}
-            onToggleQuickAddToCart={(checked) => updateSettings({ quickAddToCart: checked })}
-            currency={active.currency}
-            currencies={settings.currencies}
-            onChangeCurrency={(code) => updateActive((s) => ({ ...s, currency: code }))}
-            onChangePriceMode={(mode) => updateActive((s) => ({ ...s, priceMode: mode }))}
-          />
-        </section>
+        {posUiOpen ? (
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card shadow-sm">
+            <div className="flex h-9 flex-shrink-0 items-center border-b bg-card px-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setPosUiOpen(false)}
+                className="h-7 gap-1.5 px-2 text-xs font-semibold"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Orqaga
+              </Button>
+            </div>
+            <div className="min-h-0 flex-1">
+              <PosPage
+                products={MOCK_PRODUCTS}
+                onOpenDebtPayment={() => setDebtPaymentOpen(true)}
+                onOpenOnlineSales={() => setOnlineSalesOpen(true)}
+                onExchangeCreated={(next) => setPendingReturn(next)}
+                pendingReturn={pendingReturn}
+                onClearPendingReturn={clearPendingReturn}
+                onFinalizeSale={finalizeSaleCore}
+              />
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* 1-qism: Savatcha */}
+            <section className="sale-cart-shell flex h-[285px] flex-shrink-0 flex-col overflow-hidden rounded-lg border bg-card shadow-sm">
+              <SaleCart
+                items={active.items}
+                discount={active.discount}
+                priceMode={active.priceMode}
+                onChangeQty={handleChangeQty}
+                onRemove={handleRemove}
+                onSetDiscount={handleSetDiscount}
+                onFinalize={handleFinalize}
+                onAddOneTimeItem={handleAddOneTimeItem}
+                onOpenDebtPayment={() => setDebtPaymentOpen(true)}
+                onOpenOnlineSales={() => setOnlineSalesOpen(true)}
+                onOpenReturn={() => setReturnOpen(true)}
+                pendingReturn={pendingReturn}
+                onClearPendingReturn={clearPendingReturn}
+                onOpenPosUi={() => setPosUiOpen(true)}
+                currency={active.currency}
+                currencies={settings.currencies}
+                onChangeCurrency={(code) => updateActive((s) => ({ ...s, currency: code }))}
+                onChangePriceMode={(mode) => updateActive((s) => ({ ...s, priceMode: mode }))}
+              />
+            </section>
 
-        {/* 2-qism: Mahsulotlar + qidiruv (filter) — bitta blok */}
-        <section className="responsive-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card shadow-sm">
-          <ProductsBrowser
-            onPick={handlePick}
-            priceMode={active.priceMode}
-            currency={active.currency}
-          />
-        </section>
+            {/* 2-qism: Mahsulotlar + qidiruv (filter) — bitta blok */}
+            <section className="responsive-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card shadow-sm">
+              <ProductsBrowser
+                onPick={handlePick}
+                priceMode={active.priceMode}
+                currency={active.currency}
+                onAddOneTimeItem={handleAddOneTimeItem}
+              />
+            </section>
+          </>
+        )}
       </main>
 
       <BottomBar

@@ -1,16 +1,7 @@
 import * as React from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -18,138 +9,37 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Barcode, Plus, Check, ChevronDown, Trash2, Database } from "lucide-react";
-import {
-  MOCK_PRODUCTS,
-  MOCK_RATES,
-  MOCK_PRODUCT_HISTORY,
-  formatSom,
-  costInSom,
-  getAgentsList,
-  nextAgentId,
-} from "@/lib/mock-data";
+import { Barcode, ImagePlus, Plus, Check, Trash2, X } from "lucide-react";
+import { MOCK_PRODUCTS, MOCK_NEW_PRODUCT_LOG } from "@/lib/mock-data";
 import type { Currency, Product } from "@/lib/mock-data";
 import { toast } from "sonner";
-import { useApp, type UnitEntry } from "@/lib/app-context";
-import {
-  dispatchSupplierReceipt,
-  recordProductAddition,
-  type SupplierSource,
-} from "@/lib/data-actions";
+import { useApp } from "@/lib/app-context";
 import type { ProductCreateMode } from "@/routes/tovarlar";
 import { cn, formatNumberInput, parseNumberInput } from "@/lib/utils";
-import {
-  PrintNewBarcodesDialog,
-  type PrintBarcodeItem,
-} from "@/components/tovarlar/PrintNewBarcodesDialog";
 import { joinBarcodes, makeUniqueBarcode, splitBarcodes } from "@/lib/barcode-utils";
 
 type NewProductRow = {
   id: string;
-  existingProductId?: string;
   name: string;
-  barcode: string;
-  /** true — shtrix kod tizim tomonidan avtomatik yaratilgan; false — foydalanuvchi o'zi kiritgan/tanlagan */
-  barcodeAuto: boolean;
-  qty: string;
+  unit: string;
   costCurrency: Currency;
   costPrice: string;
-  saleCurrency: Currency;
-  priceMode: "manual" | "percent";
-  pricePercent: string;
-  price: string;
-  wholesalePriceMode: "manual" | "percent";
-  wholesalePricePercent: string;
   wholesalePrice: string;
-  unit: string;
-  perBox: string;
-  preventBelowCost: boolean;
-  warehouse: string;
-  shelfLocation: string;
+  price: string;
+  barcode: string;
+  image?: string;
 };
 
-type PriceModeDefault = { mode: "manual" | "percent"; percent: string };
-
-function isBoxUnit(unit: string, units: UnitEntry[]) {
-  return units.find((u) => u.name === unit)?.isBoxUnit === true;
-}
-
-const makeNewProductRow = (
-  unit = "dona",
-  warehouse = "Asosiy ombor",
-  priceDefault: PriceModeDefault = { mode: "manual", percent: "" },
-  wholesaleDefault: PriceModeDefault = { mode: "manual", percent: "" },
-): NewProductRow => ({
+const makeNewProductRow = (unit = "dona"): NewProductRow => ({
   id: `row-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
   name: "",
-  barcode: "",
-  barcodeAuto: true,
-  qty: "",
+  unit,
   costCurrency: "UZS",
   costPrice: "",
-  saleCurrency: "UZS",
-  priceMode: priceDefault.mode,
-  pricePercent: priceDefault.percent,
-  price: "",
-  wholesalePriceMode: wholesaleDefault.mode,
-  wholesalePricePercent: wholesaleDefault.percent,
   wholesalePrice: "",
-  unit,
-  perBox: "",
-  preventBelowCost: true,
-  warehouse,
-  shelfLocation: "",
+  price: "",
+  barcode: "",
 });
-
-function toNumber(value: unknown) {
-  const cleaned = String(value ?? "")
-    .replace(/\s/g, "")
-    .replace(/,/g, ".")
-    .replace(/[^0-9.-]/g, "");
-  const n = Number(cleaned);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function currencyRate(currency: Currency) {
-  return MOCK_RATES[currency] ?? 1;
-}
-
-function moneyInputToSom(value: string | number, currency: Currency) {
-  return Math.round(Math.max(0, toNumber(value)) * currencyRate(currency));
-}
-
-function somToMoneyInput(value: number | undefined, currency: Currency) {
-  const amount = Math.max(0, value ?? 0) / currencyRate(currency);
-  if (!Number.isFinite(amount)) return "";
-  return String(Number(amount.toFixed(currency === "UZS" ? 0 : 2)));
-}
-
-function computePercentPrice(
-  costPrice: string,
-  costCurrency: Currency,
-  percent: string,
-  saleCurrency: Currency,
-) {
-  const cost = toNumber(costPrice);
-  if (cost <= 0) return "";
-  const pct = toNumber(percent);
-  const costSom = cost * currencyRate(costCurrency);
-  const saleSom = costSom * (1 + pct / 100);
-  return somToMoneyInput(saleSom, saleCurrency);
-}
-
-function focusNextField(current: HTMLElement) {
-  const focusable = Array.from(
-    document.querySelectorAll<HTMLElement>(
-      'input:not([disabled]), select:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    ),
-  ).filter((el) => el.offsetParent !== null);
-  const index = focusable.indexOf(current);
-  if (index > -1 && index + 1 < focusable.length) {
-    focusable[index + 1].focus();
-  }
-}
 
 function makeProductCode(name: string) {
   return (
@@ -161,86 +51,21 @@ function makeProductCode(name: string) {
   );
 }
 
-function makeAgentId() {
-  return nextAgentId();
-}
-
-function getAgents() {
-  return getAgentsList();
-}
-
-function normalizeSearchValue(value: string) {
-  return value.trim().toLowerCase().replace(/\s+/g, " ");
-}
-
-function latestProductSource(productName: string) {
-  const name = normalizeSearchValue(productName);
-  return MOCK_PRODUCT_HISTORY.find(
-    (row) => normalizeSearchValue(row.productName) === name && Boolean(row.agentName),
-  );
-}
-
+/** "Yangi tovar qo'shish" — bazaga yangi mahsulot yozuvini (rasm bilan) yaratadi.
+ * Ombordagi qoldiqni kiritish alohida "Tovar prixod qilish" bo'limida amalga oshiriladi. */
 export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () => void }) {
-  return <CreateNew onDone={onDone} />;
-}
-
-function CreateNew({ onDone }: { onDone: () => void }) {
   const { settings } = useApp();
-  const defaultWarehouse = settings.warehouses[0]?.name ?? "Asosiy ombor";
-  const agents = getAgents();
-  const [source, setSource] = React.useState<SupplierSource>({
-    enabled: true,
-    agentId: makeAgentId(),
-    agentName: "",
-    agentPhone: "",
-    paidAmount: "0",
-    note: "",
-    sendBotUpdate: true,
-  });
-  const [priceDefault, setPriceDefault] = React.useState<PriceModeDefault>({
-    mode: "manual",
-    percent: "",
-  });
-  const [wholesaleDefault, setWholesaleDefault] = React.useState<PriceModeDefault>({
-    mode: "manual",
-    percent: "",
-  });
   const [rows, setRows] = React.useState<NewProductRow[]>(() => [
-    makeNewProductRow(settings.units[0]?.name ?? "dona", defaultWarehouse),
+    makeNewProductRow(settings.units[0]?.name ?? "dona"),
   ]);
-  const [confirmOpen, setConfirmOpen] = React.useState(false);
-  const [printDialogOpen, setPrintDialogOpen] = React.useState(false);
   const [showValidation, setShowValidation] = React.useState(false);
-  const [deductFromCashbox, setDeductFromCashbox] = React.useState(true);
-  const [showNoteField, setShowNoteField] = React.useState(false);
-  const [bulkSetupMode, setBulkSetupMode] = React.useState(false);
-  const selectedAgent = React.useMemo(
-    () => agents.find((agent) => agent.id === source.agentId),
-    [agents, source.agentId],
-  );
-
-  const productSuggestionsFor = (row: NewProductRow) => {
-    const q = normalizeSearchValue(row.name);
-    if (q.length < 2) return [];
-    return MOCK_PRODUCTS.filter((product) =>
-      `${product.name} ${product.customCode} ${product.barcode}`.toLowerCase().includes(q),
-    ).slice(0, 6);
-  };
 
   const updateRow = (id: string, patch: Partial<NewProductRow>) => {
     setRows((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)));
   };
 
   const addRow = () => {
-    setRows((current) => [
-      ...current,
-      makeNewProductRow(
-        settings.units[0]?.name ?? "dona",
-        defaultWarehouse,
-        priceDefault,
-        wholesaleDefault,
-      ),
-    ]);
+    setRows((current) => [...current, makeNewProductRow(settings.units[0]?.name ?? "dona")]);
   };
 
   const removeRow = (id: string) => {
@@ -248,248 +73,89 @@ function CreateNew({ onDone }: { onDone: () => void }) {
   };
 
   const assignBarcode = (id: string) => {
-    const row = rows.find((item) => item.id === id);
-    const used = rows.filter((item) => item.id !== id).map((item) => item.barcode);
-    const nextCode = makeUniqueBarcode(used);
-    const currentCodes = splitBarcodes(row?.barcode ?? "");
-    updateRow(id, {
-      barcode: joinBarcodes([...currentCodes, nextCode]),
-      barcodeAuto: currentCodes.length === 0 ? true : (row?.barcodeAuto ?? true),
-    });
-  };
-
-  /** "Shtrix kod chop etish" bosilganda — bo'sh qatorlarga oldindan shtrix kod tayinlaydi,
-   * shunda chop etilgan kod keyinchalik saqlanganda ("Qabul qilish") o'zgarmay saqlanadi. */
-  const ensureBarcodesAssigned = () => {
-    const usedBarcodes = new Set(
-      MOCK_PRODUCTS.flatMap((product) => splitBarcodes(product.barcode)),
-    );
+    const usedBarcodes = new Set(MOCK_PRODUCTS.flatMap((p) => splitBarcodes(p.barcode)));
     rows.forEach((row) => splitBarcodes(row.barcode).forEach((code) => usedBarcodes.add(code)));
-    setRows((current) =>
-      current.map((row) => {
-        if (!row.name.trim() || !(parseNumberInput(row.qty) > 0)) return row;
-        if (splitBarcodes(row.barcode).length > 0) return row;
-        const code = makeUniqueBarcode(usedBarcodes);
-        usedBarcodes.add(code);
-        return { ...row, barcode: code, barcodeAuto: true };
-      }),
-    );
+    const code = makeUniqueBarcode(usedBarcodes);
+    updateRow(id, { barcode: code });
   };
 
-  const removeBarcodeChip = (id: string, code: string) => {
-    const row = rows.find((item) => item.id === id);
-    const nextCodes = splitBarcodes(row?.barcode ?? "").filter((item) => item !== code);
-    updateRow(id, { barcode: joinBarcodes(nextCodes) });
-  };
-
-  const selectExistingProduct = (rowId: string, product: Product) => {
-    const currency = product.costCurrency;
-    const sourceInfo = latestProductSource(product.name);
-    updateRow(rowId, {
-      existingProductId: product.id,
-      name: product.name,
-      barcode: product.barcode,
-      barcodeAuto: false,
-      costCurrency: currency,
-      costPrice: formatNumberInput(product.costPrice),
-      saleCurrency: currency,
-      priceMode: "manual",
-      pricePercent: "",
-      price: somToMoneyInput(product.price, currency),
-      wholesalePriceMode: "manual",
-      wholesalePricePercent: "",
-      wholesalePrice: somToMoneyInput(product.wholesalePrice, currency),
-      unit: product.unit,
-      warehouse: settings.warehouses.some((w) => w.name === product.warehouse)
-        ? product.warehouse
-        : defaultWarehouse,
-      shelfLocation: product.shelfLocation ?? "",
-    });
-    if (sourceInfo?.agentName) {
-      setSource({
-        enabled: true,
-        agentId: sourceInfo.agentId || makeAgentId(),
-        agentName: sourceInfo.agentName,
-        agentPhone: sourceInfo.agentPhone || "",
-        paidAmount: source.paidAmount || "0",
-        note: sourceInfo.note || "",
-        sendBotUpdate: true,
-      });
-    }
-    toast.success("Bazadagi mahsulot tanlandi", {
-      description: product.name,
-    });
+  const handleImagePick = (id: string, file: File | undefined) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      updateRow(id, { image: String(reader.result) });
+    };
+    reader.readAsDataURL(file);
   };
 
   const validRows = rows
-    .map((row) => {
-      const boxUnit = isBoxUnit(row.unit, settings.units);
-      const perBoxNumber = Math.max(0, parseNumberInput(row.perBox) || 0);
-      const enteredQty = Math.max(0, parseNumberInput(row.qty) || 0);
-      return {
-        ...row,
-        name: row.name.trim(),
-        warehouseValue: row.warehouse.trim() || defaultWarehouse,
-        shelfLocationValue: row.shelfLocation.trim(),
-        perBoxNumber,
-        qtyNumber: boxUnit ? enteredQty * Math.max(1, perBoxNumber) : enteredQty,
-        costNumber: Math.max(0, parseNumberInput(row.costPrice) || 0),
-        priceSom: moneyInputToSom(row.price, row.saleCurrency),
-        wholesalePriceSom: moneyInputToSom(row.wholesalePrice, row.saleCurrency),
-        unitValue: boxUnit ? "dona" : row.unit.trim() || settings.units[0]?.name || "dona",
-        barcodeValue: joinBarcodes(splitBarcodes(row.barcode)),
-      };
-    })
-    .filter(
-      (row) =>
-        row.name &&
-        row.qtyNumber > 0 &&
-        (!isBoxUnit(row.unit, settings.units) || row.perBoxNumber > 0),
-    );
+    .map((row) => ({
+      ...row,
+      nameValue: row.name.trim(),
+      unitValue: row.unit.trim() || settings.units[0]?.name || "dona",
+      costNumber: Math.max(0, parseNumberInput(row.costPrice) || 0),
+      wholesaleNumber: Math.max(0, parseNumberInput(row.wholesalePrice) || 0),
+      priceNumber: Math.max(0, parseNumberInput(row.price) || 0),
+      barcodeValue: joinBarcodes(splitBarcodes(row.barcode)),
+    }))
+    .filter((row) => row.nameValue && row.priceNumber > 0);
 
-  const printItems: PrintBarcodeItem[] = validRows.map((row) => {
-    const existingProduct = row.existingProductId
-      ? MOCK_PRODUCTS.find((product) => product.id === row.existingProductId)
-      : undefined;
-    return {
-      key: row.id,
-      product: {
-        name: row.name,
-        barcode: row.barcodeValue,
-        customCode: existingProduct?.customCode ?? "",
-        price: row.priceSom,
-        shelfLocation: row.shelfLocationValue,
-      },
-      qtyAdded: row.qtyNumber,
-      barcodeAuto: row.barcodeAuto,
-    };
-  });
+  const defaultWarehouse = settings.warehouses[0]?.name ?? "Asosiy ombor";
 
-  const openPrintDialog = () => {
-    ensureBarcodesAssigned();
-    setPrintDialogOpen(true);
-  };
-
-  const totalCostSom = validRows.reduce(
-    (sum, row) => sum + row.qtyNumber * row.costNumber * (MOCK_RATES[row.costCurrency] ?? 1),
-    0,
-  );
-  const totalSaleSom = validRows.reduce((sum, row) => sum + row.qtyNumber * row.priceSom, 0);
-  const openConfirm = () => {
+  const handleSubmit = () => {
     setShowValidation(true);
-    if (validRows.length === 0) return toast.error("Kamida bitta tovar nomi va sonini kiriting");
-    setConfirmOpen(true);
-  };
-
-  const finalizeReceiving = () => {
-    const totalPaid = bulkSetupMode ? 0 : Math.max(0, parseNumberInput(source.paidAmount) || 0);
-    const sourceEnabled = !bulkSetupMode && Boolean(source.enabled && source.agentName.trim());
-    if (!bulkSetupMode && source.enabled && !source.agentName.trim()) {
-      toast.error("Agent ismini kiriting yoki hech qisi yo'q deb belgilang");
+    if (validRows.length === 0) {
+      toast.error("Kamida bitta mahsulot nomi va sotuv narxini kiriting");
       return;
     }
 
-    const usedBarcodes = new Set(
-      MOCK_PRODUCTS.flatMap((product) => splitBarcodes(product.barcode)),
-    );
-    rows.forEach((row) => {
-      splitBarcodes(row.barcode).forEach((barcode) => usedBarcodes.add(barcode));
-    });
+    const usedBarcodes = new Set(MOCK_PRODUCTS.flatMap((p) => splitBarcodes(p.barcode)));
+    validRows.forEach((row) => {
+      const barcode =
+        row.barcodeValue ||
+        (() => {
+          const code = makeUniqueBarcode(usedBarcodes);
+          usedBarcodes.add(code);
+          return code;
+        })();
+      usedBarcodes.add(barcode);
 
-    validRows.forEach((row, index) => {
-      const rowBarcodes = splitBarcodes(row.barcodeValue);
-      const nextBarcodes = rowBarcodes.length > 0 ? rowBarcodes : [makeUniqueBarcode(usedBarcodes)];
-      nextBarcodes.forEach((barcode) => usedBarcodes.add(barcode));
-      const barcode = joinBarcodes(nextBarcodes);
-      const existingProduct = row.existingProductId
-        ? MOCK_PRODUCTS.find((product) => product.id === row.existingProductId)
-        : undefined;
-      const rowWarehouse = row.warehouseValue || defaultWarehouse;
-      const newProd: Product = existingProduct ?? {
-        id: `p${Date.now()}-${index}`,
-        name: row.name,
-        price: row.priceSom,
-        wholesalePrice: row.wholesalePriceSom,
+      const newProduct: Product = {
+        id: `p${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        name: row.nameValue,
+        image: row.image,
+        price: row.priceNumber,
+        wholesalePrice: row.wholesaleNumber || undefined,
         costPrice: row.costNumber,
         costCurrency: row.costCurrency,
         barcode,
-        customCode: makeProductCode(row.name),
+        customCode: makeProductCode(row.nameValue),
         unit: row.unitValue,
-        warehouse: rowWarehouse,
+        warehouse: defaultWarehouse,
         shelfLocation: "",
         vitrinaQty: 0,
         omborQty: 0,
         salesHistory: [],
       };
-      newProd.name = row.name;
-      newProd.price = row.priceSom;
-      newProd.wholesalePrice = row.wholesalePriceSom;
-      newProd.costPrice = row.costNumber;
-      newProd.costCurrency = row.costCurrency;
-      newProd.barcode = barcode;
-      newProd.unit = row.unitValue;
-      newProd.warehouse = rowWarehouse;
-      newProd.shelfLocation = row.shelfLocationValue;
-      newProd.preventBelowCost = row.preventBelowCost;
-      if (isBoxUnit(row.unit, settings.units)) newProd.perBox = row.perBoxNumber;
-      newProd.omborQty += row.qtyNumber;
-      if (!existingProduct) MOCK_PRODUCTS.push(newProd);
+      MOCK_PRODUCTS.push(newProduct);
 
-      const rowCostSom = row.qtyNumber * row.costNumber * (MOCK_RATES[row.costCurrency] ?? 1);
-      const paidShare =
-        sourceEnabled && totalCostSom > 0 ? Math.round((totalPaid * rowCostSom) / totalCostSom) : 0;
-
-      recordProductAddition({
-        productName: newProd.name,
-        qty: newProd.omborQty,
-        unit: newProd.unit,
-        price: newProd.price,
-        costPrice: costInSom(newProd),
-        warehouse: newProd.warehouse,
-        shelfLocation: newProd.shelfLocation,
+      MOCK_NEW_PRODUCT_LOG.unshift({
+        id: `npl-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        date: new Date().toISOString(),
         addedBy: settings.username,
-        source: sourceEnabled
-          ? {
-              ...source,
-              paidAmount: String(paidShare),
-              note: source.note,
-            }
-          : {
-              enabled: false,
-              agentId: "",
-              agentName: "",
-              agentPhone: "",
-              paidAmount: "0",
-              note: "",
-              sendBotUpdate: false,
-            },
+        productName: newProduct.name,
+        unit: newProduct.unit,
+        price: newProduct.price,
+        costPrice: newProduct.costPrice,
+        costCurrency: newProduct.costCurrency,
+        wholesalePrice: newProduct.wholesalePrice,
+        barcode: newProduct.barcode,
+        image: newProduct.image,
       });
     });
 
-    if (
-      sourceEnabled &&
-      source.sendBotUpdate &&
-      source.agentPhone.trim() &&
-      source.agentName.trim()
-    ) {
-      dispatchSupplierReceipt({
-        receiptId: `AGENT-${Date.now()}`,
-        report: {
-          agentId: source.agentId || makeAgentId(),
-          agentName: source.agentName.trim(),
-          agentPhone: source.agentPhone.trim(),
-          totalAmount: totalCostSom,
-          paidAmount: totalPaid,
-          remainingDebt: Math.max(0, totalCostSom - totalPaid),
-        },
-        note: source.note.trim() || `${validRows.length} ta tovar bo'yicha prixod`,
-      });
-    }
-
-    setConfirmOpen(false);
-    setShowValidation(false);
-    toast.success(bulkSetupMode ? "Mahsulotlar bazaga qo'shildi" : "Mahsulotlar qabul qilindi", {
-      description: `${validRows.length} xil mahsulot ${bulkSetupMode ? "bazaga kiritildi" : "qabul qilindi"}`,
+    toast.success("Yangi mahsulot(lar) bazaga qo'shildi", {
+      description: `${validRows.length} ta mahsulot — qoldiqni "Tovar prixod qilish" bo'limidan kiriting`,
     });
     onDone();
   };
@@ -498,41 +164,24 @@ function CreateNew({ onDone }: { onDone: () => void }) {
     <div className="flex h-full min-h-0 flex-col gap-3">
       <section className="flex min-h-0 flex-1 flex-col rounded-lg border bg-card shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b p-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <div>
-              <div className="text-sm font-semibold">Mahsulot qabul qilish</div>
-              <div className="text-[11px] text-muted-foreground">
-                Qatorlar ko'payganda faqat shu ro'yxat scroll qiladi.
-              </div>
-            </div>
-            <div
-              className="flex h-8 items-center gap-1.5 rounded-md border bg-muted/30 px-2 text-[11px] font-semibold text-muted-foreground"
-              title="ERP tizimini ilk marta sozlab, mahsulotlarni bazaga kiritib olish uchun — agent va kassa savollarisiz, faqat son va summalar"
-            >
-              <Database className="h-3.5 w-3.5" />
-              <span className="hidden xl:inline">Bazani shakllantirish</span>
-              <Switch
-                checked={bulkSetupMode}
-                onCheckedChange={setBulkSetupMode}
-                className="ml-0.5"
-              />
+          <div>
+            <div className="text-sm font-semibold">Yangi tovar qo'shish</div>
+            <div className="text-[11px] text-muted-foreground">
+              Bazaga yangi mahsulot yozuvi yaratiladi. Qoldiqni "Tovar prixod qilish" orqali
+              kiriting.
             </div>
           </div>
-          <Button onClick={openConfirm} className="h-8 gap-2 text-xs">
+          <Button onClick={handleSubmit} className="h-8 gap-2 text-xs">
             <Check className="h-4 w-4" />
-            Tasdiqlash
+            Saqlash
           </Button>
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto p-3">
           <div className="space-y-5">
             {rows.map((row, index) => {
-              const productSuggestions = productSuggestionsFor(row);
               const nameInvalid = showValidation && !row.name.trim();
-              const qtyInvalid = showValidation && !(parseNumberInput(row.qty) > 0);
-              const boxUnit = isBoxUnit(row.unit, settings.units);
-              const perBoxInvalid =
-                showValidation && boxUnit && !(parseNumberInput(row.perBox) > 0);
+              const priceInvalid = showValidation && !(parseNumberInput(row.price) > 0);
               return (
                 <div key={row.id} className="relative">
                   <div className="relative rounded-lg border bg-card p-3 shadow-sm transition-colors focus-within:border-primary/40">
@@ -548,103 +197,26 @@ function CreateNew({ onDone }: { onDone: () => void }) {
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
 
-                    <div className="mb-2.5 flex min-w-0 items-center justify-between gap-2 pr-8">
+                    <div className="mb-2.5 flex items-center gap-2 pr-8">
                       <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1.5 text-[10px] font-bold text-muted-foreground">
                         {index + 1}
                       </span>
-                      {row.existingProductId ? (
-                        <span className="rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-semibold text-success">
-                          Bazadagi mahsulot tanlandi
-                        </span>
-                      ) : (
-                        <span className="text-[11px] font-medium text-muted-foreground">
-                          Yangi tovar
-                        </span>
-                      )}
                     </div>
 
-                    <div
-                      className={cn(
-                        "grid grid-cols-1 gap-4 pr-8 md:grid-cols-5",
-                        boxUnit
-                          ? "xl:grid-cols-[minmax(200px,1.5fr)_minmax(160px,0.8fr)_minmax(90px,0.55fr)_minmax(150px,0.95fr)_minmax(150px,0.95fr)_minmax(150px,0.95fr)_minmax(150px,0.95fr)_minmax(130px,0.8fr)_minmax(110px,0.7fr)]"
-                          : "xl:grid-cols-[minmax(200px,1.5fr)_minmax(80px,0.5fr)_minmax(90px,0.55fr)_minmax(150px,0.95fr)_minmax(150px,0.95fr)_minmax(150px,0.95fr)_minmax(150px,0.95fr)_minmax(130px,0.8fr)_minmax(110px,0.7fr)]",
-                      )}
-                    >
-                      <Field label="Tovar nomi" required error={nameInvalid}>
-                        <div className="relative">
-                          <Input
-                            value={row.name}
-                            onChange={(e) =>
-                              updateRow(row.id, {
-                                name: e.target.value,
-                                existingProductId: undefined,
-                              })
-                            }
-                            placeholder="Mahsulot nomini kiriting"
-                            className={cn(
-                              "h-9 text-xs",
-                              nameInvalid && "border-destructive focus-visible:ring-destructive",
-                            )}
-                          />
-                          {productSuggestions.length > 0 && !row.existingProductId && (
-                            <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-30 max-h-44 overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-lg">
-                              {productSuggestions.map((product) => {
-                                const sourceInfo = latestProductSource(product.name);
-                                return (
-                                  <button
-                                    key={product.id}
-                                    type="button"
-                                    onClick={() => selectExistingProduct(row.id, product)}
-                                    className="w-full rounded px-2 py-0.5 text-left text-[9px] hover:bg-muted"
-                                  >
-                                    <div className="font-semibold">{product.name}</div>
-                                    <div className="text-[10px] text-muted-foreground">
-                                      {formatSom(costInSom(product))}
-                                      {sourceInfo?.agentName ? ` · ${sourceInfo.agentName}` : ""}
-                                    </div>
-                                  </button>
-                                );
-                              })}
-                            </div>
+                    <div className="grid grid-cols-1 gap-4 pr-8 md:grid-cols-4 xl:grid-cols-[minmax(200px,1.5fr)_minmax(90px,0.6fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(150px,0.95fr)_minmax(110px,0.8fr)]">
+                      <Field label="Mahsulot nomi" required error={nameInvalid}>
+                        <Input
+                          value={row.name}
+                          onChange={(e) => updateRow(row.id, { name: e.target.value })}
+                          placeholder="Mahsulot nomini kiriting"
+                          className={cn(
+                            "h-9 text-xs",
+                            nameInvalid && "border-destructive focus-visible:ring-destructive",
                           )}
-                        </div>
+                        />
                       </Field>
 
-                      <Field label="Soni" required error={qtyInvalid}>
-                        <div className="flex gap-1">
-                          <Input
-                            value={row.qty}
-                            onChange={(e) =>
-                              updateRow(row.id, { qty: formatNumberInput(e.target.value) })
-                            }
-                            placeholder="0"
-                            className={cn(
-                              "h-9 min-w-0 flex-1 text-right text-xs",
-                              qtyInvalid && "border-destructive focus-visible:ring-destructive",
-                            )}
-                            inputMode="decimal"
-                          />
-                          {boxUnit && (
-                            <Input
-                              value={row.perBox}
-                              onChange={(e) =>
-                                updateRow(row.id, { perBox: formatNumberInput(e.target.value) })
-                              }
-                              placeholder="O'ramdagi soni"
-                              title="1 karobkada nechta dona bo'lishini kiriting"
-                              className={cn(
-                                "h-9 min-w-0 flex-1 text-right text-xs",
-                                perBoxInvalid &&
-                                  "border-destructive focus-visible:ring-destructive",
-                              )}
-                              inputMode="decimal"
-                            />
-                          )}
-                        </div>
-                      </Field>
-
-                      <Field label="Birligi">
+                      <Field label="Birlik">
                         <Select
                           value={row.unit || settings.units[0]?.name || "dona"}
                           onValueChange={(value) => updateRow(row.id, { unit: value })}
@@ -662,298 +234,75 @@ function CreateNew({ onDone }: { onDone: () => void }) {
                         </Select>
                       </Field>
 
-                      <Field label="Tan narxi">
-                        <div className="space-y-1">
-                          <CurrencyField
-                            value={row.costPrice}
-                            onChange={(value) =>
-                              updateRow(row.id, { costPrice: formatNumberInput(value) })
-                            }
-                            onKeyDown={(e) => {
-                              if (e.key !== "Enter") return;
-                              e.preventDefault();
-                              focusNextField(e.currentTarget);
-                            }}
-                            placeholder="0"
-                            currency={row.costCurrency || settings.currencies[0] || "UZS"}
-                            currencies={settings.currencies}
-                            onCurrencyChange={(value) =>
-                              updateRow(row.id, { costCurrency: value as Currency })
-                            }
-                          />
-                          <label className="flex select-none items-center gap-1.5 pl-0.5">
-                            <Checkbox
-                              checked={row.preventBelowCost}
-                              onCheckedChange={(checked) =>
-                                updateRow(row.id, { preventBelowCost: checked === true })
-                              }
-                            />
-                            <span className="text-[10px] leading-none text-muted-foreground">
-                              Tan narxdan past sotilmasin
-                            </span>
-                          </label>
-                        </div>
+                      <Field label="Tan narx">
+                        <CurrencyField
+                          value={row.costPrice}
+                          onChange={(value) =>
+                            updateRow(row.id, { costPrice: formatNumberInput(value) })
+                          }
+                          placeholder="0"
+                          currency={row.costCurrency}
+                          currencies={settings.currencies}
+                          onCurrencyChange={(value) =>
+                            updateRow(row.id, { costCurrency: value as Currency })
+                          }
+                        />
                       </Field>
 
-                      <Field label="Sotuv narxi">
-                        <div className="space-y-1">
-                          <CurrencyField
-                            value={row.priceMode === "percent" ? row.pricePercent : row.price}
-                            onChange={(value) =>
-                              updateRow(
-                                row.id,
-                                row.priceMode === "percent"
-                                  ? { pricePercent: formatNumberInput(value) }
-                                  : { price: formatNumberInput(value) },
-                              )
-                            }
-                            onKeyDown={(e) => {
-                              if (e.key !== "Enter") return;
-                              e.preventDefault();
-                              if (row.priceMode === "percent") {
-                                updateRow(row.id, {
-                                  price: computePercentPrice(
-                                    row.costPrice,
-                                    row.costCurrency,
-                                    row.pricePercent,
-                                    row.saleCurrency,
-                                  ),
-                                });
-                                setPriceDefault((current) => ({
-                                  ...current,
-                                  percent: row.pricePercent,
-                                }));
-                              }
-                              focusNextField(e.currentTarget);
-                            }}
-                            onBlur={
-                              row.priceMode === "percent"
-                                ? () => {
-                                    updateRow(row.id, {
-                                      price: computePercentPrice(
-                                        row.costPrice,
-                                        row.costCurrency,
-                                        row.pricePercent,
-                                        row.saleCurrency,
-                                      ),
-                                    });
-                                    setPriceDefault((current) => ({
-                                      ...current,
-                                      percent: row.pricePercent,
-                                    }));
-                                  }
-                                : undefined
-                            }
-                            placeholder={row.priceMode === "percent" ? "Foiz, %" : "0"}
-                            currency={row.saleCurrency || settings.currencies[0] || "UZS"}
-                            currencies={settings.currencies}
-                            onCurrencyChange={(value) =>
-                              updateRow(row.id, { saleCurrency: value as Currency })
-                            }
-                          />
-                          <label className="flex select-none items-center gap-1.5 pl-0.5">
-                            <Checkbox
-                              checked={row.priceMode === "percent"}
-                              onCheckedChange={(checked) => {
-                                const mode = checked ? "percent" : "manual";
-                                updateRow(row.id, { priceMode: mode });
-                                setPriceDefault((current) => ({ ...current, mode }));
-                              }}
-                            />
-                            <span className="text-[10px] leading-none text-muted-foreground">
-                              Foizda hisoblash
-                            </span>
-                          </label>
-                        </div>
+                      <Field label="Optom narx">
+                        <Input
+                          value={row.wholesalePrice}
+                          onChange={(e) =>
+                            updateRow(row.id, { wholesalePrice: formatNumberInput(e.target.value) })
+                          }
+                          placeholder="0"
+                          className="h-9 text-right text-xs"
+                          inputMode="decimal"
+                        />
                       </Field>
 
-                      <Field label="Optom narxi">
-                        <div className="space-y-1">
-                          <CurrencyField
-                            value={
-                              row.wholesalePriceMode === "percent"
-                                ? row.wholesalePricePercent
-                                : row.wholesalePrice
-                            }
-                            onChange={(value) =>
-                              updateRow(
-                                row.id,
-                                row.wholesalePriceMode === "percent"
-                                  ? { wholesalePricePercent: formatNumberInput(value) }
-                                  : { wholesalePrice: formatNumberInput(value) },
-                              )
-                            }
-                            onKeyDown={(e) => {
-                              if (e.key !== "Enter") return;
-                              e.preventDefault();
-                              if (row.wholesalePriceMode === "percent") {
-                                updateRow(row.id, {
-                                  wholesalePrice: computePercentPrice(
-                                    row.costPrice,
-                                    row.costCurrency,
-                                    row.wholesalePricePercent,
-                                    row.saleCurrency,
-                                  ),
-                                });
-                                setWholesaleDefault((current) => ({
-                                  ...current,
-                                  percent: row.wholesalePricePercent,
-                                }));
-                              }
-                              focusNextField(e.currentTarget);
-                            }}
-                            onBlur={
-                              row.wholesalePriceMode === "percent"
-                                ? () => {
-                                    updateRow(row.id, {
-                                      wholesalePrice: computePercentPrice(
-                                        row.costPrice,
-                                        row.costCurrency,
-                                        row.wholesalePricePercent,
-                                        row.saleCurrency,
-                                      ),
-                                    });
-                                    setWholesaleDefault((current) => ({
-                                      ...current,
-                                      percent: row.wholesalePricePercent,
-                                    }));
-                                  }
-                                : undefined
-                            }
-                            placeholder={row.wholesalePriceMode === "percent" ? "Foiz, %" : "0"}
-                            currency={row.saleCurrency || settings.currencies[0] || "UZS"}
-                            currencies={settings.currencies}
-                            onCurrencyChange={(value) =>
-                              updateRow(row.id, { saleCurrency: value as Currency })
-                            }
-                          />
-                          <label className="flex select-none items-center gap-1.5 pl-0.5">
-                            <Checkbox
-                              checked={row.wholesalePriceMode === "percent"}
-                              onCheckedChange={(checked) => {
-                                const mode = checked ? "percent" : "manual";
-                                updateRow(row.id, { wholesalePriceMode: mode });
-                                setWholesaleDefault((current) => ({ ...current, mode }));
-                              }}
-                            />
-                            <span className="text-[10px] leading-none text-muted-foreground">
-                              Foizda hisoblash
-                            </span>
-                          </label>
-                        </div>
+                      <Field label="Sotuv narx" required error={priceInvalid}>
+                        <Input
+                          value={row.price}
+                          onChange={(e) =>
+                            updateRow(row.id, { price: formatNumberInput(e.target.value) })
+                          }
+                          placeholder="0"
+                          className={cn(
+                            "h-9 text-right text-xs",
+                            priceInvalid && "border-destructive focus-visible:ring-destructive",
+                          )}
+                          inputMode="decimal"
+                        />
                       </Field>
 
                       <Field label="Shtrix kod">
-                        {splitBarcodes(row.barcode).length >= 2 ? (
-                          <div className="flex gap-1">
-                            <Popover>
-                              <PopoverTrigger asChild>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="h-9 flex-1 justify-between px-2 text-xs font-normal"
-                                >
-                                  <span className="truncate">
-                                    {splitBarcodes(row.barcode).length} ta kod
-                                  </span>
-                                  <ChevronDown className="h-3.5 w-3.5 opacity-60" />
-                                </Button>
-                              </PopoverTrigger>
-                              <PopoverContent align="start" className="w-56 p-1">
-                                {splitBarcodes(row.barcode).map((code) => (
-                                  <div
-                                    key={code}
-                                    className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted"
-                                  >
-                                    <span className="flex-1 truncate text-xs font-medium">
-                                      {code}
-                                    </span>
-                                    <button
-                                      type="button"
-                                      onClick={() => removeBarcodeChip(row.id, code)}
-                                      className="shrink-0 text-muted-foreground hover:text-destructive"
-                                      title="Shtrix kodni o'chirish"
-                                    >
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    </button>
-                                  </div>
-                                ))}
-                              </PopoverContent>
-                            </Popover>
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="outline"
-                              className="h-9 w-9 shrink-0"
-                              onClick={() => assignBarcode(row.id)}
-                              title="Avtomatik shtrix kod"
-                            >
-                              <Barcode className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                        ) : (
-                          <div className="flex gap-1">
-                            <Input
-                              value={row.barcode}
-                              onChange={(e) =>
-                                updateRow(row.id, { barcode: e.target.value, barcodeAuto: false })
-                              }
-                              placeholder="Shtrix kod"
-                              className="h-9 min-w-0 text-xs"
-                            />
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="outline"
-                              className="h-9 w-9 shrink-0"
-                              onClick={() => assignBarcode(row.id)}
-                              title="Avtomatik shtrix kod"
-                            >
-                              <Barcode className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                        )}
+                        <div className="flex gap-1">
+                          <Input
+                            value={row.barcode}
+                            onChange={(e) => updateRow(row.id, { barcode: e.target.value })}
+                            placeholder="Shtrix kod"
+                            className="h-9 min-w-0 text-xs"
+                          />
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="outline"
+                            className="h-9 w-9 shrink-0"
+                            onClick={() => assignBarcode(row.id)}
+                            title="Avtomatik shtrix kod"
+                          >
+                            <Barcode className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                       </Field>
 
-                      <Field label="Ombor">
-                        <Select
-                          value={row.warehouse || defaultWarehouse}
-                          onValueChange={(value) => updateRow(row.id, { warehouse: value })}
-                        >
-                          <SelectTrigger className="h-9 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {settings.warehouses.map((w) => (
-                              <SelectItem key={w.id} value={w.name}>
-                                {w.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </Field>
-
-                      <Field label="Polka raqami">
-                        <Select
-                          value={row.shelfLocation || "__empty__"}
-                          onValueChange={(value) =>
-                            updateRow(row.id, {
-                              shelfLocation: value === "__empty__" ? "" : value,
-                            })
-                          }
-                        >
-                          <SelectTrigger className="h-9 text-xs">
-                            <SelectValue placeholder="Tanlang" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="__empty__">Tanlanmagan</SelectItem>
-                            {settings.shelfLocations.map((loc) => (
-                              <SelectItem key={loc.id} value={loc.name}>
-                                {loc.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                      <Field label="Rasm">
+                        <ImageUploadField
+                          image={row.image}
+                          onPick={(file) => handleImagePick(row.id, file)}
+                          onClear={() => updateRow(row.id, { image: undefined })}
+                        />
                       </Field>
                     </div>
                   </div>
@@ -975,189 +324,56 @@ function CreateNew({ onDone }: { onDone: () => void }) {
           </div>
         </div>
       </section>
-
-      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{bulkSetupMode ? "Bazani shakllantirish" : "Qabul ma'lumotlari"}</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="rounded-lg border bg-muted/10 p-3 text-center">
-              <div className="text-sm text-muted-foreground">{validRows.length} ta mahsulot</div>
-              {bulkSetupMode ? (
-                <div className="mt-2 grid grid-cols-2 gap-2 text-left">
-                  <div className="rounded-md border bg-card p-2">
-                    <div className="text-[11px] text-muted-foreground">Tan narx bo'yicha</div>
-                    <div className="text-base font-bold">{formatSom(totalCostSom)}</div>
-                  </div>
-                  <div className="rounded-md border bg-card p-2">
-                    <div className="text-[11px] text-muted-foreground">Sotuv narxi bo'yicha</div>
-                    <div className="text-base font-bold">{formatSom(totalSaleSom)}</div>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-xl font-bold">{formatSom(totalCostSom)}</div>
-              )}
-            </div>
-
-            {!bulkSetupMode && (
-            <div>
-              <div className="mb-1.5 text-xs font-medium text-muted-foreground">
-                Kimdan qabul qilindi?
-              </div>
-              <div className="space-y-3 rounded-lg border p-3">
-                <div>
-                  <Label className="mb-1 block text-xs">Agent</Label>
-                  <Select
-                    value={source.agentName.trim() ? source.agentId : "__none__"}
-                    onValueChange={(value) => {
-                      const agent = agents.find((item) => item.id === value);
-                      if (!agent) return;
-                      setSource((current) => ({
-                        ...current,
-                        enabled: true,
-                        agentId: agent.id,
-                        agentName: agent.name,
-                        agentPhone: agent.phone,
-                        sendBotUpdate: agent.botEnabled,
-                      }));
-                    }}
-                  >
-                    <SelectTrigger className="h-9 text-sm">
-                      <SelectValue placeholder="Agent tanlang">
-                        {source.agentName.trim() || undefined}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {source.agentName.trim() && !selectedAgent && (
-                        <SelectItem value={source.agentId}>
-                          {source.agentName} · avtomatik aniqlandi
-                        </SelectItem>
-                      )}
-                      {agents.map((agent) => (
-                        <SelectItem key={agent.id} value={agent.id}>
-                          {agent.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {source.agentName.trim() && !selectedAgent && (
-                    <div className="mt-1 text-[11px] text-muted-foreground">
-                      Bu mahsulotni oldin shu agent olib kelgan — avtomatik tanlandi.
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <Label className="mb-1 block text-xs">Hozir necha so'm to'laysiz?</Label>
-                  <Input
-                    type="number"
-                    value={source.paidAmount}
-                    onChange={(e) => setSource({ ...source, paidAmount: e.target.value })}
-                    className="h-9"
-                    placeholder="0"
-                  />
-                  {(() => {
-                    const paid = Math.max(0, parseNumberInput(source.paidAmount) || 0);
-                    const remaining = totalCostSom - paid;
-                    const overpaid = remaining < 0;
-                    return (
-                      <div
-                        className={cn(
-                          "mt-1 text-xs font-medium",
-                          overpaid ? "text-destructive" : "text-success",
-                        )}
-                      >
-                        {overpaid
-                          ? `Ortiqcha to'lov: ${formatSom(Math.abs(remaining))}`
-                          : `Qoldiq: ${formatSom(remaining)}`}
-                      </div>
-                    );
-                  })()}
-                </div>
-
-                <div>
-                  <div className="mb-1.5 text-xs font-medium text-muted-foreground">
-                    Qaerdan to'lanmoqda?
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={deductFromCashbox ? "default" : "outline"}
-                      onClick={() => setDeductFromCashbox(true)}
-                    >
-                      Kassadan
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={!deductFromCashbox ? "default" : "outline"}
-                      onClick={() => setDeductFromCashbox(false)}
-                    >
-                      Keyinroq
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </div>
-            )}
-
-            {!bulkSetupMode &&
-              (showNoteField ? (
-                <div>
-                  <Label className="mb-1 block text-xs">Izoh</Label>
-                  <Input
-                    value={source.note}
-                    onChange={(e) => setSource({ ...source, note: e.target.value })}
-                    placeholder="Ixtiyoriy izoh"
-                    className="h-9 text-sm"
-                    autoFocus
-                  />
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setShowNoteField(true)}
-                  className="text-xs font-medium text-primary hover:underline"
-                >
-                  + Izoh qo'shish
-                </button>
-              ))}
-
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full gap-2"
-              onClick={openPrintDialog}
-              disabled={validRows.length === 0}
-            >
-              <Barcode className="h-4 w-4" />
-              Shtrix kod chop etish
-            </Button>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmOpen(false)}>
-              Bekor qilish
-            </Button>
-            <Button
-              className="bg-blue-600 text-white hover:bg-blue-700"
-              onClick={finalizeReceiving}
-            >
-              {bulkSetupMode ? `Saqlash (${validRows.length} ta)` : `Qabul qilish (${formatSom(totalCostSom)})`}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <PrintNewBarcodesDialog
-        open={printDialogOpen}
-        onOpenChange={setPrintDialogOpen}
-        items={printItems}
-      />
     </div>
+  );
+}
+
+function ImageUploadField({
+  image,
+  onPick,
+  onClear,
+}: {
+  image?: string;
+  onPick: (file: File | undefined) => void;
+  onClear: () => void;
+}) {
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  if (image) {
+    return (
+      <div className="relative h-9 w-9">
+        <img src={image} alt="Mahsulot rasmi" className="h-9 w-9 rounded-md border object-cover" />
+        <button
+          type="button"
+          onClick={onClear}
+          className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground"
+          aria-label="Rasmni olib tashlash"
+        >
+          <X className="h-2.5 w-2.5" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => onPick(e.target.files?.[0])}
+      />
+      <Button
+        type="button"
+        variant="outline"
+        className="h-9 w-9 p-0"
+        onClick={() => inputRef.current?.click()}
+        title="Rasm yuklash"
+      >
+        <ImagePlus className="h-4 w-4 text-muted-foreground" />
+      </Button>
+    </>
   );
 }
 
@@ -1194,20 +410,14 @@ function Field({
 function CurrencyField({
   value,
   onChange,
-  onKeyDown,
-  onBlur,
   placeholder,
-  invalid,
   currency,
   currencies,
   onCurrencyChange,
 }: {
   value: string;
   onChange: (value: string) => void;
-  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
-  onBlur?: () => void;
   placeholder?: string;
-  invalid?: boolean;
   currency: string;
   currencies: string[];
   onCurrencyChange: (value: string) => void;
@@ -1217,13 +427,8 @@ function CurrencyField({
       <Input
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        onKeyDown={onKeyDown}
-        onBlur={onBlur}
         placeholder={placeholder}
-        className={cn(
-          "h-9 pr-14 text-right text-xs",
-          invalid && "border-destructive focus-visible:ring-destructive",
-        )}
+        className="h-9 pr-14 text-right text-xs"
         inputMode="decimal"
       />
       <Select value={currency} onValueChange={onCurrencyChange}>

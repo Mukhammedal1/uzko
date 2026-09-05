@@ -13,7 +13,7 @@ import { AuthProvider, useAuth } from "@/lib/auth-context";
 
 import appCss from "../styles.css?url";
 
-const AUTH_ROUTES = new Set(["/login", "/register", "/verify-code"]);
+const AUTH_ROUTES = new Set(["/login", "/register"]);
 
 function SplashScreen() {
   return (

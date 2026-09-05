@@ -43,7 +43,7 @@ import {
   exportAgentHistoryToExcel,
   printAgentNakladnoy,
   printAgentReceipt80mm,
-} from "@/components/mijozlar/MijozlarPage";
+} from "@/components/agentlar/AgentlarPage";
 import {
   MOCK_PRODUCTS,
   MOCK_PRODUCT_HISTORY,

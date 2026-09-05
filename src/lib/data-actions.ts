@@ -2,6 +2,8 @@ import {
   MOCK_CREDIT_CUSTOMERS,
   MOCK_DEBT_PAYMENTS,
   MOCK_EDIT_HISTORY,
+  MOCK_LOYAL_CUSTOMERS,
+  MOCK_MONEY_OPERATIONS,
   MOCK_ONE_TIME_ITEMS,
   MOCK_PRODUCTS,
   MOCK_PRODUCT_HISTORY,
@@ -11,12 +13,14 @@ import {
   MOCK_STOCK_COUNTS,
   MOCK_STOCK_COUNT_EDITS,
   MOCK_SUPPLIER_REPORTS,
+  MOCK_WITHDRAWALS,
   costInSom,
   nextAgentId,
   type CreditCustomer,
   type CustomerDebtReceipt,
   type CustomerType,
   type DebtPayment,
+  type MoneyOperation,
   type Product,
   type ReceiptDispatchLog,
   type Receipt,
@@ -55,7 +59,7 @@ export type AddSaleReceiptInput = {
   paymentBreakdown?: Receipt["paymentBreakdown"];
 };
 
-export function fullCustomerName(customer: CreditCustomer) {
+export function fullCustomerName(customer: { firstName: string; lastName: string }) {
   return `${customer.firstName} ${customer.lastName}`;
 }
 
@@ -67,6 +71,32 @@ export function searchCreditCustomers(query: string, limit = 8) {
       .toLowerCase()
       .includes(q),
   ).slice(0, limit);
+}
+
+export function searchLoyalCustomers(query: string, limit = 8) {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  return MOCK_LOYAL_CUSTOMERS.filter((customer) =>
+    `${customer.cardNumber} ${customer.id} ${customer.firstName} ${customer.lastName} ${customer.phone}`
+      .toLowerCase()
+      .includes(q),
+  ).slice(0, limit);
+}
+
+export function findLoyalCustomerByCard(cardNumber: string) {
+  const normalized = cardNumber.trim().toLowerCase();
+  if (!normalized) return null;
+  return MOCK_LOYAL_CUSTOMERS.find((c) => c.cardNumber.toLowerCase() === normalized) ?? null;
+}
+
+/** Savdo yakunlanganda sodiq mijozga cashback yozadi va xarid summasini yangilaydi. */
+export function accrueLoyalCashback(customerId: string, saleTotal: number): number {
+  const customer = MOCK_LOYAL_CUSTOMERS.find((c) => c.id === customerId);
+  if (!customer || saleTotal <= 0) return 0;
+  const earned = Math.round((saleTotal * customer.cashbackPercent) / 100);
+  customer.cashbackBalance += earned;
+  customer.totalSpent += saleTotal;
+  return earned;
 }
 
 export function searchRegularCustomers(query: string, limit = 8) {
@@ -175,17 +205,14 @@ export function addCreditSale(
   const note = options.note?.trim() || "Savdo oynasidan qo'shildi";
   customer.currentDebt += debtAmount;
   if (debtAmount > 0 && options.objectId) {
-    const objectDebt =
-      customer.objects?.find((item) => item.id === options.objectId) ?? null;
+    const objectDebt = customer.objects?.find((item) => item.id === options.objectId) ?? null;
     if (objectDebt) objectDebt.debt += debtAmount;
   }
   if (options.dueDate) customer.dueDate = options.dueDate;
   customer.receipts = customer.receipts ?? [];
   const noteParts = [note];
   if (paidAmount > 0) {
-    noteParts.push(
-      `${options.paymentLabel ?? "Hozir berildi"}: ${formatPlainSom(paidAmount)}`,
-    );
+    noteParts.push(`${options.paymentLabel ?? "Hozir berildi"}: ${formatPlainSom(paidAmount)}`);
   }
   if (options.dueDate) noteParts.push(`Muddat: ${options.dueDate}`);
   if (options.objectName) noteParts.push(`Obyekt: ${options.objectName}`);
@@ -270,6 +297,161 @@ export function recordDebtPayment(input: DebtPaymentInput) {
     });
   }
   return { payment, remainingDebt };
+}
+
+export type MoneyOperationInput = {
+  /** "nasiyachi" — mijoz bizga qarzdor (qarz so'ndirish); "agent" — biz agentga qarzdormiz (to'lov) */
+  party: "nasiyachi" | "agent";
+  partyId: string;
+  partyName: string;
+  partyPhone?: string;
+  botEnabled?: boolean;
+  amount: number;
+  method: DebtPayment["method"];
+  cardType?: string;
+  currencyCode?: string;
+  /** Faqat agent uchun: "kassa" — kassadan chiqim; "boshqa" — ixtiyoriy tashqi manba. */
+  source?: "kassa" | "boshqa";
+  note?: string;
+  cashier?: string;
+};
+
+function agentRemainingDebt(agentId: string) {
+  return MOCK_SUPPLIER_REPORTS.filter((report) => report.agentId === agentId).reduce(
+    (sum, report) => sum + report.remainingDebt,
+    0,
+  );
+}
+
+function moneyMethodLabel(
+  input: Pick<MoneyOperationInput, "method" | "cardType" | "currencyCode">,
+) {
+  if (input.method === "naqd") return "Naqd pul";
+  if (input.method === "karta") return `Karta (${input.cardType ?? "karta"})`;
+  return `Valyuta (${input.currencyCode ?? "valyuta"})`;
+}
+
+/**
+ * Nasiyachi yoki agent bilan bitta pul operatsiyasini bajaradi:
+ * tegishli qarz balansini yangilaydi, kassaga yozuv qo'shadi (chiqim/kirim),
+ * shaxsning cheklar tarixiga yozadi va `MOCK_MONEY_OPERATIONS` ga saqlaydi.
+ */
+export function recordMoneyOperation(input: MoneyOperationInput) {
+  const amount = Math.max(0, Math.round(input.amount));
+  const cashier = input.cashier?.trim() || "Joriy foydalanuvchi";
+  const date = new Date().toISOString();
+  const note = input.note?.trim() || undefined;
+  const methodLabel = moneyMethodLabel(input);
+  // Nasiyachi to'lovi — kassaga kirim; agentga to'lov — chiqim.
+  const direction: MoneyOperation["direction"] = input.party === "nasiyachi" ? "in" : "out";
+  const source: MoneyOperation["source"] =
+    input.party === "agent" ? (input.source ?? "kassa") : undefined;
+
+  let balanceAfter = 0;
+
+  if (input.party === "nasiyachi") {
+    const customer = MOCK_CREDIT_CUSTOMERS.find((item) => item.id === input.partyId);
+    if (customer) {
+      customer.currentDebt = Math.max(0, customer.currentDebt - amount);
+      balanceAfter = customer.currentDebt;
+      customer.receipts = customer.receipts ?? [];
+      customer.receipts.unshift({
+        id: `QS-${Date.now()}`,
+        date,
+        type: "payment",
+        title: "Qarz so'ndirish",
+        items: [],
+        amount: -amount,
+        status: "paid",
+        note: [methodLabel, note].filter(Boolean).join(" · "),
+      });
+      updateDebtReceiptStatuses(customer);
+    }
+
+    MOCK_DEBT_PAYMENTS.push({
+      id: `DP-${Date.now()}`,
+      date,
+      cashier,
+      customerId: input.partyId,
+      customerName: input.partyName,
+      amount,
+      method: input.method,
+      cardType: input.cardType,
+      currencyCode: input.currencyCode,
+      note,
+    });
+  } else {
+    // agent — faqat to'lov (chiqim); bizning qarzimiz kamayadi
+    MOCK_SUPPLIER_REPORTS.unshift({
+      id: `sr-pay-${Date.now()}`,
+      date,
+      addedBy: cashier,
+      type: "payment",
+      agentId: input.partyId,
+      agentName: input.partyName,
+      agentPhone: input.partyPhone ?? "",
+      botEnabled: Boolean(input.botEnabled),
+      items: [],
+      totalAmount: 0,
+      paidAmount: amount,
+      remainingDebt: -amount,
+      note: ["To'lov", methodLabel, source === "boshqa" ? "Ixtiyoriy manba" : "Kassadan", note]
+        .filter(Boolean)
+        .join(" · "),
+    });
+    balanceAfter = agentRemainingDebt(input.partyId);
+
+    if (source === "kassa") {
+      MOCK_WITHDRAWALS.push({
+        id: `WD-${Date.now()}`,
+        date,
+        cashier,
+        category: "Agentlarga to'lov",
+        cash: input.method === "naqd" ? amount : 0,
+        cardAmount: input.method === "karta" ? amount : 0,
+        currencies:
+          input.method === "valyuta" ? [{ code: input.currencyCode ?? "USD", amount }] : [],
+        note: [`Agent: ${input.partyName}`, note].filter(Boolean).join(" · "),
+        agentId: input.partyId,
+      });
+    }
+  }
+
+  const operation: MoneyOperation = {
+    id: `MO-${Date.now()}`,
+    date,
+    cashier,
+    party: input.party,
+    partyId: input.partyId,
+    partyName: input.partyName,
+    partyPhone: input.partyPhone,
+    direction,
+    source,
+    amount,
+    method: input.method,
+    cardType: input.cardType,
+    currencyCode: input.currencyCode,
+    note,
+    balanceAfter,
+  };
+  MOCK_MONEY_OPERATIONS.unshift(operation);
+
+  if (input.botEnabled && input.partyPhone?.trim()) {
+    dispatchReceiptMessage({
+      recipientCategory: input.party === "nasiyachi" ? "nasiya" : "agent",
+      recipientId: input.partyId,
+      recipientName: input.partyName,
+      phone: input.partyPhone,
+      receiptId: operation.id,
+      title: input.party === "nasiyachi" ? "Qarz so'ndirildi" : "Agentga to'lov",
+      total: amount,
+      note: [methodLabel, `Balans: ${formatPlainSom(balanceAfter)}`, note]
+        .filter(Boolean)
+        .join(" · "),
+    });
+  }
+
+  return { operation, balanceAfter };
 }
 
 export function applyDebtReturn(

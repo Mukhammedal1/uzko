@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   MOCK_EDIT_HISTORY,
+  MOCK_NEW_PRODUCT_LOG,
   MOCK_PRODUCTS,
   MOCK_PRODUCT_HISTORY,
   MOCK_PRODUCT_HISTORY_EDIT_LOG,
@@ -28,7 +29,6 @@ import {
   Eye,
   FileSpreadsheet,
   Filter,
-  History,
   PackageMinus,
   PackagePlus,
   Pencil,
@@ -43,7 +43,7 @@ function fmtDate(value: string) {
   return new Date(value).toLocaleString("uz-UZ", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
-type Tab = "added" | "addedlog" | "edited" | "returned" | "writtenoff";
+type Tab = "yangi" | "edited" | "returned" | "writtenoff";
 type EditChange = {
   field: string;
   oldValue: unknown;
@@ -53,29 +53,26 @@ type FlexibleEditHistory = (typeof MOCK_EDIT_HISTORY)[number] & Record<string, u
 type DateMode = "all" | "today" | "month" | "custom";
 
 export function TovarlarTarixi() {
-  const [tab, setTab] = React.useState<Tab>("added");
+  const [tab, setTab] = React.useState<Tab>("yangi");
   const { t } = useApp();
   return (
     <div className="flex h-full flex-col">
       <div className="flex gap-2 border-b bg-card p-3">
-        <Button size="sm" variant={tab === "added" ? "default" : "outline"} onClick={() => setTab("added")}>{t("added_products")}</Button>
         <Button
           size="sm"
-          variant={tab === "addedlog" ? "default" : "outline"}
-          onClick={() => setTab("addedlog")}
+          variant={tab === "yangi" ? "default" : "outline"}
+          onClick={() => setTab("yangi")}
           className="gap-2"
         >
-          <History className="h-4 w-4" /> Kirim tarixi tahrirlari
+          <PackagePlus className="h-4 w-4" /> Yangi tovar qo'shish
         </Button>
         <Button size="sm" variant={tab === "edited" ? "default" : "outline"} onClick={() => setTab("edited")}>{t("edited_products")}</Button>
         <Button size="sm" variant={tab === "returned" ? "default" : "outline"} onClick={() => setTab("returned")} className="gap-2"><RotateCcw className="h-4 w-4" /> Qaytgan tovarlar tarixi</Button>
         <Button size="sm" variant={tab === "writtenoff" ? "default" : "outline"} onClick={() => setTab("writtenoff")} className="gap-2"><PackageMinus className="h-4 w-4" /> Hisobdan chiqarilgan tovarlar tarixi</Button>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
-        {tab === "added" ? (
-          <AddedTable />
-        ) : tab === "addedlog" ? (
-          <AddedEditLogTable />
+        {tab === "yangi" ? (
+          <NewProductTable />
         ) : tab === "edited" ? (
           <EditedTable />
         ) : tab === "returned" ? (
@@ -88,7 +85,94 @@ export function TovarlarTarixi() {
   );
 }
 
-function AddedTable() {
+function NewProductTable() {
+  const [productQuery, setProductQuery] = React.useState("");
+  const [dateMode, setDateMode] = React.useState<DateMode>("all");
+  const [from, setFrom] = React.useState("");
+  const [to, setTo] = React.useState("");
+
+  const filtered = React.useMemo(
+    () =>
+      MOCK_NEW_PRODUCT_LOG.filter(
+        (h) =>
+          matchesProductName(h.productName, productQuery) &&
+          matchesDateFilter(h.date, dateMode, from, to),
+      ),
+    [productQuery, dateMode, from, to],
+  );
+
+  return (
+    <div className="flex h-full flex-col">
+      <HistoryFilters
+        productQuery={productQuery}
+        onProductQueryChange={setProductQuery}
+        dateMode={dateMode}
+        onDateModeChange={setDateMode}
+        from={from}
+        onFromChange={setFrom}
+        to={to}
+        onToChange={setTo}
+        summaryLabel="Yangi tovarlar"
+        summaryValue={`${filtered.length} ta`}
+      />
+
+      <div className="min-h-0 flex-1 overflow-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 z-10 bg-muted/90 backdrop-blur">
+            <tr className="border-b text-xs uppercase text-muted-foreground">
+              <th className="px-4 py-2 text-left">Sana</th>
+              <th className="px-4 py-2 text-left">Tovar</th>
+              <th className="px-4 py-2 text-left">Birlik</th>
+              <th className="px-4 py-2 text-right">Tan narx</th>
+              <th className="px-4 py-2 text-right">Optom narx</th>
+              <th className="px-4 py-2 text-right">Sotuv narx</th>
+              <th className="px-4 py-2 text-left">Shtrix kod</th>
+              <th className="px-4 py-2 text-left">Qo'shdi</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((h) => (
+              <tr key={h.id} className="border-b hover:bg-muted/40">
+                <td className="px-4 py-2 text-muted-foreground">{fmtDate(h.date)}</td>
+                <td className="px-4 py-2 font-medium">
+                  <div className="flex items-center gap-2">
+                    {h.image && (
+                      <img
+                        src={h.image}
+                        alt={h.productName}
+                        className="h-7 w-7 rounded object-cover"
+                      />
+                    )}
+                    {h.productName}
+                  </div>
+                </td>
+                <td className="px-4 py-2">{h.unit}</td>
+                <td className="px-4 py-2 text-right tabular-nums">{formatSom(h.costPrice)}</td>
+                <td className="px-4 py-2 text-right tabular-nums">
+                  {h.wholesalePrice ? formatSom(h.wholesalePrice) : "—"}
+                </td>
+                <td className="px-4 py-2 text-right tabular-nums">{formatSom(h.price)}</td>
+                <td className="px-4 py-2 font-mono text-xs">{h.barcode}</td>
+                <td className="px-4 py-2">
+                  <Badge variant="outline">{h.addedBy}</Badge>
+                </td>
+              </tr>
+            ))}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
+                  Yangi tovar qo'shish tarixi topilmadi
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+export function AddedTable() {
   const { t, settings } = useApp();
   const [productQuery, setProductQuery] = React.useState("");
   const [dateMode, setDateMode] = React.useState<DateMode>("all");
@@ -464,7 +548,7 @@ function EditProductHistoryDialog({
   );
 }
 
-function AddedEditLogTable() {
+export function AddedEditLogTable() {
   const [productQuery, setProductQuery] = React.useState("");
   const [dateMode, setDateMode] = React.useState<DateMode>("all");
   const [from, setFrom] = React.useState("");

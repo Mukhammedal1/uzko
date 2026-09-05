@@ -983,7 +983,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
         <Popover open={addMenuOpen} onOpenChange={setAddMenuOpen}>
           <PopoverTrigger asChild>
             <Button className="h-10 gap-2">
-              <PackagePlus className="h-4 w-4" /> Tovar qo'shish
+              <PackagePlus className="h-4 w-4" /> Yangi tovar qo'shish
               <ChevronDown className="h-3.5 w-3.5 opacity-70" />
             </Button>
           </PopoverTrigger>
@@ -997,7 +997,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
               className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm font-medium hover:bg-muted"
             >
               <PackagePlus className="h-4 w-4" />
-              Mahsulot qo'shish
+              Yangi tovar qo'shish
             </button>
             <button
               type="button"

@@ -6,25 +6,24 @@ import { BottomBar } from "@/components/sotuv/BottomBar";
 import { Button } from "@/components/ui/button";
 import { BarchaTovarlar } from "@/components/tovarlar/BarchaTovarlar";
 import { TovarQoshish } from "@/components/tovarlar/TovarQoshish";
+import { TovarPrixod } from "@/components/tovarlar/TovarPrixod";
 import { TovarlarTarixi } from "@/components/tovarlar/TovarlarTarixi";
 import { Sanoq } from "@/components/tovarlar/Sanoq";
 import { useApp } from "@/lib/app-context";
-import { Package, History, ClipboardList } from "lucide-react";
+import { Package, History, ClipboardList, PackageCheck } from "lucide-react";
 
 export const Route = createFileRoute("/tovarlar")({
   head: () => ({
-    meta: [
-      { title: "UZKO — Tovarlar" },
-      { name: "description", content: "Tovarlar boshqaruvi" },
-    ],
+    meta: [{ title: "UZKO — Tovarlar" }, { name: "description", content: "Tovarlar boshqaruvi" }],
   }),
   component: TovarlarPage,
 });
 
 const TABS = [
   { id: "barcha", labelKey: "all_products", icon: Package },
-  { id: "sanoq",  labelKey: "stock_count", icon: ClipboardList },
-  { id: "tarix",  labelKey: "products_history", icon: History },
+  { id: "prixod", labelKey: "goods_receipt", icon: PackageCheck },
+  { id: "sanoq", labelKey: "stock_count", icon: ClipboardList },
+  { id: "tarix", labelKey: "products_history", icon: History },
 ] as const;
 
 type Tab = (typeof TABS)[number]["id"];
@@ -50,7 +49,10 @@ function TovarlarPage() {
                 key={item.id}
                 variant={active ? "default" : "outline"}
                 size="sm"
-                onClick={() => { setTab(item.id); setCreateMode(null); }}
+                onClick={() => {
+                  setTab(item.id);
+                  setCreateMode(null);
+                }}
                 className="gap-2 whitespace-nowrap"
               >
                 <Icon className="h-4 w-4" />
@@ -58,7 +60,10 @@ function TovarlarPage() {
               </Button>
             );
           })}
-          <div ref={setSelectionSlot} className="ml-auto flex flex-wrap items-center justify-end gap-2" />
+          <div
+            ref={setSelectionSlot}
+            className="ml-auto flex flex-wrap items-center justify-end gap-2"
+          />
         </div>
 
         <section className="responsive-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card shadow-sm">
@@ -69,6 +74,7 @@ function TovarlarPage() {
               {tab === "barcha" && (
                 <BarchaTovarlar onSetCreateMode={setCreateMode} selectionSlot={selectionSlot} />
               )}
+              {tab === "prixod" && <TovarPrixod />}
               {tab === "sanoq" && <Sanoq />}
               {tab === "tarix" && <TovarlarTarixi />}
             </>

@@ -2,7 +2,6 @@ import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { formatSom, formatMoney } from "@/lib/mock-data";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
 import type {
   CartItem,
   Discount,
@@ -37,7 +36,7 @@ import {
   RotateCcw,
   HandCoins,
   Wifi,
-  Zap,
+  LayoutGrid,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -56,8 +55,7 @@ type Props = {
   onClearPendingReturn?: () => void;
   onCopy?: (id: string) => void;
   priceMode?: PriceMode;
-  quickAddToCart?: boolean;
-  onToggleQuickAddToCart?: (checked: boolean) => void;
+  onOpenPosUi?: () => void;
   currency?: string;
   currencies?: string[];
   onChangeCurrency?: (code: string) => void;
@@ -79,8 +77,7 @@ export function SaleCart({
   onClearPendingReturn,
   onCopy,
   priceMode = "retail",
-  quickAddToCart = false,
-  onToggleQuickAddToCart,
+  onOpenPosUi,
   currency = "UZS",
   currencies,
   onChangeCurrency,
@@ -137,19 +134,17 @@ export function SaleCart({
               <div className="text-sm font-semibold">Savatcha</div>
               <div className="text-[11px] text-muted-foreground">{items.length} pozitsiya</div>
             </div>
-            {onToggleQuickAddToCart && (
-              <div
-                className="ml-2 flex h-8 items-center gap-1.5 rounded-md border bg-muted/30 px-2 text-[11px] font-semibold text-muted-foreground"
-                title="Mahsulot tanlanganda miqdor so'ramasdan to'g'ridan-to'g'ri savatga qo'shiladi"
+            {onOpenPosUi && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onOpenPosUi}
+                className="ml-2 h-8 gap-1.5 border-primary/30 bg-primary/5 px-2 text-xs font-semibold text-primary hover:bg-primary/10 hover:text-primary"
               >
-                <Zap className="h-3.5 w-3.5" />
-                <span className="hidden xl:inline">Tezkor qo'shish</span>
-                <Switch
-                  checked={quickAddToCart}
-                  onCheckedChange={onToggleQuickAddToCart}
-                  className="ml-0.5"
-                />
-              </div>
+                <LayoutGrid className="h-3.5 w-3.5" />
+                POS UI
+              </Button>
             )}
 
             {onChangeCurrency && (

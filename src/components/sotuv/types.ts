@@ -1,9 +1,4 @@
-import type {
-  CustomerType,
-  PaymentBreakdownRow,
-  Product,
-  ReceiptItem,
-} from "@/lib/mock-data";
+import type { CustomerType, PaymentBreakdownRow, Product, ReceiptItem } from "@/lib/mock-data";
 import type { PendingReturnExchange } from "@/components/tovarlar/TovarQaytarish";
 
 export type PriceMode = "retail" | "wholesale";
@@ -19,9 +14,7 @@ export type CartItem = {
 };
 
 export type Discount =
-  | { type: "none" }
-  | { type: "amount"; value: number }
-  | { type: "percent"; value: number };
+  { type: "none" } | { type: "amount"; value: number } | { type: "percent"; value: number };
 
 export type OneTimeItemInput = {
   name: string;
@@ -38,6 +31,11 @@ export type FinalizeSaleDetails = {
   customerId?: string;
   customerName?: string;
   customerPhone?: string;
+  /** Savdo yakunida karta/tel/ism orqali aniqlangan sodiq mijoz (bo'lsa). */
+  loyalCustomerId?: string;
+  loyalCardNumber?: string;
+  loyalCustomerName?: string;
+  loyalCashbackEarned?: number;
   paidAmount?: number;
   debtAmount?: number;
   paymentBreakdown?: {

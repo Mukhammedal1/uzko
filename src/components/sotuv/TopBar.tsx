@@ -10,6 +10,7 @@ import {
   ShieldCheck,
   ShoppingCart,
   SlidersHorizontal,
+  Truck,
   UserRound,
   Wallet,
 } from "lucide-react";
@@ -51,6 +52,7 @@ export function TopBar() {
     { to: "/kassa", label: t("kassa"), Icon: Wallet },
     { to: "/tovarlar", label: t("tovarlar"), Icon: Boxes },
     { to: "/mijozlar", label: "Mijozlar", Icon: UserRound },
+    { to: "/agentlar", label: "Agentlar", Icon: Truck },
     { to: "/umumiy", label: t("umumiy"), Icon: BarChart3 },
     { to: "/boshqaruv", label: t("boshqaruv"), Icon: SlidersHorizontal },
   ];

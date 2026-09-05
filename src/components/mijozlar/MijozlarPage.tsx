@@ -1,19 +1,24 @@
 import * as React from "react";
 import * as XLSX from "xlsx";
 import {
+  ArrowLeftRight,
   Bot,
+  CreditCard,
   FileSpreadsheet,
   FileText,
   HandCoins,
   Pencil,
+  Percent,
   Phone,
   Printer,
   ReceiptText,
   Search,
-  Truck,
+  Star,
+  Users,
   UserPlus,
   Plus,
   Trash2,
+  Wallet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,7 +42,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -46,31 +50,38 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PeriodFilter, type PeriodFilterValue } from "@/components/shared/PeriodFilter";
+import { MoneyOperationDialog } from "@/components/shared/MoneyOperationDialog";
+import { MoneyOperationsList } from "@/components/shared/MoneyOperationsList";
 import { addCreditCustomer, dispatchReceiptMessage, fullCustomerName } from "@/lib/data-actions";
 import { cn, formatNumberInput } from "@/lib/utils";
 import { useApp } from "@/lib/app-context";
 import {
   MOCK_CREDIT_CUSTOMERS,
+  MOCK_LOYAL_CUSTOMERS,
+  MOCK_PRODUCTS,
   MOCK_RECEIPT_DISPATCHES,
   MOCK_RECEIPTS,
   MOCK_REGULAR_CUSTOMERS,
-  MOCK_SUPPLIER_REPORTS,
   formatSom,
+  nextLoyalCardNumber,
   type CreditCustomer,
   type Currency,
   type CustomerDebtReceipt,
+  type LoyalCustomer,
+  type LoyalDiscountScope,
+  type Product,
   type Receipt,
-  type SupplierReport,
 } from "@/lib/mock-data";
 import { toast } from "sonner";
 
-type Tab = "oddiy" | "nasiya" | "agent";
+type Tab = "oddiy" | "nasiya" | "sodiq";
 type Period = PeriodFilterValue;
 
 type RegularRow = {
   id: string;
   name: string;
   phone: string;
+  botEnabled?: boolean;
   receiptCount: number;
   total: number;
   receipts: Receipt[];
@@ -90,6 +101,27 @@ type CreditRow = {
   total: number;
   receipts: CustomerDebtReceipt[];
 };
+
+type LoyalRow = {
+  id: string;
+  cardNumber: string;
+  name: string;
+  phone: string;
+  discountPercent: number;
+  discountScope: LoyalDiscountScope;
+  discountProductIds: string[];
+  cashbackPercent: number;
+  cashbackBalance: number;
+  totalSpent: number;
+  joinedAt: string;
+  note?: string;
+};
+
+function discountScopeLabel(scope: LoyalDiscountScope, productCount: number) {
+  if (scope === "selected") return `${productCount} ta tovarga`;
+  if (scope === "excluded") return `${productCount} tadan tashqari`;
+  return "Barchasiga";
+}
 
 const DUE_SOON_DAYS = 3;
 
@@ -127,17 +159,6 @@ const DEBT_STATUS_BADGE_CLASS: Record<DebtStatus, string> = {
   normal: "",
 };
 
-type AgentRow = {
-  id: string;
-  name: string;
-  phone: string;
-  botEnabled: boolean;
-  total: number;
-  paid: number;
-  remaining: number;
-  receipts: SupplierReport[];
-};
-
 type DetailState =
   | { type: "oddiy-customers"; title: string; rows: RegularRow[] }
   | { type: "oddiy-receipts"; title: string; rows: Receipt[] }
@@ -148,13 +169,6 @@ type DetailState =
       rows: CustomerDebtReceipt[];
       customer: { id: string; name: string; phone: string };
     }
-  | {
-      type: "agent-groups";
-      title: string;
-      rows: AgentRow[];
-      metric: "count" | "total" | "remaining";
-    }
-  | { type: "agent-receipts"; title: string; rows: SupplierReport[] }
   | null;
 
 type SelectedReceiptState =
@@ -164,7 +178,6 @@ type SelectedReceiptState =
       receipt: CustomerDebtReceipt;
       customer: { id: string; name: string; phone: string };
     }
-  | { type: "agent"; receipt: SupplierReport }
   | null;
 
 function startOfDay(d: Date) {
@@ -197,7 +210,11 @@ function matches(value: string, query: string) {
 function matchesMany(values: Array<string | undefined>, query: string) {
   const normalized = query.trim().toLowerCase();
   if (!normalized) return true;
-  return values.some((value) => String(value ?? "").toLowerCase().includes(normalized));
+  return values.some((value) =>
+    String(value ?? "")
+      .toLowerCase()
+      .includes(normalized),
+  );
 }
 
 function amountMatches(amount: number, query: string) {
@@ -210,222 +227,6 @@ function fmtDate(value: string) {
   return new Date(value).toLocaleString("uz-UZ");
 }
 
-export function exportAgentHistoryToExcel(rows: SupplierReport[], agentId: string, agentName: string) {
-  const data = rows.flatMap((report) =>
-    report.items.map((item) => ({
-      "Chek": report.id,
-      "Sana": fmtDate(report.date),
-      "Turi": report.type === "return" ? "Qaytarish" : "Prixod",
-      "Tovar nomi": item.productName,
-      "Miqdor": item.qty,
-      "Birligi": item.unit,
-      "Summasi": item.amount,
-      "Mashina": report.vehicleName || "",
-      "Mashina raqami": report.vehiclePlate || "",
-      "Haydovchi": report.driverName || "",
-      "Haydovchi raqami": report.driverPhone || "",
-      "Izoh": report.note || "",
-    })),
-  );
-
-  const worksheet = XLSX.utils.json_to_sheet(data);
-  worksheet["!cols"] = [
-    { wch: 14 }, { wch: 18 }, { wch: 12 }, { wch: 26 }, { wch: 10 }, { wch: 10 }, { wch: 14 },
-    { wch: 16 }, { wch: 14 }, { wch: 18 }, { wch: 16 }, { wch: 24 },
-  ];
-
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, "Tovarlar tarixi");
-  XLSX.writeFile(workbook, `agent-${agentId}-tovarlar-tarixi.xlsx`);
-}
-
-export function printAgentNakladnoy(
-  rows: SupplierReport[],
-  agentId: string,
-  agentName: string,
-  agentPhone: string,
-  storeName: string,
-  storePhone: string,
-) {
-  const win = window.open("", "_blank");
-  if (!win) return;
-
-  const items = rows.flatMap((report) =>
-    report.items.map((item) => ({ ...item, reportId: report.id, date: report.date })),
-  );
-  const total = items.reduce((sum, item) => sum + item.amount, 0);
-  const transportRows = rows.filter(
-    (report) => report.vehicleName || report.vehiclePlate || report.driverName || report.driverPhone,
-  );
-
-  win.document.write(`
-    <html>
-      <head>
-        <meta charset="utf-8" />
-        <title>Nakladnoy — ${agentName}</title>
-        <style>
-          body { font-family: Arial, sans-serif; padding: 24px; color: #111; }
-          h1 { font-size: 18px; margin: 0 0 2px; }
-          .muted { color: #555; font-size: 12px; }
-          .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111; padding-bottom: 12px; margin-bottom: 16px; }
-          table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-          th, td { border: 1px solid #333; padding: 8px; font-size: 13px; text-align: left; }
-          th { background: #f2f2f2; }
-          .right { text-align: right; }
-          .total-row td { font-weight: bold; }
-          .signs { display: flex; justify-content: space-between; margin-top: 48px; }
-          .sign { width: 45%; border-top: 1px solid #333; padding-top: 4px; font-size: 12px; text-align: center; }
-        </style>
-      </head>
-      <body>
-        <div class="head">
-          <div>
-            <h1>${storeName || "Agent tovarlar tarixi nakladnoyi"}</h1>
-            ${storePhone ? `<div class="muted">Tel: ${storePhone}</div>` : ""}
-          </div>
-          <div class="muted">
-            <div>Agent: <b>${agentName}</b> (${agentId})</div>
-            ${agentPhone ? `<div>Tel: ${agentPhone}</div>` : ""}
-          </div>
-        </div>
-
-        <table>
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Chek</th>
-              <th>Sana</th>
-              <th>Tovar nomi</th>
-              <th class="right">Miqdor</th>
-              <th class="right">Summa</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${items
-              .map(
-                (item, index) => `
-              <tr>
-                <td>${index + 1}</td>
-                <td>${item.reportId}</td>
-                <td>${fmtDate(item.date)}</td>
-                <td>${item.productName}</td>
-                <td class="right">${item.qty} ${item.unit}</td>
-                <td class="right">${formatSom(item.amount)}</td>
-              </tr>
-            `,
-              )
-              .join("")}
-            <tr class="total-row">
-              <td colspan="5" class="right">Jami:</td>
-              <td class="right">${formatSom(total)}</td>
-            </tr>
-          </tbody>
-        </table>
-
-        ${
-          transportRows.length > 0
-            ? `<div class="muted" style="margin-top:16px;">
-                <b>Mashrut ma'lumotlari</b>
-                ${transportRows
-                  .map(
-                    (report) => `
-                  <div style="margin-top:4px;">
-                    Chek ${report.id}:
-                    ${report.vehicleName ? ` Mashina — ${report.vehicleName}` : ""}
-                    ${report.vehiclePlate ? ` (${report.vehiclePlate})` : ""}
-                    ${report.driverName ? ` · Haydovchi — ${report.driverName}` : ""}
-                    ${report.driverPhone ? ` (${report.driverPhone})` : ""}
-                  </div>
-                `,
-                  )
-                  .join("")}
-              </div>`
-            : ""
-        }
-
-        <div class="signs">
-          <div class="sign">Topshirdi: ${agentName}</div>
-          <div class="sign">Qabul qildi (F.I.Sh, imzo)</div>
-        </div>
-      </body>
-    </html>
-  `);
-  win.document.close();
-  win.focus();
-  win.print();
-}
-
-export function printAgentReceipt80mm(report: SupplierReport, storeName: string, storePhone: string) {
-  const win = window.open("", "_blank");
-  if (!win) return;
-
-  win.document.write(`
-    <html>
-      <head>
-        <meta charset="utf-8" />
-        <title>Chek ${report.id}</title>
-        <style>
-          @page { size: 80mm auto; margin: 0; }
-          body { font-family: 'Courier New', monospace; width: 72mm; margin: 0 auto; padding: 4mm; color: #000; font-size: 12px; }
-          h1 { font-size: 14px; margin: 0 0 2px; text-align: center; }
-          .muted { color: #333; font-size: 11px; text-align: center; }
-          .line { border-top: 1px dashed #000; margin: 6px 0; }
-          .row { display: flex; justify-content: space-between; gap: 6px; }
-          table { width: 100%; border-collapse: collapse; font-size: 11px; }
-          th { text-align: left; font-weight: normal; border-bottom: 1px dashed #000; padding-bottom: 2px; }
-          td { padding: 2px 0; vertical-align: top; }
-          .right { text-align: right; }
-          .total { font-weight: bold; font-size: 13px; }
-        </style>
-      </head>
-      <body>
-        <h1>${storeName || "Prixod cheki"}</h1>
-        ${storePhone ? `<div class="muted">Tel: ${storePhone}</div>` : ""}
-        <div class="line"></div>
-        <div class="row"><span>Chek:</span><span><b>${report.id}</b></span></div>
-        <div class="row"><span>Sana:</span><span>${fmtDate(report.date)}</span></div>
-        <div class="row"><span>Turi:</span><span>${report.type === "return" ? "Qaytarish" : "Prixod"}</span></div>
-        <div class="row"><span>Agent:</span><span>${report.agentName}</span></div>
-        ${report.agentPhone ? `<div class="row"><span>Tel:</span><span>${report.agentPhone}</span></div>` : ""}
-        <div class="line"></div>
-        <table>
-          <thead>
-            <tr><th>Tovar</th><th class="right">Miqdor</th><th class="right">Summa</th></tr>
-          </thead>
-          <tbody>
-            ${report.items
-              .map(
-                (item) => `
-              <tr>
-                <td>${item.productName}</td>
-                <td class="right">${item.qty} ${item.unit}</td>
-                <td class="right">${formatSom(item.amount)}</td>
-              </tr>
-            `,
-              )
-              .join("")}
-          </tbody>
-        </table>
-        <div class="line"></div>
-        <div class="row total"><span>Jami:</span><span>${formatSom(report.totalAmount)}</span></div>
-        <div class="row"><span>Berilgan:</span><span>${formatSom(report.paidAmount)}</span></div>
-        <div class="row"><span>Qoldiq:</span><span>${formatSom(report.remainingDebt)}</span></div>
-        ${
-          report.vehicleName || report.vehiclePlate || report.driverName || report.driverPhone
-            ? `<div class="line"></div>
-               ${report.vehicleName || report.vehiclePlate ? `<div class="row"><span>Mashina:</span><span>${report.vehicleName || ""}${report.vehiclePlate ? ` (${report.vehiclePlate})` : ""}</span></div>` : ""}
-               ${report.driverName || report.driverPhone ? `<div class="row"><span>Haydovchi:</span><span>${report.driverName || ""}${report.driverPhone ? ` (${report.driverPhone})` : ""}</span></div>` : ""}`
-            : ""
-        }
-        ${report.note ? `<div class="line"></div><div class="muted">${report.note}</div>` : ""}
-      </body>
-    </html>
-  `);
-  win.document.close();
-  win.focus();
-  win.print();
-}
-
 function exportCreditReceiptToExcel(
   receipts: CustomerDebtReceipt[],
   customerId: string,
@@ -434,32 +235,39 @@ function exportCreditReceiptToExcel(
   const data = receipts.flatMap((receipt) =>
     receipt.items.length > 0
       ? receipt.items.map((item) => ({
-          "Chek": receipt.id,
-          "Sana": fmtDate(receipt.date),
-          "Turi": receipt.title,
+          Chek: receipt.id,
+          Sana: fmtDate(receipt.date),
+          Turi: receipt.title,
           "Tovar nomi": item.name,
-          "Miqdor": item.qty,
-          "Birligi": item.unit,
-          "Summasi": item.amount,
-          "Izoh": receipt.note || "",
+          Miqdor: item.qty,
+          Birligi: item.unit,
+          Summasi: item.amount,
+          Izoh: receipt.note || "",
         }))
       : [
           {
-            "Chek": receipt.id,
-            "Sana": fmtDate(receipt.date),
-            "Turi": receipt.title,
+            Chek: receipt.id,
+            Sana: fmtDate(receipt.date),
+            Turi: receipt.title,
             "Tovar nomi": "",
-            "Miqdor": 0,
-            "Birligi": "",
-            "Summasi": receipt.amount,
-            "Izoh": receipt.note || "",
+            Miqdor: 0,
+            Birligi: "",
+            Summasi: receipt.amount,
+            Izoh: receipt.note || "",
           },
         ],
   );
 
   const worksheet = XLSX.utils.json_to_sheet(data);
   worksheet["!cols"] = [
-    { wch: 14 }, { wch: 18 }, { wch: 16 }, { wch: 26 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 24 },
+    { wch: 14 },
+    { wch: 18 },
+    { wch: 16 },
+    { wch: 26 },
+    { wch: 10 },
+    { wch: 10 },
+    { wch: 14 },
+    { wch: 24 },
   ];
 
   const workbook = XLSX.utils.book_new();
@@ -481,7 +289,16 @@ function printCreditNakladnoy(
   const items = receipts.flatMap((receipt) =>
     receipt.items.length > 0
       ? receipt.items.map((item) => ({ ...item, receiptId: receipt.id, date: receipt.date }))
-      : [{ name: receipt.title, qty: 1, unit: "", amount: receipt.amount, receiptId: receipt.id, date: receipt.date }],
+      : [
+          {
+            name: receipt.title,
+            qty: 1,
+            unit: "",
+            amount: receipt.amount,
+            receiptId: receipt.id,
+            date: receipt.date,
+          },
+        ],
   );
   const total = items.reduce((sum, item) => sum + item.amount, 0);
 
@@ -635,14 +452,6 @@ function printCreditReceipt80mm(
   win.print();
 }
 
-function nextAgentId() {
-  const max = MOCK_SUPPLIER_REPORTS.reduce((acc, row) => {
-    const parsed = Number.parseInt(row.agentId.replace(/\D/g, ""), 10);
-    return Number.isFinite(parsed) && parsed > acc ? parsed : acc;
-  }, 0);
-  return `AG-${String(max + 1).padStart(4, "0")}`;
-}
-
 export function MijozlarPage() {
   const { settings } = useApp();
   const [tab, setTab] = React.useState<Tab>("nasiya");
@@ -654,13 +463,17 @@ export function MijozlarPage() {
   const [query, setQuery] = React.useState("");
   const [refreshKey, setRefreshKey] = React.useState(0);
   const [addCreditOpen, setAddCreditOpen] = React.useState(false);
-  const [addAgentOpen, setAddAgentOpen] = React.useState(false);
   const [editingCredit, setEditingCredit] = React.useState<CreditCustomer | null>(null);
   const [deletingCredit, setDeletingCredit] = React.useState<CreditCustomer | null>(null);
-  const [editingAgent, setEditingAgent] = React.useState<AgentRow | null>(null);
-  const [deletingAgent, setDeletingAgent] = React.useState<AgentRow | null>(null);
+  const [moneyOpCredit, setMoneyOpCredit] = React.useState<CreditRow | null>(null);
+
+  const [addLoyalOpen, setAddLoyalOpen] = React.useState(false);
+  const [editingLoyal, setEditingLoyal] = React.useState<LoyalCustomer | null>(null);
+  const [deletingLoyal, setDeletingLoyal] = React.useState<LoyalCustomer | null>(null);
+  const [cashbackTarget, setCashbackTarget] = React.useState<LoyalRow | null>(null);
 
   const [receiptPeriod, setReceiptPeriod] = React.useState<Period>("all");
+
   const [receiptFrom, setReceiptFrom] = React.useState("");
   const [receiptTo, setReceiptTo] = React.useState("");
   const [receiptQuery, setReceiptQuery] = React.useState("");
@@ -685,6 +498,7 @@ export function MijozlarPage() {
         id: customer.id,
         name: `${customer.firstName} ${customer.lastName}`.trim(),
         phone: customer.phone,
+        botEnabled: false,
         receiptCount: receipts.length,
         total,
         receipts,
@@ -738,36 +552,14 @@ export function MijozlarPage() {
       .sort((a, b) => b.debt - a.debt);
   }, [from, query, period, refreshKey, to]);
 
-  const agentRows = React.useMemo(() => {
-    const map = new Map<string, AgentRow>();
-
-    MOCK_SUPPLIER_REPORTS.forEach((report) => {
-      if (!isInside(report.date, period, from, to)) return;
-      const current = map.get(report.agentId) ?? {
-        id: report.agentId,
-        name: report.agentName,
-        phone: report.agentPhone,
-        botEnabled: false,
-        total: 0,
-        paid: 0,
-        remaining: 0,
-        receipts: [],
-      };
-      current.total += report.totalAmount;
-      current.paid += report.paidAmount;
-      current.remaining += report.remainingDebt;
-      current.botEnabled = current.botEnabled || Boolean(report.botEnabled);
-      current.receipts.push(report);
-      map.set(report.agentId, current);
-    });
-
-    return Array.from(map.values())
-      .filter((row) => {
-        if (query && !matchesMany([row.id, row.name, row.phone], query)) return false;
-        return true;
-      })
-      .sort((a, b) => b.total - a.total);
-  }, [from, query, period, refreshKey, to]);
+  const moneyOpCreditBalance = React.useMemo(
+    () =>
+      moneyOpCredit
+        ? (MOCK_CREDIT_CUSTOMERS.find((c) => c.id === moneyOpCredit.id)?.currentDebt ??
+          moneyOpCredit.debt)
+        : 0,
+    [moneyOpCredit, refreshKey],
+  );
 
   const regularSummary = {
     customers: regularRows.length,
@@ -781,10 +573,29 @@ export function MijozlarPage() {
     totalSales: creditRows.reduce((sum, row) => sum + row.total, 0),
   };
 
-  const agentSummary = {
-    customers: agentRows.length,
-    total: agentRows.reduce((sum, row) => sum + row.total, 0),
-    remaining: agentRows.reduce((sum, row) => sum + row.remaining, 0),
+  const loyalRows: LoyalRow[] = React.useMemo(() => {
+    return MOCK_LOYAL_CUSTOMERS.map((customer) => ({
+      id: customer.id,
+      cardNumber: customer.cardNumber,
+      name: `${customer.firstName} ${customer.lastName}`.trim(),
+      phone: customer.phone,
+      discountPercent: customer.discountPercent,
+      discountScope: customer.discountScope,
+      discountProductIds: customer.discountProductIds ?? [],
+      cashbackPercent: customer.cashbackPercent,
+      cashbackBalance: customer.cashbackBalance,
+      totalSpent: customer.totalSpent,
+      joinedAt: customer.joinedAt,
+      note: customer.note,
+    }))
+      .filter((row) => !query || matchesMany([row.id, row.cardNumber, row.name, row.phone], query))
+      .sort((a, b) => b.totalSpent - a.totalSpent);
+  }, [query, refreshKey]);
+
+  const loyalSummary = {
+    customers: loyalRows.length,
+    totalCashbackBalance: loyalRows.reduce((sum, row) => sum + row.cashbackBalance, 0),
+    totalSpent: loyalRows.reduce((sum, row) => sum + row.totalSpent, 0),
   };
 
   const triggerRefresh = React.useCallback(() => {
@@ -800,13 +611,12 @@ export function MijozlarPage() {
     triggerRefresh();
   };
 
-  const confirmDeleteAgent = () => {
-    if (!deletingAgent) return;
-    for (let i = MOCK_SUPPLIER_REPORTS.length - 1; i >= 0; i -= 1) {
-      if (MOCK_SUPPLIER_REPORTS[i].agentId === deletingAgent.id) MOCK_SUPPLIER_REPORTS.splice(i, 1);
-    }
-    toast.success(`Agent o'chirildi: ${deletingAgent.name}`);
-    setDeletingAgent(null);
+  const confirmDeleteLoyal = () => {
+    if (!deletingLoyal) return;
+    const idx = MOCK_LOYAL_CUSTOMERS.findIndex((c) => c.id === deletingLoyal.id);
+    if (idx >= 0) MOCK_LOYAL_CUSTOMERS.splice(idx, 1);
+    toast.success(`Sodiq mijoz o'chirildi: ${fullCustomerName(deletingLoyal)}`);
+    setDeletingLoyal(null);
     triggerRefresh();
   };
 
@@ -831,18 +641,6 @@ export function MijozlarPage() {
     [resetReceiptFilters],
   );
 
-  const openAgentReceipts = React.useCallback(
-    (row: AgentRow) => {
-      resetReceiptFilters();
-      setDetail({
-        type: "agent-receipts",
-        title: `${row.name} agent cheklari`,
-        rows: row.receipts,
-      });
-    },
-    [resetReceiptFilters],
-  );
-
   const filteredNasiyaReceipts = React.useMemo(() => {
     if (detail?.type !== "nasiya-receipts") return [];
     return detail.rows.filter((receipt) => {
@@ -852,20 +650,6 @@ export function MijozlarPage() {
       const matchesTotal = amountMatches(receipt.amount, receiptQuery);
       const matchesItem = receipt.items.some(
         (item) => matches(item.name, receiptQuery) || amountMatches(item.amount, receiptQuery),
-      );
-      return matchesId || matchesTotal || matchesItem;
-    });
-  }, [detail, receiptPeriod, receiptFrom, receiptTo, receiptQuery]);
-
-  const filteredAgentReceipts = React.useMemo(() => {
-    if (detail?.type !== "agent-receipts") return [];
-    return detail.rows.filter((report) => {
-      if (!isInside(report.date, receiptPeriod, receiptFrom, receiptTo)) return false;
-      if (!receiptQuery.trim()) return true;
-      const matchesId = matches(report.id, receiptQuery);
-      const matchesTotal = amountMatches(report.totalAmount, receiptQuery);
-      const matchesItem = report.items.some(
-        (item) => matches(item.productName, receiptQuery) || amountMatches(item.amount, receiptQuery),
       );
       return matchesId || matchesTotal || matchesItem;
     });
@@ -922,23 +706,29 @@ export function MijozlarPage() {
   return (
     <>
       <div className="flex h-full flex-col overflow-hidden">
-        <div className="flex flex-wrap gap-2 border-b bg-card p-3">
-          <Button
-            variant={tab === "nasiya" ? "default" : "outline"}
-            onClick={() => setTab("nasiya")}
-            className="gap-2"
-          >
-            <HandCoins className="h-4 w-4" />
-            Nasiyachilar
-          </Button>
-          <Button
-            variant={tab === "agent" ? "default" : "outline"}
-            onClick={() => setTab("agent")}
-            className="gap-2"
-          >
-            <Truck className="h-4 w-4" />
-            Agentlar
-          </Button>
+        <div className="flex items-center gap-2 border-b bg-card p-3">
+          <HandCoins className="h-5 w-5 text-primary" />
+          <div className="text-base font-semibold">Mijozlar</div>
+          <div className="ml-3 flex items-center gap-1 rounded-md border bg-muted/30 p-1">
+            <TabButton
+              active={tab === "nasiya"}
+              onClick={() => setTab("nasiya")}
+              icon={<HandCoins className="h-3.5 w-3.5" />}
+              label="Nasiyachilar"
+            />
+            <TabButton
+              active={tab === "oddiy"}
+              onClick={() => setTab("oddiy")}
+              icon={<Users className="h-3.5 w-3.5" />}
+              label="Oddiy xaridorlar"
+            />
+            <TabButton
+              active={tab === "sodiq"}
+              onClick={() => setTab("sodiq")}
+              icon={<Star className="h-3.5 w-3.5" />}
+              label="Sodiq mijozlar"
+            />
+          </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-hidden p-4">
@@ -1096,7 +886,7 @@ export function MijozlarPage() {
                         <th className="px-4 py-3 text-right">Umumiy qarz</th>
                         <th className="px-4 py-3 text-left">Qaytarish sanasi</th>
                         <th className="px-4 py-3 text-left">Olgan sanasi</th>
-                        <th className="w-32 px-4 py-3 text-center">Amallar</th>
+                        <th className="w-40 px-4 py-3 text-center">Amallar</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1108,7 +898,10 @@ export function MijozlarPage() {
                               <div className="flex items-center gap-2">
                                 <span className="font-semibold">{row.name}</span>
                                 {status !== "normal" && (
-                                  <Badge variant="outline" className={cn("text-[10px]", DEBT_STATUS_BADGE_CLASS[status])}>
+                                  <Badge
+                                    variant="outline"
+                                    className={cn("text-[10px]", DEBT_STATUS_BADGE_CLASS[status])}
+                                  >
                                     {DEBT_STATUS_LABEL[status]}
                                   </Badge>
                                 )}
@@ -1119,7 +912,10 @@ export function MijozlarPage() {
                               <button
                                 type="button"
                                 onClick={() => openCreditReceipts(row)}
-                                className={cn("font-semibold hover:underline", DEBT_STATUS_TEXT_CLASS[status])}
+                                className={cn(
+                                  "font-semibold hover:underline",
+                                  DEBT_STATUS_TEXT_CLASS[status],
+                                )}
                               >
                                 {formatSom(row.debt)}
                               </button>
@@ -1142,7 +938,13 @@ export function MijozlarPage() {
                                 {formatSom(row.totalDebtEver)}
                               </button>
                             </td>
-                            <td className={cn("px-4 py-3", status !== "normal" && status !== "paid" && "font-semibold", DEBT_STATUS_TEXT_CLASS[status])}>
+                            <td
+                              className={cn(
+                                "px-4 py-3",
+                                status !== "normal" && status !== "paid" && "font-semibold",
+                                DEBT_STATUS_TEXT_CLASS[status],
+                              )}
+                            >
                               {row.dueDate
                                 ? new Date(row.dueDate).toLocaleDateString("uz-UZ", {
                                     year: "numeric",
@@ -1165,6 +967,16 @@ export function MijozlarPage() {
                                 <Button
                                   size="icon"
                                   variant="outline"
+                                  className="h-8 w-8 border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 hover:text-primary"
+                                  aria-label="Pul operatsiyasi"
+                                  title="Pul operatsiyasi"
+                                  onClick={() => setMoneyOpCredit(row)}
+                                >
+                                  <ArrowLeftRight className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="outline"
                                   className="h-8 w-8"
                                   aria-label="Nasiya cheklarini ko'rish"
                                   onClick={() => openCreditReceipts(row)}
@@ -1177,7 +989,9 @@ export function MijozlarPage() {
                                   className="h-8 w-8"
                                   aria-label="Tahrirlash"
                                   onClick={() => {
-                                    const customer = MOCK_CREDIT_CUSTOMERS.find((c) => c.id === row.id);
+                                    const customer = MOCK_CREDIT_CUSTOMERS.find(
+                                      (c) => c.id === row.id,
+                                    );
                                     if (customer) setEditingCredit(customer);
                                   }}
                                 >
@@ -1189,7 +1003,9 @@ export function MijozlarPage() {
                                   className="h-8 w-8 text-destructive hover:text-destructive"
                                   aria-label="O'chirish"
                                   onClick={() => {
-                                    const customer = MOCK_CREDIT_CUSTOMERS.find((c) => c.id === row.id);
+                                    const customer = MOCK_CREDIT_CUSTOMERS.find(
+                                      (c) => c.id === row.id,
+                                    );
                                     if (customer) setDeletingCredit(customer);
                                   }}
                                 >
@@ -1214,51 +1030,21 @@ export function MijozlarPage() {
             </div>
           )}
 
-          {tab === "agent" && (
+          {tab === "sodiq" && (
             <div className="flex h-full min-h-0 flex-col gap-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="grid flex-1 gap-3 md:grid-cols-3">
+                  <Kpi title="Sodiq mijozlar soni" value={`${loyalSummary.customers} ta`} />
                   <Kpi
-                    title="Agentlar soni"
-                    value={`${agentSummary.customers} ta`}
-                    onClick={() =>
-                      setDetail({
-                        type: "agent-groups",
-                        title: "Agentlar ro'yxati",
-                        rows: agentRows,
-                        metric: "count",
-                      })
-                    }
-                  />
-                  <Kpi
-                    title="Umumiy aylanma"
-                    value={formatSom(agentSummary.total)}
+                    title="Umumiy cashback balansi"
+                    value={formatSom(loyalSummary.totalCashbackBalance)}
                     accent
-                    onClick={() =>
-                      setDetail({
-                        type: "agent-groups",
-                        title: "Agentlar bo'yicha umumiy aylanma",
-                        rows: agentRows,
-                        metric: "total",
-                      })
-                    }
                   />
-                  <Kpi
-                    title="Qolgan qarzimiz"
-                    value={formatSom(agentSummary.remaining)}
-                    onClick={() =>
-                      setDetail({
-                        type: "agent-groups",
-                        title: "Agentlar bo'yicha qolgan qarz",
-                        rows: agentRows.filter((row) => row.remaining > 0),
-                        metric: "remaining",
-                      })
-                    }
-                  />
+                  <Kpi title="Umumiy xarid summasi" value={formatSom(loyalSummary.totalSpent)} />
                 </div>
-                <Button className="gap-2" onClick={() => setAddAgentOpen(true)}>
+                <Button className="gap-2" onClick={() => setAddLoyalOpen(true)}>
                   <UserPlus className="h-4 w-4" />
-                  Yangi agent
+                  Yangi sodiq mijoz
                 </Button>
               </div>
 
@@ -1266,86 +1052,98 @@ export function MijozlarPage() {
 
               <Card className="flex min-h-0 flex-1 flex-col">
                 <CardHeader className="border-b py-3">
-                  <CardTitle className="text-base">Agentlar ro'yxati</CardTitle>
+                  <CardTitle className="text-base">Sodiq mijozlar ro'yxati</CardTitle>
                 </CardHeader>
                 <CardContent className="min-h-0 flex-1 overflow-auto p-0">
-                  <table className="w-full min-w-[760px] text-sm">
+                  <table className="w-full min-w-[900px] text-sm">
                     <thead className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
                       <tr>
-                        <th className="px-4 py-3 text-left">Agent nomi</th>
-                        <th className="px-4 py-3 text-left">Telefon raqami</th>
-                        <th className="px-4 py-3 text-right">Joriy qarzimiz</th>
-                        <th className="px-4 py-3 text-right">To'lagan summasi</th>
-                        <th className="px-4 py-3 text-right">Umumiy summa</th>
+                        <th className="px-4 py-3 text-left">Mijoz</th>
+                        <th className="px-4 py-3 text-left">Karta raqami</th>
+                        <th className="px-4 py-3 text-left">Telefon</th>
+                        <th className="px-4 py-3 text-center">Skidka</th>
+                        <th className="px-4 py-3 text-center">Cashback %</th>
+                        <th className="px-4 py-3 text-right">Cashback balansi</th>
+                        <th className="px-4 py-3 text-right">Jami xarid</th>
                         <th className="w-32 px-4 py-3 text-center">Amallar</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {agentRows.map((row) => (
+                      {loyalRows.map((row) => (
                         <tr key={row.id} className="border-b last:border-b-0 hover:bg-muted/30">
                           <td className="px-4 py-3">
-                            <button
-                              type="button"
-                              onClick={() => openAgentReceipts(row)}
-                              className="font-semibold hover:underline"
-                            >
-                              {row.name}
-                            </button>
-                            <div className="mt-1 flex flex-wrap items-center gap-1">
-                              <Badge variant="outline">{row.id}</Badge>
-                              {row.botEnabled && (
-                                <Badge variant="secondary" className="gap-1">
-                                  <Bot className="h-3 w-3" />
-                                  Bot
-                                </Badge>
-                              )}
+                            <div className="font-semibold">{row.name}</div>
+                            {row.note && (
+                              <div className="mt-1 text-xs text-muted-foreground">{row.note}</div>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge variant="outline" className="gap-1 font-mono">
+                              <CreditCard className="h-3 w-3" />
+                              {row.cardNumber}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <Phone className="h-3.5 w-3.5 text-muted-foreground" />
+                              {row.phone}
                             </div>
                           </td>
-                          <td className="px-4 py-3">{row.phone || "—"}</td>
-                          <td className="px-4 py-3 text-right">
-                            <button
-                              type="button"
-                              onClick={() => openAgentReceipts(row)}
-                              className="font-semibold text-primary hover:underline"
-                            >
-                              {formatSom(row.remaining)}
-                            </button>
+                          <td className="px-4 py-3 text-center">
+                            <div className="flex flex-col items-center gap-1">
+                              <Badge variant="secondary" className="gap-1">
+                                <Percent className="h-3 w-3" />
+                                {row.discountPercent}%
+                              </Badge>
+                              <span className="text-[10px] text-muted-foreground">
+                                {discountScopeLabel(
+                                  row.discountScope,
+                                  row.discountProductIds.length,
+                                )}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <Badge variant="outline" className="gap-1">
+                              <Star className="h-3 w-3" />
+                              {row.cashbackPercent}%
+                            </Badge>
                           </td>
                           <td className="px-4 py-3 text-right">
                             <button
                               type="button"
-                              onClick={() => openAgentReceipts(row)}
+                              onClick={() => setCashbackTarget(row)}
                               className="font-semibold text-primary hover:underline"
                             >
-                              {formatSom(row.paid)}
+                              {formatSom(row.cashbackBalance)}
                             </button>
                           </td>
-                          <td className="px-4 py-3 text-right">
-                            <button
-                              type="button"
-                              onClick={() => openAgentReceipts(row)}
-                              className="font-semibold text-primary hover:underline"
-                            >
-                              {formatSom(row.total)}
-                            </button>
+                          <td className="px-4 py-3 text-right font-semibold">
+                            {formatSom(row.totalSpent)}
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center justify-center gap-1">
                               <Button
                                 size="icon"
                                 variant="outline"
-                                className="h-8 w-8"
-                                aria-label="Tovarlar tarixini ko'rish"
-                                onClick={() => openAgentReceipts(row)}
+                                className="h-8 w-8 border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 hover:text-primary"
+                                aria-label="Cashback boshqarish"
+                                title="Cashback boshqarish"
+                                onClick={() => setCashbackTarget(row)}
                               >
-                                <Search className="h-4 w-4" />
+                                <Wallet className="h-4 w-4" />
                               </Button>
                               <Button
                                 size="icon"
                                 variant="outline"
                                 className="h-8 w-8"
                                 aria-label="Tahrirlash"
-                                onClick={() => setEditingAgent(row)}
+                                onClick={() => {
+                                  const customer = MOCK_LOYAL_CUSTOMERS.find(
+                                    (c) => c.id === row.id,
+                                  );
+                                  if (customer) setEditingLoyal(customer);
+                                }}
                               >
                                 <Pencil className="h-4 w-4" />
                               </Button>
@@ -1354,7 +1152,12 @@ export function MijozlarPage() {
                                 variant="outline"
                                 className="h-8 w-8 text-destructive hover:text-destructive"
                                 aria-label="O'chirish"
-                                onClick={() => setDeletingAgent(row)}
+                                onClick={() => {
+                                  const customer = MOCK_LOYAL_CUSTOMERS.find(
+                                    (c) => c.id === row.id,
+                                  );
+                                  if (customer) setDeletingLoyal(customer);
+                                }}
                               >
                                 <Trash2 className="h-4 w-4" />
                               </Button>
@@ -1362,9 +1165,9 @@ export function MijozlarPage() {
                           </td>
                         </tr>
                       ))}
-                      {agentRows.length === 0 && (
+                      {loyalRows.length === 0 && (
                         <tr>
-                          <td colSpan={6} className="p-8 text-center text-muted-foreground">
+                          <td colSpan={8} className="p-8 text-center text-muted-foreground">
                             Ma'lumot topilmadi
                           </td>
                         </tr>
@@ -1456,12 +1259,19 @@ export function MijozlarPage() {
 
           {detail?.type === "nasiya-receipts" && (
             <div className="space-y-3">
+              <MoneyOperationsList
+                party="nasiyachi"
+                partyId={detail.customer.id}
+                refreshKey={refreshKey}
+              />
               {receiptFilterBar}
               {filteredNasiyaReceipts.map((receipt) => (
                 <button
                   key={receipt.id}
                   type="button"
-                  onClick={() => setSelectedReceipt({ type: "nasiya", receipt, customer: detail.customer })}
+                  onClick={() =>
+                    setSelectedReceipt({ type: "nasiya", receipt, customer: detail.customer })
+                  }
                   className="w-full rounded-lg border p-3 text-left transition hover:bg-muted/40"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1477,73 +1287,6 @@ export function MijozlarPage() {
                 </button>
               ))}
               {filteredNasiyaReceipts.length === 0 && (
-                <div className="p-8 text-center text-sm text-muted-foreground">Chek topilmadi</div>
-              )}
-            </div>
-          )}
-
-          {detail?.type === "agent-groups" && (
-            <div className="space-y-3">
-              {detail.rows.map((row) => (
-                <button
-                  key={row.id}
-                  type="button"
-                  onClick={() => openAgentReceipts(row)}
-                  className="flex w-full items-center justify-between rounded-lg border p-3 text-left transition hover:bg-muted/40"
-                >
-                  <div>
-                    <div className="font-semibold">{row.name}</div>
-                    <div className="text-sm text-muted-foreground">
-                      {row.id} {row.phone ? `· ${row.phone}` : ""}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-sm text-muted-foreground">
-                      {detail.metric === "count"
-                        ? "Cheklar soni"
-                        : detail.metric === "remaining"
-                          ? "Qoldiq"
-                          : "Aylanma"}
-                    </div>
-                    <div className="font-bold text-primary">
-                      {detail.metric === "count"
-                        ? `${row.receipts.length} ta`
-                        : formatSom(detail.metric === "remaining" ? row.remaining : row.total)}
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-
-          {detail?.type === "agent-receipts" && (
-            <div className="space-y-3">
-              {receiptFilterBar}
-              {filteredAgentReceipts.map((report) => (
-                <button
-                  key={report.id}
-                  type="button"
-                  onClick={() => setSelectedReceipt({ type: "agent", receipt: report })}
-                  className="w-full rounded-lg border p-3 text-left transition hover:bg-muted/40"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <div className="font-semibold">{report.id}</div>
-                      <div className="text-sm text-muted-foreground">{fmtDate(report.date)}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-xs text-muted-foreground">
-                        {report.type === "return" ? "Qaytarish" : "Prixod"}
-                      </div>
-                      <div className="font-bold text-primary">{formatSom(report.totalAmount)}</div>
-                      <div className="text-sm text-muted-foreground">
-                        Qoldiq: {formatSom(report.remainingDebt)}
-                      </div>
-                    </div>
-                  </div>
-                </button>
-              ))}
-              {filteredAgentReceipts.length === 0 && (
                 <div className="p-8 text-center text-sm text-muted-foreground">Chek topilmadi</div>
               )}
             </div>
@@ -1666,109 +1409,25 @@ export function MijozlarPage() {
               )}
             </div>
           )}
-
-          {selectedReceipt?.type === "agent" && (
-            <div className="space-y-3 rounded-lg border p-4">
-              <div className="flex flex-wrap justify-end gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="gap-2"
-                  onClick={() =>
-                    exportAgentHistoryToExcel(
-                      [selectedReceipt.receipt],
-                      selectedReceipt.receipt.agentId,
-                      selectedReceipt.receipt.agentName,
-                    )
-                  }
-                >
-                  <FileSpreadsheet className="h-4 w-4" />
-                  Excel
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="gap-2"
-                  onClick={() =>
-                    printAgentNakladnoy(
-                      [selectedReceipt.receipt],
-                      selectedReceipt.receipt.agentId,
-                      selectedReceipt.receipt.agentName,
-                      selectedReceipt.receipt.agentPhone,
-                      settings.receiptSettings.storeName,
-                      settings.receiptSettings.phone,
-                    )
-                  }
-                >
-                  <FileText className="h-4 w-4" />
-                  Nakladnoy
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="gap-2"
-                  onClick={() =>
-                    printAgentReceipt80mm(
-                      selectedReceipt.receipt,
-                      settings.receiptSettings.storeName,
-                      settings.receiptSettings.phone,
-                    )
-                  }
-                >
-                  <Printer className="h-4 w-4" />
-                  80sm chek
-                </Button>
-              </div>
-              <InfoRow label="Sana" value={fmtDate(selectedReceipt.receipt.date)} />
-              <InfoRow label="Agent" value={selectedReceipt.receipt.agentName} />
-              <InfoRow label="Agent ID" value={selectedReceipt.receipt.agentId} />
-              <InfoRow
-                label="Turi"
-                value={selectedReceipt.receipt.type === "return" ? "Tovar qaytarish" : "Prixod"}
-              />
-              <InfoRow
-                label="Umumiy summa"
-                value={formatSom(selectedReceipt.receipt.totalAmount)}
-              />
-              <InfoRow label="Berilgan" value={formatSom(selectedReceipt.receipt.paidAmount)} />
-              <InfoRow label="Qoldiq" value={formatSom(selectedReceipt.receipt.remainingDebt)} />
-              {(selectedReceipt.receipt.vehicleName || selectedReceipt.receipt.vehiclePlate) && (
-                <InfoRow
-                  label="Mashina"
-                  value={`${selectedReceipt.receipt.vehicleName || ""}${selectedReceipt.receipt.vehiclePlate ? ` (${selectedReceipt.receipt.vehiclePlate})` : ""}`}
-                />
-              )}
-              {(selectedReceipt.receipt.driverName || selectedReceipt.receipt.driverPhone) && (
-                <InfoRow
-                  label="Haydovchi"
-                  value={`${selectedReceipt.receipt.driverName || ""}${selectedReceipt.receipt.driverPhone ? ` (${selectedReceipt.receipt.driverPhone})` : ""}`}
-                />
-              )}
-              <div className="space-y-2">
-                {selectedReceipt.receipt.items.map((item, index) => (
-                  <div
-                    key={`${selectedReceipt.receipt.id}-${index}`}
-                    className="flex items-center justify-between gap-3 rounded-md bg-muted/30 px-3 py-2"
-                  >
-                    <span>{item.productName}</span>
-                    <span className="text-muted-foreground">
-                      {item.qty} {item.unit}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              {selectedReceipt.receipt.note && (
-                <div className="rounded-md bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-                  {selectedReceipt.receipt.note}
-                </div>
-              )}
-            </div>
-          )}
         </DialogContent>
       </Dialog>
+
+      <MoneyOperationDialog
+        party="nasiyachi"
+        target={
+          moneyOpCredit
+            ? {
+                id: moneyOpCredit.id,
+                name: moneyOpCredit.name,
+                phone: moneyOpCredit.phone === "—" ? undefined : moneyOpCredit.phone,
+                botEnabled: moneyOpCredit.botEnabled,
+              }
+            : null
+        }
+        currentBalance={moneyOpCreditBalance}
+        onClose={() => setMoneyOpCredit(null)}
+        onDone={triggerRefresh}
+      />
 
       <AddCreditCustomerDialog
         open={addCreditOpen}
@@ -1776,15 +1435,6 @@ export function MijozlarPage() {
         onSaved={() => {
           triggerRefresh();
           setTab("nasiya");
-        }}
-      />
-
-      <AddAgentDialog
-        open={addAgentOpen}
-        onOpenChange={setAddAgentOpen}
-        onSaved={() => {
-          triggerRefresh();
-          setTab("agent");
         }}
       />
 
@@ -1812,31 +1462,73 @@ export function MijozlarPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <EditAgentDialog
-        agent={editingAgent}
-        onClose={() => setEditingAgent(null)}
+      <AddLoyalCustomerDialog
+        open={addLoyalOpen}
+        onOpenChange={setAddLoyalOpen}
+        onSaved={() => {
+          triggerRefresh();
+          setTab("sodiq");
+        }}
+      />
+
+      <EditLoyalCustomerDialog
+        customer={editingLoyal}
+        onClose={() => setEditingLoyal(null)}
         onSaved={triggerRefresh}
       />
 
-      <AlertDialog open={!!deletingAgent} onOpenChange={(o) => !o && setDeletingAgent(null)}>
+      <CashbackDialog
+        target={cashbackTarget}
+        onClose={() => setCashbackTarget(null)}
+        onSaved={triggerRefresh}
+      />
+
+      <AlertDialog open={!!deletingLoyal} onOpenChange={(o) => !o && setDeletingLoyal(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Agentni o'chirish?</AlertDialogTitle>
+            <AlertDialogTitle>Sodiq mijozni o'chirish?</AlertDialogTitle>
             <AlertDialogDescription>
-              {deletingAgent?.name} — {deletingAgent?.id}
-              {deletingAgent && deletingAgent.remaining > 0 && (
-                <> · qolgan qarzimiz: {formatSom(deletingAgent.remaining)}</>
+              {deletingLoyal && fullCustomerName(deletingLoyal)} — {deletingLoyal?.id}
+              {deletingLoyal && deletingLoyal.cashbackBalance > 0 && (
+                <> · cashback balansi: {formatSom(deletingLoyal.cashbackBalance)}</>
               )}
-              {" "}Bu agentga tegishli barcha prixod tarixi ham o'chiriladi.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Bekor</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDeleteAgent}>O'chirish</AlertDialogAction>
+            <AlertDialogAction onClick={confirmDeleteLoyal}>O'chirish</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  icon,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-semibold transition-colors",
+        active
+          ? "bg-primary text-primary-foreground shadow-sm"
+          : "text-muted-foreground hover:bg-muted",
+      )}
+    >
+      {icon}
+      {label}
+    </button>
   );
 }
 
@@ -2180,7 +1872,8 @@ function AddCreditCustomerDialog({
             placeholder="0"
           />
           <p className="mt-1 text-xs text-muted-foreground">
-            Agar mijoz dasturdan foydalanishdan avval ham bizga qarzdor bo'lsa, shu yerga qoldiq summani kiriting
+            Agar mijoz dasturdan foydalanishdan avval ham bizga qarzdor bo'lsa, shu yerga qoldiq
+            summani kiriting
           </p>
         </div>
 
@@ -2235,7 +1928,8 @@ function AddCreditCustomerDialog({
             <div>
               <div className="text-sm font-semibold">Botga habar yuborish</div>
               <div className="text-xs text-muted-foreground">
-                Yoqilganda nasiya savdo va qarz to'lovlari nasiyachi kodi orqali avtomatik yuboriladi
+                Yoqilganda nasiya savdo va qarz to'lovlari nasiyachi kodi orqali avtomatik
+                yuboriladi
               </div>
             </div>
             <Button
@@ -2296,38 +1990,223 @@ function AddCreditCustomerDialog({
   );
 }
 
-function EditAgentDialog({
-  agent,
-  onClose,
+function AddLoyalCustomerDialog({
+  open,
+  onOpenChange,
   onSaved,
 }: {
-  agent: AgentRow | null;
-  onClose: () => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onSaved: () => void;
 }) {
-  const [name, setName] = React.useState("");
+  const [cardNumber, setCardNumber] = React.useState("");
+  const [first, setFirst] = React.useState("");
+  const [last, setLast] = React.useState("");
   const [phone, setPhone] = React.useState("");
-  const [botEnabled, setBotEnabled] = React.useState(false);
+  const [discountPercent, setDiscountPercent] = React.useState("5");
+  const [discountScope, setDiscountScope] = React.useState<LoyalDiscountScope>("all");
+  const [discountProductIds, setDiscountProductIds] = React.useState<string[]>([]);
+  const [cashbackPercent, setCashbackPercent] = React.useState("3");
+  const [openingCashback, setOpeningCashback] = React.useState("");
+  const [note, setNote] = React.useState("");
 
   React.useEffect(() => {
-    setName(agent?.name ?? "");
-    setPhone(agent?.phone ?? "");
-    setBotEnabled(agent?.botEnabled ?? false);
-  }, [agent]);
+    if (open) {
+      setCardNumber(nextLoyalCardNumber());
+    } else {
+      setFirst("");
+      setLast("");
+      setPhone("");
+      setDiscountPercent("5");
+      setDiscountScope("all");
+      setDiscountProductIds([]);
+      setCashbackPercent("3");
+      setOpeningCashback("");
+      setNote("");
+    }
+  }, [open]);
 
-  if (!agent) return null;
-
-  const canSave = name.trim();
+  const cardTaken = MOCK_LOYAL_CUSTOMERS.some(
+    (c) => c.cardNumber.toLowerCase() === cardNumber.trim().toLowerCase(),
+  );
+  const canSave = first.trim() && last.trim() && phone.trim() && cardNumber.trim() && !cardTaken;
 
   const save = () => {
     if (!canSave) return;
-    MOCK_SUPPLIER_REPORTS.forEach((report) => {
-      if (report.agentId !== agent.id) return;
-      report.agentName = name.trim();
-      report.agentPhone = phone.trim();
-      report.botEnabled = botEnabled;
-    });
-    toast.success(`Agent ma'lumotlari yangilandi: ${name.trim()}`);
+    const customer: LoyalCustomer = {
+      id: `l${Date.now()}`,
+      cardNumber: cardNumber.trim(),
+      firstName: first.trim(),
+      lastName: last.trim(),
+      phone: phone.trim(),
+      discountPercent: Number.parseFloat(discountPercent) || 0,
+      discountScope,
+      discountProductIds: discountScope === "all" ? undefined : discountProductIds,
+      cashbackPercent: Number.parseFloat(cashbackPercent) || 0,
+      cashbackBalance: Number.parseFloat(openingCashback.replace(/\s/g, "")) || 0,
+      totalSpent: 0,
+      joinedAt: new Date().toISOString(),
+      note: note.trim() || undefined,
+    };
+    MOCK_LOYAL_CUSTOMERS.push(customer);
+    toast.success(`Yangi sodiq mijoz qo'shildi: ${fullCustomerName(customer)}`);
+    onOpenChange(false);
+    onSaved();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Star className="h-5 w-5 text-primary" />
+            Yangi sodiq mijoz qo'shish
+          </DialogTitle>
+        </DialogHeader>
+
+        <div>
+          <Label className="mb-1 block text-xs">Cashback karta raqami *</Label>
+          <Input
+            value={cardNumber}
+            onChange={(e) => setCardNumber(e.target.value)}
+            className="font-mono"
+          />
+          {cardTaken && (
+            <p className="mt-1 text-xs text-destructive">Bu karta raqami boshqa mijozga tegishli</p>
+          )}
+          <p className="mt-1 text-xs text-muted-foreground">
+            Mijoz shu raqam (yoki tel/ism-familya) orqali topiladi va savdo yakunida shu bilan
+            o'zini tasdiqlaydi
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label className="mb-1 block text-xs">Ism *</Label>
+            <Input value={first} onChange={(e) => setFirst(e.target.value)} />
+          </div>
+          <div>
+            <Label className="mb-1 block text-xs">Familya *</Label>
+            <Input value={last} onChange={(e) => setLast(e.target.value)} />
+          </div>
+        </div>
+
+        <div>
+          <Label className="mb-1 block text-xs">Telefon raqami *</Label>
+          <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+998 ..." />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label className="mb-1 block text-xs">Doimiy skidka (%)</Label>
+            <Input
+              value={discountPercent}
+              onChange={(e) => setDiscountPercent(e.target.value.replace(/[^\d.]/g, ""))}
+              inputMode="decimal"
+            />
+          </div>
+          <div>
+            <Label className="mb-1 block text-xs">Cashback (%)</Label>
+            <Input
+              value={cashbackPercent}
+              onChange={(e) => setCashbackPercent(e.target.value.replace(/[^\d.]/g, ""))}
+              inputMode="decimal"
+            />
+          </div>
+        </div>
+
+        <LoyalDiscountScopePicker
+          scope={discountScope}
+          onScopeChange={setDiscountScope}
+          selectedIds={discountProductIds}
+          onSelectedIdsChange={setDiscountProductIds}
+        />
+
+        <div>
+          <Label className="mb-1 block text-xs">Boshlang'ich cashback balansi</Label>
+          <Input
+            value={openingCashback}
+            onChange={(e) => setOpeningCashback(formatNumberInput(e.target.value))}
+            inputMode="decimal"
+            placeholder="0"
+          />
+        </div>
+
+        <div>
+          <Label className="mb-1 block text-xs">Izoh</Label>
+          <Input
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Masalan: VIP mijoz"
+          />
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Bekor
+          </Button>
+          <Button onClick={save} disabled={!canSave}>
+            Saqlash
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function EditLoyalCustomerDialog({
+  customer,
+  onClose,
+  onSaved,
+}: {
+  customer: LoyalCustomer | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [cardNumber, setCardNumber] = React.useState("");
+  const [first, setFirst] = React.useState("");
+  const [last, setLast] = React.useState("");
+  const [phone, setPhone] = React.useState("");
+  const [discountPercent, setDiscountPercent] = React.useState("");
+  const [discountScope, setDiscountScope] = React.useState<LoyalDiscountScope>("all");
+  const [discountProductIds, setDiscountProductIds] = React.useState<string[]>([]);
+  const [cashbackPercent, setCashbackPercent] = React.useState("");
+  const [note, setNote] = React.useState("");
+
+  React.useEffect(() => {
+    setCardNumber(customer?.cardNumber ?? "");
+    setFirst(customer?.firstName ?? "");
+    setLast(customer?.lastName ?? "");
+    setPhone(customer?.phone ?? "");
+    setDiscountPercent(customer ? String(customer.discountPercent) : "");
+    setDiscountScope(customer?.discountScope ?? "all");
+    setDiscountProductIds(customer?.discountProductIds ?? []);
+    setCashbackPercent(customer ? String(customer.cashbackPercent) : "");
+    setNote(customer?.note ?? "");
+  }, [customer]);
+
+  if (!customer) return null;
+
+  const cardTaken = MOCK_LOYAL_CUSTOMERS.some(
+    (c) => c.id !== customer.id && c.cardNumber.toLowerCase() === cardNumber.trim().toLowerCase(),
+  );
+  const canSave = first.trim() && last.trim() && phone.trim() && cardNumber.trim() && !cardTaken;
+
+  const save = () => {
+    if (!canSave) return;
+    const target = MOCK_LOYAL_CUSTOMERS.find((c) => c.id === customer.id);
+    if (target) {
+      target.cardNumber = cardNumber.trim();
+      target.firstName = first.trim();
+      target.lastName = last.trim();
+      target.phone = phone.trim();
+      target.discountPercent = Number.parseFloat(discountPercent) || 0;
+      target.discountScope = discountScope;
+      target.discountProductIds = discountScope === "all" ? undefined : discountProductIds;
+      target.cashbackPercent = Number.parseFloat(cashbackPercent) || 0;
+      target.note = note.trim() || undefined;
+    }
+    toast.success(`Sodiq mijoz ma'lumotlari yangilandi: ${first.trim()} ${last.trim()}`.trim());
     onClose();
     onSaved();
   };
@@ -2338,42 +2217,67 @@ function EditAgentDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Pencil className="h-5 w-5 text-primary" />
-            Agent ma'lumotlarini tahrirlash
+            Sodiq mijoz ma'lumotlarini tahrirlash
           </DialogTitle>
         </DialogHeader>
 
         <div>
-          <Label className="mb-1 block text-xs">Agent ID</Label>
-          <Input value={agent.id} readOnly className="font-mono font-semibold" />
-        </div>
-        <div>
-          <Label className="mb-1 block text-xs">Ism *</Label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} />
-        </div>
-        <div>
-          <Label className="mb-1 block text-xs">Telefon</Label>
-          <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+998" />
+          <Label className="mb-1 block text-xs">Cashback karta raqami *</Label>
+          <Input
+            value={cardNumber}
+            onChange={(e) => setCardNumber(e.target.value)}
+            className="font-mono"
+          />
+          {cardTaken && (
+            <p className="mt-1 text-xs text-destructive">Bu karta raqami boshqa mijozga tegishli</p>
+          )}
         </div>
 
-        <div className="rounded-md border bg-muted/20 p-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <div className="text-sm font-semibold">Botga habar yuborish</div>
-              <div className="text-xs text-muted-foreground">
-                Yoqilganda agent prixodlari bot orqali avtomatik yuboriladi
-              </div>
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              variant={botEnabled ? "default" : "outline"}
-              onClick={() => setBotEnabled((value) => !value)}
-              className="gap-2"
-            >
-              <Bot className="h-4 w-4" />
-              {botEnabled ? "Yoqilgan" : "Yoqish"}
-            </Button>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label className="mb-1 block text-xs">Ism *</Label>
+            <Input value={first} onChange={(e) => setFirst(e.target.value)} />
           </div>
+          <div>
+            <Label className="mb-1 block text-xs">Familya *</Label>
+            <Input value={last} onChange={(e) => setLast(e.target.value)} />
+          </div>
+        </div>
+
+        <div>
+          <Label className="mb-1 block text-xs">Telefon raqami *</Label>
+          <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+998 ..." />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label className="mb-1 block text-xs">Doimiy skidka (%)</Label>
+            <Input
+              value={discountPercent}
+              onChange={(e) => setDiscountPercent(e.target.value.replace(/[^\d.]/g, ""))}
+              inputMode="decimal"
+            />
+          </div>
+          <div>
+            <Label className="mb-1 block text-xs">Cashback (%)</Label>
+            <Input
+              value={cashbackPercent}
+              onChange={(e) => setCashbackPercent(e.target.value.replace(/[^\d.]/g, ""))}
+              inputMode="decimal"
+            />
+          </div>
+        </div>
+
+        <LoyalDiscountScopePicker
+          scope={discountScope}
+          onScopeChange={setDiscountScope}
+          selectedIds={discountProductIds}
+          onSelectedIdsChange={setDiscountProductIds}
+        />
+
+        <div>
+          <Label className="mb-1 block text-xs">Izoh</Label>
+          <Input value={note} onChange={(e) => setNote(e.target.value)} />
         </div>
 
         <DialogFooter>
@@ -2389,155 +2293,203 @@ function EditAgentDialog({
   );
 }
 
-function AddAgentDialog({
-  open,
-  onOpenChange,
+function CashbackDialog({
+  target,
+  onClose,
   onSaved,
 }: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
+  target: LoyalRow | null;
+  onClose: () => void;
   onSaved: () => void;
 }) {
-  const [name, setName] = React.useState("");
-  const [phone, setPhone] = React.useState("");
-  const [note, setNote] = React.useState("");
-  const [sendBotUpdate, setSendBotUpdate] = React.useState(true);
-  const [openingDebt, setOpeningDebt] = React.useState("");
-  const agentId = React.useMemo(() => nextAgentId(), [open]);
+  const [mode, setMode] = React.useState<"qoshish" | "yechish">("yechish");
+  const [amount, setAmount] = React.useState("");
 
   React.useEffect(() => {
-    if (!open) {
-      setName("");
-      setPhone("");
-      setNote("");
-      setSendBotUpdate(true);
-      setOpeningDebt("");
-    }
-  }, [open]);
+    setMode("yechish");
+    setAmount("");
+  }, [target]);
+
+  if (!target) return null;
+
+  const parsedAmount = Number.parseFloat(amount.replace(/\s/g, "")) || 0;
+  const canSave =
+    parsedAmount > 0 && (mode === "qoshish" || parsedAmount <= target.cashbackBalance);
 
   const save = () => {
-    if (!name.trim()) {
-      toast.error("Agent ismini kiriting");
-      return;
+    if (!canSave) return;
+    const customer = MOCK_LOYAL_CUSTOMERS.find((c) => c.id === target.id);
+    if (customer) {
+      customer.cashbackBalance =
+        mode === "qoshish"
+          ? customer.cashbackBalance + parsedAmount
+          : Math.max(0, customer.cashbackBalance - parsedAmount);
     }
-    if (sendBotUpdate && !phone.trim()) {
-      toast.error("Botga yuborish uchun agent telefonini kiriting");
-      return;
-    }
-    const openingDebtValue = Number.parseFloat(openingDebt.replace(/\s/g, "")) || 0;
-    const report: SupplierReport = {
-      id: `sr-${Date.now()}`,
-      date: new Date().toISOString(),
-      addedBy: "Joriy foydalanuvchi",
-      agentId,
-      agentName: name.trim(),
-      agentPhone: phone.trim(),
-      botEnabled: sendBotUpdate,
-      items: [],
-      totalAmount: openingDebtValue,
-      paidAmount: 0,
-      remainingDebt: openingDebtValue,
-      note:
-        openingDebtValue > 0
-          ? ["Boshlang'ich qarz (dastur ishlatishdan oldin)", note.trim()].filter(Boolean).join(" — ")
-          : note.trim() || undefined,
-    };
-    MOCK_SUPPLIER_REPORTS.unshift(report);
-    if (sendBotUpdate) {
-      dispatchReceiptMessage({
-        recipientCategory: "agent",
-        recipientId: agentId,
-        recipientName: report.agentName,
-        phone: report.agentPhone,
-        receiptId: agentId,
-        title: "Agent ro'yxatdan o'tdi",
-        total: 0,
-        note: `Agent kodi: ${agentId}`,
-      });
-    }
-    toast.success(`Yangi agent qo'shildi: ${agentId}`);
-    onOpenChange(false);
+    toast.success(
+      mode === "qoshish"
+        ? `Cashback qo'shildi: ${formatSom(parsedAmount)}`
+        : `Cashback ishlatildi: ${formatSom(parsedAmount)}`,
+    );
+    onClose();
     onSaved();
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-sm">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <UserPlus className="h-5 w-5 text-primary" />
-            Yangi agent qo'shish
+            <Wallet className="h-5 w-5 text-primary" />
+            Cashback boshqarish
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-3">
-          <div>
-            <Label className="mb-1 block text-xs">Agent ID</Label>
-            <Input value={agentId} readOnly className="font-mono font-semibold" />
+        <div className="rounded-md bg-muted/30 p-3">
+          <div className="text-sm font-semibold">{target.name}</div>
+          <div className="mt-0.5 font-mono text-xs text-muted-foreground">
+            Karta: {target.cardNumber}
           </div>
-          <div>
-            <Label className="mb-1 block text-xs">Ism *</Label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Ism familiya"
-            />
-          </div>
-          <div>
-            <Label className="mb-1 block text-xs">Telefon</Label>
-            <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+998" />
-          </div>
-          <div>
-            <Label className="mb-1 block text-xs">Bizning unga qarzimiz (dastur ishlatishdan oldin)</Label>
-            <Input
-              value={openingDebt}
-              onChange={(e) => setOpeningDebt(formatNumberInput(e.target.value))}
-              inputMode="decimal"
-              placeholder="0"
-            />
-            <p className="mt-1 text-xs text-muted-foreground">
-              Agar bu agentdan dasturdan foydalanishdan avval ham tovar olib, qarzimiz bo'lsa, shu yerga qoldiq
-              summani kiriting
-            </p>
-          </div>
-          <div className="rounded-md border bg-muted/20 p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <div className="text-sm font-semibold">Botga habar yuborish</div>
-                <div className="text-xs text-muted-foreground">
-                  Yoqilganda agent prixod va to'lov cheklari agent kodi orqali avtomatik yuboriladi
-                </div>
-              </div>
-              <Button
-                type="button"
-                size="sm"
-                variant={sendBotUpdate ? "default" : "outline"}
-                onClick={() => setSendBotUpdate((value) => !value)}
-                className="gap-2"
-              >
-                <Bot className="h-4 w-4" />
-                {sendBotUpdate ? "Yoqilgan" : "Yoqish"}
-              </Button>
-            </div>
-          </div>
-          <div>
-            <Label className="mb-1 block text-xs">Izoh</Label>
-            <Textarea
-              rows={3}
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="Qo'shimcha ma'lumot"
-            />
+          <div className="mt-1 text-xs text-muted-foreground">
+            Joriy balans:{" "}
+            <span className="font-bold text-primary">{formatSom(target.cashbackBalance)}</span>
           </div>
         </div>
 
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant={mode === "yechish" ? "default" : "outline"}
+            className="flex-1"
+            onClick={() => setMode("yechish")}
+          >
+            Ishlatish (yechish)
+          </Button>
+          <Button
+            type="button"
+            variant={mode === "qoshish" ? "default" : "outline"}
+            className="flex-1"
+            onClick={() => setMode("qoshish")}
+          >
+            Qo'shish
+          </Button>
+        </div>
+
+        <div>
+          <Label className="mb-1 block text-xs">Summa</Label>
+          <Input
+            value={amount}
+            onChange={(e) => setAmount(formatNumberInput(e.target.value))}
+            inputMode="decimal"
+            placeholder="0"
+            autoFocus
+          />
+          {mode === "yechish" && parsedAmount > target.cashbackBalance && (
+            <p className="mt-1 text-xs text-destructive">Balansdan ortiq summa kiritildi</p>
+          )}
+        </div>
+
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={onClose}>
             Bekor
           </Button>
-          <Button onClick={save}>Saqlash</Button>
+          <Button onClick={save} disabled={!canSave}>
+            Tasdiqlash
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function LoyalDiscountScopePicker({
+  scope,
+  onScopeChange,
+  selectedIds,
+  onSelectedIdsChange,
+}: {
+  scope: LoyalDiscountScope;
+  onScopeChange: (scope: LoyalDiscountScope) => void;
+  selectedIds: string[];
+  onSelectedIdsChange: (ids: string[]) => void;
+}) {
+  const [query, setQuery] = React.useState("");
+
+  const filtered: Product[] = React.useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const list = q ? MOCK_PRODUCTS.filter((p) => p.name.toLowerCase().includes(q)) : MOCK_PRODUCTS;
+    return list.slice(0, 40);
+  }, [query]);
+
+  const toggle = (id: string) => {
+    onSelectedIdsChange(
+      selectedIds.includes(id) ? selectedIds.filter((x) => x !== id) : [...selectedIds, id],
+    );
+  };
+
+  return (
+    <div className="space-y-2 rounded-md border p-3">
+      <Label className="text-sm">Skidka qamrovi</Label>
+      <div className="grid grid-cols-3 gap-1.5">
+        <Button
+          type="button"
+          size="sm"
+          variant={scope === "all" ? "default" : "outline"}
+          onClick={() => onScopeChange("all")}
+        >
+          Barchasiga
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={scope === "selected" ? "default" : "outline"}
+          onClick={() => onScopeChange("selected")}
+        >
+          Tanlangan
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={scope === "excluded" ? "default" : "outline"}
+          onClick={() => onScopeChange("excluded")}
+        >
+          Tashqarisiga
+        </Button>
+      </div>
+
+      {scope !== "all" && (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            {scope === "selected"
+              ? "Faqat quyida belgilangan tovarlarga skidka beriladi"
+              : "Barcha tovarlarga skidka beriladi, quyida belgilanganlardan tashqari"}
+          </p>
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Tovar qidirish..."
+            className="h-8 text-xs"
+          />
+          <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-1">
+            {filtered.map((product) => (
+              <label
+                key={product.id}
+                className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted/50"
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedIds.includes(product.id)}
+                  onChange={() => toggle(product.id)}
+                />
+                <span className="flex-1 truncate">{product.name}</span>
+              </label>
+            ))}
+            {filtered.length === 0 && (
+              <p className="p-2 text-center text-xs text-muted-foreground">Topilmadi</p>
+            )}
+          </div>
+          <p className="text-xs font-medium text-primary">{selectedIds.length} ta tovar tanlandi</p>
+        </div>
+      )}
+    </div>
   );
 }

@@ -114,7 +114,7 @@ function BrandBackground() {
 }
 
 function RegisterPage() {
-  const { requestRegister } = useAuth();
+  const { register } = useAuth();
   const navigate = useNavigate();
   const [showPassword, setShowPassword] = React.useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = React.useState(false);
@@ -140,7 +140,7 @@ function RegisterPage() {
   const onSubmit = async (values: RegisterValues) => {
     setSubmitting(true);
     await new Promise((resolve) => setTimeout(resolve, 350));
-    const result = requestRegister({
+    const result = register({
       fullName: values.fullName,
       companyName: values.companyName,
       phone: values.phone,
@@ -154,7 +154,7 @@ function RegisterPage() {
       toast.error(result.error);
       return;
     }
-    navigate({ to: "/verify-code" });
+    navigate({ to: "/", replace: true });
   };
 
   return (

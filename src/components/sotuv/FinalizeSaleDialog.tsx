@@ -40,23 +40,32 @@ import {
   Building2,
   Split,
   Plus,
+  Star,
   Trash2,
   X,
 } from "lucide-react";
 import {
   formatSom,
   MOCK_CREDIT_CUSTOMERS,
+  MOCK_LOYAL_CUSTOMERS,
   MOCK_PAYMENT_METHODS,
   MOCK_RATES,
   type CreditCustomer,
   type CustomerType,
   type Currency,
+  type LoyalCustomer,
   type PaymentBreakdownRow,
   type PaymentKind,
   type PaymentMethod,
 } from "@/lib/mock-data";
 import { NasiyachiPicker, SelectedCustomerCard } from "./NasiyachiPicker";
-import { addCreditCustomer, addCreditSale, fullCustomerName } from "@/lib/data-actions";
+import {
+  accrueLoyalCashback,
+  addCreditCustomer,
+  addCreditSale,
+  fullCustomerName,
+  searchLoyalCustomers,
+} from "@/lib/data-actions";
 import { toast } from "sonner";
 import type { FinalizeSaleDetails } from "./types";
 
@@ -232,14 +241,24 @@ function payRowsToBreakdown(
       methodName: method.name,
       amountSom: som,
       currency: method.kind === "currency" ? row.currency : undefined,
-      currencyAmount: method.kind === "currency" ? parsePaymentValue(row.amount) * ratio : undefined,
+      currencyAmount:
+        method.kind === "currency" ? parsePaymentValue(row.amount) * ratio : undefined,
       rate: method.kind === "currency" ? parsePaymentValue(row.rate) : undefined,
       rateSource: method.kind === "currency" ? (row.rateTouched ? "manual" : "system") : undefined,
       cardType: method.kind === "card" ? row.cardNetwork : undefined,
     });
   }
 
-  return { cash, card, transfer, wallet, currencyAmount, currencyCode, currencyInSom, rows: detailRows };
+  return {
+    cash,
+    card,
+    transfer,
+    wallet,
+    currencyAmount,
+    currencyCode,
+    currencyInSom,
+    rows: detailRows,
+  };
 }
 
 function PaymentMethodsBlock({
@@ -257,7 +276,8 @@ function PaymentMethodsBlock({
   const isMixed = rows.length > 1;
   // "Boshqa" ichidagi usul tanlangan bo'lsa yoki aralash faol bo'lsa,
   // guruh avtomatik ochiq turadi — holat alohida saqlanmaydi.
-  const otherSelected = isMixed || (single !== null && HIDDEN_METHODS.some((m) => m.id === single.methodId));
+  const otherSelected =
+    isMixed || (single !== null && HIDDEN_METHODS.some((m) => m.id === single.methodId));
   const [manuallyOpened, setManuallyOpened] = React.useState(false);
   const otherGroupOpen = otherSelected || manuallyOpened;
 
@@ -495,7 +515,9 @@ function CardNetworkToggle({
           onClick={() => onChange(network)}
           className={cn(
             "rounded px-2.5 py-1.5 text-xs font-semibold transition-colors",
-            value === network ? "bg-[#0836B0]/10 text-[#0836B0]" : "text-[#737D91] hover:text-[#222C3B]",
+            value === network
+              ? "bg-[#0836B0]/10 text-[#0836B0]"
+              : "text-[#737D91] hover:text-[#222C3B]",
           )}
         >
           {network}
@@ -525,7 +547,11 @@ function CurrencyFields({
         <Select
           value={row.currency}
           onValueChange={(value) =>
-            onChange({ currency: value, rate: formatInputNumber(MOCK_RATES[value] ?? 1), rateTouched: false })
+            onChange({
+              currency: value,
+              rate: formatInputNumber(MOCK_RATES[value] ?? 1),
+              rateTouched: false,
+            })
           }
         >
           <SelectTrigger className="h-10 w-[104px] border-[#AEB9D4] bg-[#FDFDFD] text-[#222C3B]">
@@ -541,7 +567,9 @@ function CurrencyFields({
         </Select>
         <Input
           value={row.rate}
-          onChange={(event) => onChange({ rate: formatNumberInput(event.target.value), rateTouched: true })}
+          onChange={(event) =>
+            onChange({ rate: formatNumberInput(event.target.value), rateTouched: true })
+          }
           inputMode="decimal"
           aria-label="Kurs"
           className={cn(FIELD_CLASS, hideAmount ? "flex-1" : "w-[120px]")}
@@ -621,7 +649,10 @@ function MixedRow({
         <Icon className="h-4 w-4 flex-shrink-0 text-[#737D91]" />
         <span className="flex-1 truncate text-sm text-[#222C3B]">{method.name}</span>
         {method.kind === "card" && (
-          <CardNetworkToggle value={row.cardNetwork} onChange={(cardNetwork) => onChange({ cardNetwork })} />
+          <CardNetworkToggle
+            value={row.cardNetwork}
+            onChange={(cardNetwork) => onChange({ cardNetwork })}
+          />
         )}
         <Input
           value={row.amount}
@@ -648,6 +679,12 @@ function MixedRow({
 export function FinalizeSaleDialog({ open, onOpenChange, total, onConfirm }: Props) {
   const [type, setType] = React.useState<CustomerType>("oddiy");
   const [picked, setPicked] = React.useState<CreditCustomer | null>(null);
+  const [loyalQuery, setLoyalQuery] = React.useState("");
+  const [loyalPicked, setLoyalPicked] = React.useState<LoyalCustomer | null>(null);
+  const loyalResults = React.useMemo(
+    () => (loyalPicked ? [] : searchLoyalCustomers(loyalQuery)),
+    [loyalQuery, loyalPicked],
+  );
   const [addOpen, setAddOpen] = React.useState(false);
   const [dueMode, setDueMode] = React.useState<DueMode>(30);
   const [customDue, setCustomDue] = React.useState("");
@@ -673,6 +710,8 @@ export function FinalizeSaleDialog({ open, onOpenChange, total, onConfirm }: Pro
     }
     setType("oddiy");
     setPicked(null);
+    setLoyalQuery("");
+    setLoyalPicked(null);
     setDueMode(30);
     setCustomDue("");
     setNote("");
@@ -721,12 +760,16 @@ export function FinalizeSaleDialog({ open, onOpenChange, total, onConfirm }: Pro
   const singleRegular = !isNasiya && payRows.length === 1 ? payRows[0] : null;
   const singleRegularMethod = singleRegular ? methodById(singleRegular.methodId) : null;
   const showGivenBlock =
-    !isNasiya && singleRegular !== null && (singleRegularMethod?.kind === "cash" || singleRegularMethod?.kind === "currency");
+    !isNasiya &&
+    singleRegular !== null &&
+    (singleRegularMethod?.kind === "cash" || singleRegularMethod?.kind === "currency");
   const showMixedChangeLine = !isNasiya && payRows.length > 1;
 
   const givenRate =
     singleRegularMethod?.kind === "currency"
-      ? parsePaymentValue(singleRegular?.rate ?? "") || MOCK_RATES[singleRegular?.currency ?? "USD"] || 1
+      ? parsePaymentValue(singleRegular?.rate ?? "") ||
+        MOCK_RATES[singleRegular?.currency ?? "USD"] ||
+        1
       : 1;
   const exactGiven = givenRate > 0 ? total / givenRate : 0;
   const givenEmpty = !singleRegular || singleRegular.amount.trim() === "";
@@ -743,7 +786,10 @@ export function FinalizeSaleDialog({ open, onOpenChange, total, onConfirm }: Pro
         if (index > 0) return { ...row, amount: "" };
         const method = methodById(row.methodId);
         const rate = parsePaymentValue(row.rate) || 1;
-        return { ...row, amount: formatInputNumber(method.kind === "currency" ? total / rate : total) };
+        return {
+          ...row,
+          amount: formatInputNumber(method.kind === "currency" ? total / rate : total),
+        };
       }),
     );
   };
@@ -772,11 +818,24 @@ export function FinalizeSaleDialog({ open, onOpenChange, total, onConfirm }: Pro
       toast.success("Savdo to'liq to'landi");
     }
 
+    const loyalCashbackEarned = loyalPicked
+      ? accrueLoyalCashback(loyalPicked.id, total)
+      : undefined;
+    if (loyalPicked && loyalCashbackEarned) {
+      toast.success(`Cashback yozildi: ${fullCustomerName(loyalPicked)}`, {
+        description: `+${formatSom(loyalCashbackEarned)}`,
+      });
+    }
+
     onConfirm({
       customerType: "nasiya",
       customerId: picked.id,
       customerName: fullCustomerName(picked),
       customerPhone: picked.phone,
+      loyalCustomerId: loyalPicked?.id,
+      loyalCardNumber: loyalPicked?.cardNumber,
+      loyalCustomerName: loyalPicked ? fullCustomerName(loyalPicked) : undefined,
+      loyalCashbackEarned,
       paidAmount,
       debtAmount: nasiyagaYoziladi,
       paymentBreakdown,
@@ -816,8 +875,21 @@ export function FinalizeSaleDialog({ open, onOpenChange, total, onConfirm }: Pro
     }
 
     const paymentBreakdown = payRowsToBreakdown(regularRows, total);
+    const loyalCashbackEarned = loyalPicked
+      ? accrueLoyalCashback(loyalPicked.id, total)
+      : undefined;
+    if (loyalPicked && loyalCashbackEarned) {
+      toast.success(`Cashback yozildi: ${fullCustomerName(loyalPicked)}`, {
+        description: `+${formatSom(loyalCashbackEarned)}`,
+      });
+    }
+
     onConfirm({
       customerType: "oddiy",
+      loyalCustomerId: loyalPicked?.id,
+      loyalCardNumber: loyalPicked?.cardNumber,
+      loyalCustomerName: loyalPicked ? fullCustomerName(loyalPicked) : undefined,
+      loyalCashbackEarned,
       paidAmount: total,
       debtAmount: 0,
       paymentBreakdown,
@@ -844,7 +916,8 @@ export function FinalizeSaleDialog({ open, onOpenChange, total, onConfirm }: Pro
       const target = event.target as HTMLElement;
       if (target instanceof HTMLTextAreaElement) return;
       // Mijoz qidiruvi kabi boshqa maydonlarda Enter o'z ishini qilsin
-      if (!isNasiya && target instanceof HTMLInputElement && target !== givenInputRef.current) return;
+      if (!isNasiya && target instanceof HTMLInputElement && target !== givenInputRef.current)
+        return;
       event.preventDefault();
       handleConfirm();
     }
@@ -888,7 +961,10 @@ export function FinalizeSaleDialog({ open, onOpenChange, total, onConfirm }: Pro
           <div className="flex flex-shrink-0 items-end justify-between gap-4 border-b border-[#AEB9D4] px-5 py-3">
             <div>
               <div className="text-xs text-[#737D91]">To'lash uchun</div>
-              <div data-no-translate className="text-[30px] font-bold leading-none tabular-nums text-[#222C3B]">
+              <div
+                data-no-translate
+                className="text-[30px] font-bold leading-none tabular-nums text-[#222C3B]"
+              >
                 {formatSom(total)}
               </div>
             </div>
@@ -911,6 +987,87 @@ export function FinalizeSaleDialog({ open, onOpenChange, total, onConfirm }: Pro
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="flex flex-shrink-0 items-center gap-2 border-b border-[#AEB9D4] bg-[#F4F5F9] px-5 py-2">
+            <Star className="h-4 w-4 flex-shrink-0 text-amber-500" />
+            {loyalPicked ? (
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+                <span className="truncate text-sm font-semibold text-[#222C3B]">
+                  {fullCustomerName(loyalPicked)}
+                </span>
+                <span className="font-mono text-[#737D91]">{loyalPicked.cardNumber}</span>
+                <span className="text-[#737D91]">
+                  {loyalPicked.discountPercent}% skidka · {loyalPicked.cashbackPercent}% cashback
+                </span>
+                <span className="font-semibold text-[#0836B0]">
+                  Balans: {formatSom(loyalPicked.cashbackBalance)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setLoyalPicked(null)}
+                  className="ml-auto flex-shrink-0 text-[#737D91] hover:text-destructive"
+                  aria-label="Sodiq mijozni bekor qilish"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <Label className="flex-shrink-0 text-xs font-medium text-[#222C3B]">
+                  Sodiq mijoz:
+                </Label>
+                <div className="relative min-w-0 flex-1">
+                  <Input
+                    value={loyalQuery}
+                    onChange={(e) => setLoyalQuery(e.target.value)}
+                    placeholder="Karta raqami, tel yoki ism-familya bo'yicha qidirish..."
+                    className="h-8 border-[#AEB9D4] bg-white text-xs"
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        if (loyalResults.length > 0) {
+                          setLoyalPicked(loyalResults[0]);
+                          setLoyalQuery("");
+                        }
+                      }
+                    }}
+                  />
+                  {loyalQuery.trim() && (
+                    <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-48 overflow-y-auto rounded-md border bg-white shadow-md">
+                      {loyalResults.length === 0 ? (
+                        <div className="px-3 py-2 text-xs text-muted-foreground">
+                          Sodiq mijoz topilmadi
+                        </div>
+                      ) : (
+                        loyalResults.map((customer) => (
+                          <button
+                            key={customer.id}
+                            type="button"
+                            onClick={() => {
+                              setLoyalPicked(customer);
+                              setLoyalQuery("");
+                            }}
+                            className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs hover:bg-muted/60"
+                          >
+                            <span className="font-medium">{fullCustomerName(customer)}</span>
+                            <span className="flex items-center gap-2">
+                              <span className="font-mono text-muted-foreground">
+                                {customer.cardNumber}
+                              </span>
+                              <span className="font-semibold text-[#0836B0]">
+                                {formatSom(customer.cashbackBalance)}
+                              </span>
+                            </span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {isNasiya ? (
@@ -941,7 +1098,11 @@ export function FinalizeSaleDialog({ open, onOpenChange, total, onConfirm }: Pro
                 />
 
                 {picked && (
-                  <SelectedCustomerCard customer={picked} saleDebt={nasiyagaYoziladi} onClear={() => setPicked(null)} />
+                  <SelectedCustomerCard
+                    customer={picked}
+                    saleDebt={nasiyagaYoziladi}
+                    onClear={() => setPicked(null)}
+                  />
                 )}
               </div>
 
@@ -1001,8 +1162,15 @@ export function FinalizeSaleDialog({ open, onOpenChange, total, onConfirm }: Pro
                     />
                   )}
 
-                  <div className={cn("text-xs", invalidField === "due" ? "text-[#C43B3B]" : "text-[#737D91]")}>
-                    {resolvedDueDate ? `Qaytarish sanasi: ${formatDueLabel(resolvedDueDate)}` : "Sanani tanlang"}
+                  <div
+                    className={cn(
+                      "text-xs",
+                      invalidField === "due" ? "text-[#C43B3B]" : "text-[#737D91]",
+                    )}
+                  >
+                    {resolvedDueDate
+                      ? `Qaytarish sanasi: ${formatDueLabel(resolvedDueDate)}`
+                      : "Sanani tanlang"}
                   </div>
                 </div>
 
@@ -1097,7 +1265,9 @@ export function FinalizeSaleDialog({ open, onOpenChange, total, onConfirm }: Pro
                         type="button"
                         onClick={() =>
                           setPayRows((current) =>
-                            current.map((row) => (row.id === singleRegular.id ? { ...row, amount: "" } : row)),
+                            current.map((row) =>
+                              row.id === singleRegular.id ? { ...row, amount: "" } : row,
+                            ),
                           )
                         }
                         className={cn(
@@ -1148,7 +1318,9 @@ export function FinalizeSaleDialog({ open, onOpenChange, total, onConfirm }: Pro
 
                 {showMixedChangeLine && (
                   <div className="flex items-center justify-between rounded-lg bg-[#F4F5F9] px-3 py-2.5">
-                    <span className="text-sm text-[#737D91]">{nasiyagaYoziladi > 0 ? "Yetmayapti" : "Qaytim"}</span>
+                    <span className="text-sm text-[#737D91]">
+                      {nasiyagaYoziladi > 0 ? "Yetmayapti" : "Qaytim"}
+                    </span>
                     <span
                       data-no-translate
                       className={cn(
@@ -1167,8 +1339,13 @@ export function FinalizeSaleDialog({ open, onOpenChange, total, onConfirm }: Pro
           {isNasiya ? (
             <div className="flex flex-shrink-0 items-center justify-between gap-4 border-t border-[#AEB9D4] px-5 py-3">
               <div>
-                <div className="text-xs text-[#737D91]">{qaytim > 0 ? "Qaytim" : "Nasiyaga yoziladi"}</div>
-                <div data-no-translate className="text-[22px] font-bold leading-tight tabular-nums text-[#0836B0]">
+                <div className="text-xs text-[#737D91]">
+                  {qaytim > 0 ? "Qaytim" : "Nasiyaga yoziladi"}
+                </div>
+                <div
+                  data-no-translate
+                  className="text-[22px] font-bold leading-tight tabular-nums text-[#0836B0]"
+                >
                   {formatSom(qaytim > 0 ? qaytim : nasiyagaYoziladi)}
                 </div>
               </div>
@@ -1242,7 +1419,9 @@ export function FinalizeSaleDialog({ open, onOpenChange, total, onConfirm }: Pro
 /** Kiritilgan summadan yuqoridagi eng yaqin yumaloq qiymatlar */
 function quickCashAmounts(value: number) {
   const magnitude = Math.max(1, Math.pow(10, Math.floor(Math.log10(Math.max(value, 1))) - 1));
-  const rounded = [1, 5, 10, 20, 50].map((step) => Math.ceil(value / (step * magnitude)) * step * magnitude);
+  const rounded = [1, 5, 10, 20, 50].map(
+    (step) => Math.ceil(value / (step * magnitude)) * step * magnitude,
+  );
   return [...new Set(rounded.filter((item) => item > value))].sort((a, b) => a - b).slice(0, 3);
 }
 
@@ -1291,7 +1470,9 @@ function AddCustomerDialog({
       limitCurrency: withLimit ? currency : "UZS",
       currentDebt: 0,
     };
-    const cleanedObjects = objects.map((item) => ({ ...item, name: item.name.trim() })).filter((item) => item.name);
+    const cleanedObjects = objects
+      .map((item) => ({ ...item, name: item.name.trim() }))
+      .filter((item) => item.name);
     if (cleanedObjects.length > 0) {
       customer.objects = cleanedObjects.map((item, index) => ({
         id: item.id || `OBJ-${Date.now()}-${index}`,
@@ -1358,7 +1539,9 @@ function AddCustomerDialog({
 
           {objects.length > 0 && (
             <div className="space-y-2 rounded-md border bg-muted/20 p-3">
-              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Obyektlar</div>
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Obyektlar
+              </div>
               <div className="space-y-2">
                 {objects.map((item, index) => (
                   <div key={item.id} className="flex gap-2">
@@ -1385,7 +1568,11 @@ function AddCustomerDialog({
 
           {withLimit && (
             <div className="grid grid-cols-[1fr_140px] gap-3">
-              <Input value={limit} onChange={(e) => setLimit(formatNumberInput(e.target.value))} inputMode="decimal" />
+              <Input
+                value={limit}
+                onChange={(e) => setLimit(formatNumberInput(e.target.value))}
+                inputMode="decimal"
+              />
               <Select value={currency} onValueChange={(value) => setCurrency(value)}>
                 <SelectTrigger>
                   <SelectValue />
