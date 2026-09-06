@@ -21,17 +21,25 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   ArrowLeft,
   Barcode,
   Check,
   ClipboardList,
   Download,
+  Eye,
   FileText,
   History,
   Package,
   Pencil,
   Plus,
   Save,
+  Trash2,
   Warehouse,
   X,
 } from "lucide-react";
@@ -47,9 +55,15 @@ import {
   type StockCountLine,
   type StockCountScope,
 } from "@/lib/mock-data";
-import { applyStockCount, editStockCount, nextStockCountId } from "@/lib/data-actions";
+import {
+  applyStockCount,
+  editStockCount,
+  nextStockCountId,
+  stockCountTotals,
+} from "@/lib/data-actions";
 import { useApp } from "@/lib/app-context";
 import { toast } from "sonner";
+import { HistoryFilters, matchesDateFilter, type DateMode } from "./TovarlarTarixi";
 
 type View = "list" | "setup" | "session" | "report" | "edit";
 type ListTab = "counts" | "edits";
@@ -155,6 +169,7 @@ function exportStockCountExcel(record: StockCount) {
     { "Ko'rsatkich": "Sana", Qiymat: fmtDate(record.date) },
     { "Ko'rsatkich": "Sanoqchi", Qiymat: record.countedBy },
     { "Ko'rsatkich": "Qamrov", Qiymat: scopeSummary(record.scope, record.scopeValue) },
+    { "Ko'rsatkich": "Turi", Qiymat: record.noLoss ? "Zararsiz to'g'irlash" : "Sanoq (reviziya)" },
     { "Ko'rsatkich": "Sanaldi", Qiymat: `${record.countedLines} / ${record.totalLines}` },
     { "Ko'rsatkich": "To'g'ri chiqdi", Qiymat: record.matchedLines },
     { "Ko'rsatkich": "Kamomad", Qiymat: -Math.round(record.shortageAmount) },
@@ -255,6 +270,7 @@ function printStockCountPdf(record: StockCount, storeName: string) {
       <span>${escapeHtml(fmtDate(record.date))}</span>
       <span>Sanoqchi: ${escapeHtml(record.countedBy)}</span>
       <span>${escapeHtml(scopeSummary(record.scope, record.scopeValue))}</span>
+      ${record.noLoss ? `<span><b>Zararsiz to'g'irlash</b> — zarar hisoblanmagan</span>` : ""}
       ${record.editCount ? `<span>${record.editCount} marta tahrirlangan</span>` : ""}
     </div>
 
@@ -323,6 +339,7 @@ export function Sanoq() {
   const [finishOpen, setFinishOpen] = React.useState(false);
   const [note, setNote] = React.useState("");
   const [treatUncountedAsZero, setTreatUncountedAsZero] = React.useState(false);
+  const [noLossCorrection, setNoLossCorrection] = React.useState(false);
   const [activeRecord, setActiveRecord] = React.useState<StockCount | null>(null);
   const [version, setVersion] = React.useState(0);
   const scanRef = React.useRef<HTMLInputElement>(null);
@@ -437,6 +454,7 @@ export function Sanoq() {
     setViewShelf("ALL");
     setNote("");
     setTreatUncountedAsZero(false);
+    setNoLossCorrection(false);
     setLastScannedId(null);
     setView("session");
     window.setTimeout(() => scanRef.current?.focus(), 50);
@@ -501,11 +519,11 @@ export function Sanoq() {
     return {
       counted: counted.length,
       diffLines: counted.filter((line) => line.diff !== 0),
-      shortageAmount,
-      surplusAmount,
-      netAmount: surplusAmount - shortageAmount,
+      shortageAmount: noLossCorrection ? 0 : shortageAmount,
+      surplusAmount: noLossCorrection ? 0 : surplusAmount,
+      netAmount: noLossCorrection ? 0 : surplusAmount - shortageAmount,
     };
-  }, [linesToApply]);
+  }, [linesToApply, noLossCorrection]);
 
   const confirmFinish = () => {
     if (finishSummary.counted === 0) {
@@ -519,6 +537,7 @@ export function Sanoq() {
       scopeValue: config.scope === "all" ? undefined : config.scopeValue,
       note,
       lines: linesToApply,
+      noLoss: noLossCorrection,
     });
     setFinishOpen(false);
     setSnapshot([]);
@@ -544,6 +563,20 @@ export function Sanoq() {
     const book = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(rows), "Sanoq");
     XLSX.writeFile(book, `${sessionId || "sanoq"}-jarayon.xlsx`);
+  };
+
+  /** Hali yakunlanmagan sessiyani ham PDF qilib ko'rish/chop etish uchun — joriy holatdan vaqtinchalik hujjat yasaydi. */
+  const exportSessionPdf = () => {
+    const preview: StockCount = {
+      id: sessionId || "SAN-jarayon",
+      date: new Date().toISOString(),
+      countedBy: settings.username,
+      scope: config.scope,
+      scopeValue: config.scope === "all" ? undefined : config.scopeValue,
+      lines,
+      ...stockCountTotals(lines),
+    };
+    printStockCountPdf(preview, settings.receiptSettings?.storeName ?? "UZKO");
   };
 
   // ── Hisobot ───────────────────────────────────────────────────────────────
@@ -610,9 +643,14 @@ export function Sanoq() {
 
         {listTab === "counts" ? (
           <CountsTable
+            initialDateMode="today"
             onOpen={(record) => {
               setActiveRecord(record);
               setView("report");
+            }}
+            onEdit={(record) => {
+              setActiveRecord(record);
+              setView("edit");
             }}
           />
         ) : (
@@ -717,10 +755,24 @@ export function Sanoq() {
           <Badge className="font-mono">{sessionId}</Badge>
           <Badge variant="outline">{scopeSummary(config.scope, config.scopeValue)}</Badge>
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" className="gap-2" onClick={exportSession}>
-              <Download className="h-4 w-4" />
-              Excel
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-2">
+                  <Download className="h-4 w-4" />
+                  Yuklab olish
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={exportSession} className="gap-2">
+                  <Download className="h-4 w-4" />
+                  Excel
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={exportSessionPdf} className="gap-2">
+                  <FileText className="h-4 w-4" />
+                  PDF
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button variant="outline" size="sm" className="gap-2" onClick={cancelSession}>
               <X className="h-4 w-4" />
               Bekor qilish
@@ -920,6 +972,21 @@ export function Sanoq() {
               </span>
             </label>
 
+            <label className="flex items-start gap-2 rounded-md border bg-muted/30 p-3 text-sm">
+              <Checkbox
+                checked={noLossCorrection}
+                onCheckedChange={(value) => setNoLossCorrection(value === true)}
+                className="mt-0.5"
+              />
+              <span>
+                Zararsiz to'g'irlash
+                <span className="block text-xs text-muted-foreground">
+                  Farqlar kamomad/ortiqcha (zarar) sifatida hisoblanmaydi — faqat bazadagi tovar
+                  qoldig'i haqiqiy songa to'g'irlanadi.
+                </span>
+              </span>
+            </label>
+
             <div className="grid grid-cols-3 gap-2 text-sm">
               <StatTile
                 label="Kamomad"
@@ -1038,73 +1105,193 @@ function DiffTable({ lines }: { lines: StockCountLine[] }) {
 
 // ─── Sanoq tarixi ───────────────────────────────────────────────────────────
 
-function CountsTable({ onOpen }: { onOpen: (record: StockCount) => void }) {
+function matchesCountQuery(record: StockCount, query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
-      <table className="w-full text-sm">
-        <thead className="sticky top-0 z-10 bg-muted/90 backdrop-blur">
-          <tr className="border-b text-xs uppercase text-muted-foreground">
-            <th className="px-4 py-2 text-left">Hujjat</th>
-            <th className="px-4 py-2 text-left">Sana</th>
-            <th className="px-4 py-2 text-left">Qamrov</th>
-            <th className="px-4 py-2 text-right">Sanaldi</th>
-            <th className="px-4 py-2 text-right">Aniqlik</th>
-            <th className="px-4 py-2 text-right">Natija</th>
-            <th className="px-4 py-2 text-left">Kim</th>
-            <th className="px-4 py-2" />
-          </tr>
-        </thead>
-        <tbody>
-          {MOCK_STOCK_COUNTS.map((record) => {
-            const a = assessStockCount(record);
-            return (
-              <tr key={record.id} className="border-b hover:bg-muted/40">
-                <td className="px-4 py-2 font-mono font-medium">
-                  {record.id}
-                  {Boolean(record.editCount) && (
-                    <Badge variant="outline" className="ml-2 text-[10px]">
-                      {record.editCount}× tahrir
-                    </Badge>
-                  )}
-                </td>
-                <td className="px-4 py-2 text-muted-foreground">{fmtDate(record.date)}</td>
-                <td className="px-4 py-2">{scopeSummary(record.scope, record.scopeValue)}</td>
-                <td className="px-4 py-2 text-right tabular-nums">
-                  {record.countedLines} / {record.totalLines}
-                </td>
-                <td className={`px-4 py-2 text-right font-semibold tabular-nums ${a.tone.text}`}>
-                  {fmtPercent(a.accuracy)}
-                  <span className="ml-1 text-xs font-normal">{a.label}</span>
-                </td>
-                <td
-                  className={`px-4 py-2 text-right font-semibold tabular-nums ${
-                    record.netAmount < 0
-                      ? "text-destructive"
-                      : record.netAmount > 0
-                        ? "text-amber-600"
-                        : "text-emerald-600"
-                  }`}
-                >
-                  {formatSom(record.netAmount)}
-                </td>
-                <td className="px-4 py-2">{record.countedBy}</td>
-                <td className="px-4 py-2 text-right">
-                  <Button variant="ghost" size="sm" onClick={() => onOpen(record)}>
-                    Hisobot
-                  </Button>
+    record.id.toLowerCase().includes(q) ||
+    record.countedBy.toLowerCase().includes(q) ||
+    scopeSummary(record.scope, record.scopeValue).toLowerCase().includes(q)
+  );
+}
+
+function CountsTable({
+  onOpen,
+  onEdit,
+  initialDateMode = "all",
+}: {
+  onOpen: (record: StockCount) => void;
+  onEdit: (record: StockCount) => void;
+  initialDateMode?: DateMode;
+}) {
+  const { settings } = useApp();
+  const [query, setQuery] = React.useState("");
+  const [dateMode, setDateMode] = React.useState<DateMode>(initialDateMode);
+  const [from, setFrom] = React.useState("");
+  const [to, setTo] = React.useState("");
+  const [version, setVersion] = React.useState(0);
+
+  const filtered = React.useMemo(
+    () =>
+      MOCK_STOCK_COUNTS.filter(
+        (record) =>
+          matchesCountQuery(record, query) && matchesDateFilter(record.date, dateMode, from, to),
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [query, dateMode, from, to, version],
+  );
+
+  /** Hujjatni o'chiradi — sanalgan tovarlar qoldig'ini sanoqdan oldingi holatiga qaytaradi. */
+  const deleteRecord = (record: StockCount) => {
+    const ok = window.confirm(
+      `"${record.id}" sanoq hujjatini o'chirasizmi? Tovar qoldig'i sanoqdan oldingi holatiga qaytariladi.`,
+    );
+    if (!ok) return;
+
+    const countedQtys: Record<string, number | null> = {};
+    record.lines.forEach((line) => {
+      if (line.countedQty !== null) countedQtys[line.productId] = null;
+    });
+    if (Object.keys(countedQtys).length > 0) {
+      editStockCount({
+        record,
+        editedBy: settings.username,
+        note: `${record.id} o'chirildi`,
+        countedQtys,
+      });
+    }
+
+    const idx = MOCK_STOCK_COUNTS.findIndex((r) => r.id === record.id);
+    if (idx >= 0) MOCK_STOCK_COUNTS.splice(idx, 1);
+    // Tahrir tarixi (shu jumladan shu o'chirish yozuvi) qoldiriladi —
+    // "Sanoq tahrirlash tarixi" bo'limida ko'rinishda davom etadi.
+
+    setVersion((v) => v + 1);
+    toast.success("Sanoq hujjati o'chirildi", {
+      description: "Tovar qoldig'i qaytarildi, amal tahrirlash tarixiga ko'chirildi",
+    });
+  };
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <HistoryFilters
+        productQuery={query}
+        onProductQueryChange={setQuery}
+        searchLabel="Hujjat raqami yoki sanoqchi bo'yicha qidirish"
+        searchPlaceholder="Masalan: SAN-000123..."
+        dateMode={dateMode}
+        onDateModeChange={setDateMode}
+        from={from}
+        onFromChange={setFrom}
+        to={to}
+        onToChange={setTo}
+        summaryLabel="Jami natija"
+        summaryValue={formatSom(filtered.reduce((sum, r) => sum + r.netAmount, 0))}
+      />
+
+      <div className="min-h-0 flex-1 overflow-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 z-10 bg-muted/90 backdrop-blur">
+            <tr className="border-b text-xs uppercase text-muted-foreground">
+              <th className="px-4 py-2 text-left">Hujjat</th>
+              <th className="px-4 py-2 text-left">Sana</th>
+              <th className="px-4 py-2 text-left">Qamrov</th>
+              <th className="px-4 py-2 text-right">Sanaldi</th>
+              <th className="px-4 py-2 text-right">Aniqlik</th>
+              <th className="px-4 py-2 text-right">Natija</th>
+              <th className="px-4 py-2 text-left">Kim</th>
+              <th className="px-4 py-2 text-center">Amallar</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((record) => {
+              const a = assessStockCount(record);
+              return (
+                <tr key={record.id} className="border-b hover:bg-muted/40">
+                  <td className="px-4 py-2 font-mono font-medium">
+                    {record.id}
+                    {record.noLoss && (
+                      <Badge
+                        variant="outline"
+                        className="ml-2 border-sky-300 bg-sky-50 text-[10px] text-sky-700"
+                      >
+                        Zararsiz
+                      </Badge>
+                    )}
+                    {Boolean(record.editCount) && (
+                      <Badge variant="outline" className="ml-2 text-[10px]">
+                        {record.editCount}× tahrir
+                      </Badge>
+                    )}
+                  </td>
+                  <td className="px-4 py-2 text-muted-foreground">{fmtDate(record.date)}</td>
+                  <td className="px-4 py-2">{scopeSummary(record.scope, record.scopeValue)}</td>
+                  <td className="px-4 py-2 text-right tabular-nums">
+                    {record.countedLines} / {record.totalLines}
+                  </td>
+                  <td className={`px-4 py-2 text-right font-semibold tabular-nums ${a.tone.text}`}>
+                    {fmtPercent(a.accuracy)}
+                    <span className="ml-1 text-xs font-normal">{a.label}</span>
+                  </td>
+                  <td
+                    className={`px-4 py-2 text-right font-semibold tabular-nums ${
+                      record.netAmount < 0
+                        ? "text-destructive"
+                        : record.netAmount > 0
+                          ? "text-amber-600"
+                          : "text-emerald-600"
+                    }`}
+                  >
+                    {formatSom(record.netAmount)}
+                  </td>
+                  <td className="px-4 py-2">{record.countedBy}</td>
+                  <td className="px-4 py-2">
+                    <div className="flex justify-center gap-1">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8"
+                        aria-label="Hisobotni ko'rish"
+                        title="Hisobotni ko'rish"
+                        onClick={() => onOpen(record)}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8"
+                        aria-label="Tahrirlash"
+                        title="Tahrirlash"
+                        onClick={() => onEdit(record)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 text-destructive hover:text-destructive"
+                        aria-label="O'chirish"
+                        title="O'chirish"
+                        onClick={() => deleteRecord(record)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                  Hali sanoq o'tkazilmagan. "Yangi sanoq" tugmasi bilan boshlang.
                 </td>
               </tr>
-            );
-          })}
-          {MOCK_STOCK_COUNTS.length === 0 && (
-            <tr>
-              <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
-                Hali sanoq o'tkazilmagan. "Yangi sanoq" tugmasi bilan boshlang.
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -1243,6 +1430,11 @@ function ReportView({
         </Button>
         <Badge className="font-mono">{record.id}</Badge>
         <Badge variant="outline">{scopeSummary(record.scope, record.scopeValue)}</Badge>
+        {record.noLoss && (
+          <Badge variant="outline" className="border-sky-300 bg-sky-50 text-sky-700">
+            Zararsiz to'g'irlash
+          </Badge>
+        )}
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <Button
             variant="outline"

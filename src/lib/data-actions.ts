@@ -16,6 +16,7 @@ import {
   MOCK_WITHDRAWALS,
   costInSom,
   nextAgentId,
+  nextInvoiceNumber,
   type CreditCustomer,
   type CustomerDebtReceipt,
   type CustomerType,
@@ -587,8 +588,10 @@ export function recordProductAddition(input: {
   const sourceEnabled = Boolean(input.source?.enabled && input.source.agentName.trim());
   const totalAmount = input.qty * input.costPrice;
   const paidAmount = sourceEnabled ? Math.max(0, Number(input.source?.paidAmount) || 0) : undefined;
+  const invoiceNumber = nextInvoiceNumber();
   MOCK_PRODUCT_HISTORY.unshift({
     id: `ph${Date.now()}-${Math.random()}`,
+    invoiceNumber,
     date: new Date().toISOString(),
     addedBy: input.addedBy,
     productName: input.productName,
@@ -624,6 +627,7 @@ export function recordProductAddition(input: {
       note: input.source.note.trim(),
     });
   }
+  return { invoiceNumber };
 }
 
 export type MergeProductsWithAgentInput = {
@@ -669,6 +673,7 @@ export function mergeProductsWithAgent(input: MergeProductsWithAgentInput) {
 
     MOCK_PRODUCT_HISTORY.unshift({
       id: `ph-merge-${Date.now()}-${product.id}`,
+      invoiceNumber: nextInvoiceNumber(),
       date,
       addedBy: input.addedBy,
       productName: product.name,
@@ -723,17 +728,22 @@ export type ApplyStockCountInput = {
   scopeValue?: string;
   note?: string;
   lines: StockCountLine[];
+  /** true bo'lsa — farqlar zarar/foyda sifatida hisoblanmaydi, faqat
+   * bazadagi qoldiq to'g'irlanadi (shortage/surplus/net summasi 0 yoziladi). */
+  noLoss?: boolean;
 };
 
 /**
  * Sanoq natijasini qo'llaydi: sanalgan tovarlarning qoldig'ini haqiqiy songa
  * tenglashtiradi, har bir farq uchun tarixga yozuv qo'yadi va sanoq hujjatini
  * saqlaydi. `countedQty === null` bo'lgan qatorlar sanalmagan hisoblanadi va
- * ularga tegilmaydi.
+ * ularga tegilmaydi. `noLoss` bo'lsa — qoldiq baribir to'g'irlanadi, lekin
+ * hujjat moliyaviy zarar/foyda sifatida hisoblanmaydi (summalar 0 yoziladi).
  */
 export function applyStockCount(input: ApplyStockCountInput): StockCount {
   const date = new Date().toISOString();
   const counted = input.lines.filter((line) => line.countedQty !== null);
+  const noteSuffix = input.noLoss ? " (zararsiz to'g'irlash)" : "";
 
   counted.forEach((line) => {
     const product = MOCK_PRODUCTS.find((item) => item.id === line.productId);
@@ -753,10 +763,16 @@ export function applyStockCount(input: ApplyStockCountInput): StockCount {
       newQty,
       unit: product.unit,
       action: "sanoq",
-      note: input.note?.trim() || undefined,
+      note: input.note?.trim()
+        ? `${input.note.trim()}${noteSuffix}`
+        : input.noLoss
+          ? "Zararsiz to'g'irlash"
+          : undefined,
       changes: [{ field: "qty", label: "Miqdor", oldValue: oldQty, newValue: newQty }],
     });
   });
+
+  const totals = stockCountTotals(input.lines);
 
   const record: StockCount = {
     id: input.id,
@@ -766,7 +782,9 @@ export function applyStockCount(input: ApplyStockCountInput): StockCount {
     scopeValue: input.scopeValue,
     note: input.note?.trim() || undefined,
     lines: input.lines,
-    ...stockCountTotals(input.lines),
+    noLoss: input.noLoss || undefined,
+    ...totals,
+    ...(input.noLoss ? { shortageAmount: 0, surplusAmount: 0, netAmount: 0 } : {}),
   };
 
   MOCK_STOCK_COUNTS.unshift(record);

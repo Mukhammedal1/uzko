@@ -12,8 +12,9 @@ type Props = {
   onNewCheck: () => void;
   onCloseCheck: (checkId: string) => void;
   onLineQuantityChange: (line: PosCartLine, quantity: number) => void;
+  onOpenQuantityKeypad: (line: PosCartLine) => void;
   onRemoveLine: (productId: string) => void;
-  onSetDiscount: () => void;
+  onOpenDiscountKeypad: () => void;
   onClearCheck: () => void;
   onConfirm: () => void;
   pendingReturn?: PendingReturnExchange | null;
@@ -28,8 +29,9 @@ export function CartPanel({
   onNewCheck,
   onCloseCheck,
   onLineQuantityChange,
+  onOpenQuantityKeypad,
   onRemoveLine,
-  onSetDiscount,
+  onOpenDiscountKeypad,
   onClearCheck,
   onConfirm,
   pendingReturn,
@@ -45,9 +47,9 @@ export function CartPanel({
   const total = Math.max(0, currentSaleTotal - returnCredit);
 
   return (
-    <aside className="flex w-[372px] flex-shrink-0 flex-col border-l border-[#E2E7F0] bg-white">
+    <aside className="flex w-[388px] flex-shrink-0 flex-col border-l border-[#E2E7F0] bg-white">
       {/* Chek tablari */}
-      <div className="flex flex-shrink-0 items-center gap-1 overflow-x-auto border-b border-[#E2E7F0] px-3 py-2">
+      <div className="flex flex-shrink-0 items-center gap-1 overflow-x-auto border-b border-[#E2E7F0] px-2 py-1.5">
         {checks.map((check) => {
           const checkTotal = check.lines.reduce(
             (sum, line) => sum + line.product.price * line.quantity,
@@ -55,40 +57,37 @@ export function CartPanel({
           );
           const active = check.id === activeCheckId;
           return (
-            <button
-              key={check.id}
-              type="button"
-              onClick={() => onSelectCheck(check.id)}
-              className={cn(
-                "group flex flex-shrink-0 items-center gap-1.5 rounded-[8px] px-2.5 py-1 text-xs font-medium transition-colors",
-                active ? "bg-[#0836B0]/10 text-[#0836B0]" : "text-[#737D91] hover:text-[#222C3B]",
-              )}
-            >
-              <span>{check.label}</span>
-              <span className="tabular-nums">
-                {checkTotal > 0 ? formatSom(checkTotal) : "bo'sh"}
-              </span>
+            <div key={check.id} className="flex flex-shrink-0 items-center">
+              <button
+                type="button"
+                onClick={() => onSelectCheck(check.id)}
+                className={cn(
+                  "flex h-11 touch-manipulation items-center gap-1.5 rounded-[10px] px-2.5 text-xs font-medium transition-colors",
+                  active ? "bg-[#0836B0]/10 text-[#0836B0]" : "text-[#737D91] hover:text-[#222C3B]",
+                )}
+              >
+                <span>{check.label}</span>
+                <span className="tabular-nums">
+                  {checkTotal > 0 ? formatSom(checkTotal) : "bo'sh"}
+                </span>
+              </button>
               {checks.length > 1 && (
-                <span
-                  role="button"
-                  tabIndex={-1}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onCloseCheck(check.id);
-                  }}
-                  className="ml-0.5 hidden text-[#737D91] hover:text-[#C0392B] group-hover:inline"
+                <button
+                  type="button"
+                  onClick={() => onCloseCheck(check.id)}
+                  className="flex h-9 w-9 flex-shrink-0 touch-manipulation items-center justify-center text-[#737D91] hover:text-[#C0392B]"
                   aria-label={`${check.label}ni yopish`}
                 >
                   ✕
-                </span>
+                </button>
               )}
-            </button>
+            </div>
           );
         })}
         <button
           type="button"
           onClick={onNewCheck}
-          className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-[8px] text-[#0836B0] hover:bg-[#0836B0]/10"
+          className="flex h-11 w-11 flex-shrink-0 touch-manipulation items-center justify-center rounded-[10px] text-lg text-[#0836B0] hover:bg-[#0836B0]/10"
           aria-label="Yangi chek"
         >
           +
@@ -104,14 +103,14 @@ export function CartPanel({
           type="button"
           onClick={onClearCheck}
           disabled={activeCheck.lines.length === 0}
-          className="text-xs font-medium text-[#737D91] hover:text-[#C0392B] disabled:cursor-not-allowed disabled:opacity-50"
+          className="h-9 touch-manipulation px-2 text-xs font-medium text-[#737D91] hover:text-[#C0392B] disabled:cursor-not-allowed disabled:opacity-50"
         >
           Tozalash
         </button>
       </div>
 
       {/* Savatcha qatorlari */}
-      <div className="min-h-0 flex-1 overflow-y-auto px-3">
+      <div className="min-h-0 flex-1 touch-manipulation overflow-y-auto px-3">
         {activeCheck.lines.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center px-4 text-center text-sm text-[#737D91]">
             Savatcha bo'sh — Tovarni skanerlang yoki ro'yxatdan tanlang.
@@ -122,6 +121,7 @@ export function CartPanel({
               key={line.product.id}
               line={line}
               onQuantityChange={(quantity) => onLineQuantityChange(line, quantity)}
+              onOpenQuantityKeypad={() => onOpenQuantityKeypad(line)}
               onRemove={() => onRemoveLine(line.product.id)}
             />
           ))
@@ -138,7 +138,7 @@ export function CartPanel({
             <button
               type="button"
               onClick={onClearPendingReturn}
-              className="mt-1 text-[11px] font-semibold underline"
+              className="mt-1 h-9 touch-manipulation text-[11px] font-semibold underline"
             >
               Qaytarishni bekor qilish
             </button>
@@ -154,15 +154,15 @@ export function CartPanel({
         </div>
         <button
           type="button"
-          onClick={onSetDiscount}
-          className="flex w-full items-center justify-between text-sm text-[#737D91] hover:text-[#0836B0]"
+          onClick={onOpenDiscountKeypad}
+          className="flex h-9 w-full touch-manipulation items-center justify-between text-sm text-[#737D91] hover:text-[#0836B0]"
         >
           <span>Chegirma</span>
           <span className="tabular-nums text-[#222C3B]">{formatSom(activeCheck.discount)}</span>
         </button>
         <div className="flex items-baseline justify-between pt-1">
           <span className="text-sm font-semibold text-[#222C3B]">Jami</span>
-          <span className="text-[26px] font-bold leading-none tabular-nums text-[#222C3B]">
+          <span className="text-[28px] font-bold leading-none tabular-nums text-[#222C3B]">
             {formatSom(total)}
           </span>
         </div>
@@ -171,7 +171,7 @@ export function CartPanel({
           type="button"
           onClick={onConfirm}
           disabled={activeCheck.lines.length === 0}
-          className="mt-2 h-11 w-full rounded-[8px] bg-[#0836B0] text-sm font-semibold text-white transition-colors hover:bg-[#062a8a] disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-2 h-14 w-full touch-manipulation rounded-[10px] bg-[#0836B0] text-base font-semibold text-white transition-colors hover:bg-[#062a8a] disabled:cursor-not-allowed disabled:opacity-50"
         >
           Savdoni tasdiqlash
         </button>

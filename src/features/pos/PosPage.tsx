@@ -3,7 +3,6 @@ import { toast } from "sonner";
 import { HandCoins, PackagePlus, RotateCcw, Wifi } from "lucide-react";
 import { formatSom } from "@/lib/mock-data";
 import type { Product, ReceiptItem } from "@/lib/mock-data";
-import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { FinalizeSaleDialog } from "@/components/sotuv/FinalizeSaleDialog";
 import { OneTimeItemDialog } from "@/components/sotuv/OneTimeItemDialog";
@@ -18,7 +17,7 @@ import { PosHeader } from "./PosHeader";
 import { ProductSearch } from "./ProductSearch";
 import { ProductGrid } from "./ProductGrid";
 import { CartPanel } from "./CartPanel";
-import { QuickItemsPanel, QUICK_DEFAULT_HEIGHT } from "./QuickItemsPanel";
+import { QuantityKeypad } from "./QuantityKeypad";
 import { usePosCart, type PosCartLine } from "./usePosCart";
 
 type Props = {
@@ -35,10 +34,28 @@ type Props = {
   onClearPendingReturn?: () => void;
 };
 
+const SEARCH_DEBOUNCE_MS = 220;
+
+function parseQueryNumber(value: string) {
+  const cleaned = value
+    .trim()
+    .replace(/\s/g, "")
+    .replace(/,/g, ".")
+    .replace(/[^0-9.-]/g, "");
+  if (!cleaned) return null;
+  const number = Number(cleaned);
+  return Number.isFinite(number) ? number : null;
+}
+
 function matchesQuery(product: Product, query: string) {
   const q = query.trim().toLowerCase();
   if (!q) return true;
-  return product.name.toLowerCase().includes(q) || product.barcode.toLowerCase().includes(q);
+  const numericQuery = parseQueryNumber(query);
+  return (
+    product.name.toLowerCase().includes(q) ||
+    product.barcode.toLowerCase().includes(q) ||
+    (numericQuery !== null && product.price === numericQuery)
+  );
 }
 
 // Placeholder rasm SVG data URI sifatida generatsiya qilinadi — haqiqiy yuklangan
@@ -46,6 +63,8 @@ function matchesQuery(product: Product, query: string) {
 function hasRealImage(product: Product) {
   return !!product.image && !product.image.startsWith("data:");
 }
+
+type KeypadState = { mode: "qty"; line: PosCartLine } | { mode: "discount" } | null;
 
 export function PosPage({
   products,
@@ -58,21 +77,31 @@ export function PosPage({
   onClearPendingReturn,
 }: Props) {
   const [query, setQuery] = React.useState("");
+  const [debouncedQuery, setDebouncedQuery] = React.useState("");
   const [finalizeOpen, setFinalizeOpen] = React.useState(false);
   const [oneTimeOpen, setOneTimeOpen] = React.useState(false);
   const [returnOpen, setReturnOpen] = React.useState(false);
+  const [keypad, setKeypad] = React.useState<KeypadState>(null);
+  const [previewProduct, setPreviewProduct] = React.useState<Product | null>(null);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const cart = usePosCart();
 
-  const filteredProducts = React.useMemo(() => {
-    const base = products.filter((product) => matchesQuery(product, query));
-    // Haqiqiy rasmli mahsulotlar ro'yxat boshida ko'rinishi uchun oldinga chiqariladi.
-    return [...base].sort((a, b) => Number(hasRealImage(b)) - Number(hasRealImage(a)));
-  }, [products, query]);
+  // Qidiruv so'rovi debounce bilan qo'llanadi — katta katalogda har harfda
+  // qayta filtrlamaslik uchun.
+  React.useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [query]);
 
-  const quickProducts = React.useMemo(() => products.filter((p) => p.quick), [products]);
-  const [quickCollapsed, setQuickCollapsed] = React.useState(false);
-  const [quickHeight, setQuickHeight] = React.useState(QUICK_DEFAULT_HEIGHT);
+  const isSearching = debouncedQuery.trim().length > 0;
+
+  // Bo'sh qidiruvda — tezkor panel (admin belgilagan, barqaror tartibda).
+  // Qidiruv bo'lsa — natijalar (haqiqiy rasmli tovarlar oldinda).
+  const gridProducts = React.useMemo(() => {
+    if (!isSearching) return products.filter((p) => p.quick);
+    const matched = products.filter((product) => matchesQuery(product, debouncedQuery));
+    return [...matched].sort((a, b) => Number(hasRealImage(b)) - Number(hasRealImage(a)));
+  }, [products, debouncedQuery, isSearching]);
 
   const cartQuantities = React.useMemo(() => {
     const map: Record<string, number> = {};
@@ -102,17 +131,46 @@ export function PosPage({
     if (!result.ok) toast.error(result.reason);
   };
 
+  // Qidiruvda aynan bitta mos tovar qolsa — Enter/"Qidirish" uni to'g'ridan-to'g'ri
+  // savatchaga qo'shadi (shtrix kod skanerlash bilan bir xil tezkorlik).
   const handleSearchEnter = () => {
     const q = query.trim().toLowerCase();
     if (!q) return;
+    const matched = products.filter((product) => matchesQuery(product, q));
     const exactBarcode = products.find((product) => product.barcode.toLowerCase() === q);
-    const match = exactBarcode ?? filteredProducts[0];
+    const match = exactBarcode ?? (matched.length === 1 ? matched[0] : undefined);
     if (!match) {
-      toast.error("Tovar topilmadi");
+      if (matched.length === 0) toast.error("Tovar topilmadi");
       return;
     }
     handlePick(match);
     setQuery("");
+    setDebouncedQuery("");
+  };
+
+  // Qidiruvga faqat narx yozilib, ro'yxatdagidan qat'i nazar aynan shu narxda
+  // "Yangi tovar" qo'shish kerak bo'lsa — Shift+Enter (tasodifan bir xil narxli
+  // boshqa tovar bilan chalkashmasligi uchun oddiy Enter'dan alohida kombinatsiya).
+  const handleAddNewPriceItem = () => {
+    const numericQuery = parseQueryNumber(query);
+    if (numericQuery === null || numericQuery <= 0) return;
+    const product: Product = {
+      id: `one-time-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: "Yangi tovar",
+      price: numericQuery,
+      costPrice: 0,
+      costCurrency: "UZS",
+      barcode: "",
+      customCode: "BIR-MARTALIK",
+      unit: "dona",
+      warehouse: "Bir martalik",
+      vitrinaQty: 9999,
+      omborQty: 0,
+    };
+    cart.addProduct(product);
+    toast.success("Yangi tovar qo'shildi", { description: formatSom(numericQuery) });
+    setQuery("");
+    setDebouncedQuery("");
   };
 
   const handleConfirm = () => {
@@ -160,21 +218,21 @@ export function PosPage({
     cart.setQuantity(product, item.quantity);
   };
 
-  const handleSetDiscount = () => {
-    const raw = window.prompt(
-      "Chegirma summasi (so'mda):",
-      String(cart.activeCheck.discount || ""),
-    );
-    if (raw === null) return;
-    const parsed = Number.parseFloat(raw.replace(/\s/g, "").replace(",", "."));
-    cart.setDiscount(Number.isFinite(parsed) ? Math.min(Math.max(0, parsed), subtotal) : 0);
+  // ── Miqdor/chegirma raqamli klaviaturasi ──────────────────────────────────
+  const handleKeypadConfirm = (value: number) => {
+    if (keypad?.mode === "qty") {
+      const result = cart.setQuantity(keypad.line.product, value);
+      if (!result.ok) toast.error(result.reason);
+    } else if (keypad?.mode === "discount") {
+      cart.setDiscount(Math.min(Math.max(0, value), subtotal));
+    }
+    setKeypad(null);
   };
 
-  // ── Global klaviatura yorliqlari ──────────────────────────────────────────
+  // ── Klaviatura yorliqlari — ixtiyoriy tezlashtiruvchi, touch-only kassada shart emas ──
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // Yakunlash popupi ochiq bo'lsa — u o'z Esc/Enter'ini boshqaradi.
-      if (finalizeOpen) return;
+      if (finalizeOpen || keypad) return;
 
       const target = event.target as HTMLElement | null;
       const inSearch = target === searchInputRef.current;
@@ -189,14 +247,12 @@ export function PosPage({
       if (event.key === "Escape") {
         event.preventDefault();
         setQuery("");
-        cart.clearCheck();
+        setDebouncedQuery("");
         return;
       }
 
       if (event.key === "Enter" && !inSearch) {
         const tag = target?.tagName;
-        // Matn kiritish maydonlarida (chegirma, miqdor) Enter o'z vazifasini
-        // bajarsin — faqat boshqa joyda savdoni yakunlaydi.
         if (tag === "INPUT" || tag === "TEXTAREA") return;
         event.preventDefault();
         handleConfirm();
@@ -206,10 +262,10 @@ export function PosPage({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cart.activeCheck, total, finalizeOpen]);
+  }, [cart.activeCheck, total, finalizeOpen, keypad]);
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[#F4F6FA]">
+    <div className="flex h-full min-h-0 w-full select-none touch-manipulation flex-col overflow-hidden bg-[#F4F6FA]">
       <PosHeader />
 
       <div className="flex min-h-0 flex-1">
@@ -218,79 +274,64 @@ export function PosPage({
           <div className="flex-shrink-0 space-y-2 border-b border-[#E2E7F0] bg-white p-3">
             <div className="flex flex-wrap items-center justify-end gap-1.5">
               {onOpenDebtPayment && (
-                <Button
+                <button
                   type="button"
-                  variant="outline"
-                  size="sm"
                   onClick={onOpenDebtPayment}
-                  className="h-8 gap-1.5 border-emerald-300 bg-emerald-50 px-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 hover:text-emerald-700"
+                  className="flex h-11 touch-manipulation items-center gap-1.5 rounded-[10px] border border-emerald-300 bg-emerald-50 px-3 text-xs font-semibold text-emerald-700"
                 >
-                  <HandCoins className="h-3.5 w-3.5" />
+                  <HandCoins className="h-4 w-4" />
                   Qarz so'ndirish
-                </Button>
+                </button>
               )}
               {onOpenOnlineSales && (
-                <Button
+                <button
                   type="button"
-                  variant="outline"
-                  size="sm"
                   onClick={onOpenOnlineSales}
-                  className="h-8 gap-1.5 border-sky-300 bg-sky-50 px-2 text-xs font-semibold text-sky-700 hover:bg-sky-100 hover:text-sky-700"
+                  className="flex h-11 touch-manipulation items-center gap-1.5 rounded-[10px] border border-sky-300 bg-sky-50 px-3 text-xs font-semibold text-sky-700"
                 >
-                  <Wifi className="h-3.5 w-3.5" />
+                  <Wifi className="h-4 w-4" />
                   Online savdo
-                </Button>
+                </button>
               )}
-              <Button
+              <button
                 type="button"
-                variant="outline"
-                size="sm"
                 onClick={() => setReturnOpen(true)}
-                className="h-8 gap-1.5 border-orange-300 bg-orange-50 px-2 text-xs font-semibold text-orange-700 hover:bg-orange-100 hover:text-orange-700"
+                className="flex h-11 touch-manipulation items-center gap-1.5 rounded-[10px] border border-orange-300 bg-orange-50 px-3 text-xs font-semibold text-orange-700"
               >
-                <RotateCcw className="h-3.5 w-3.5" />
+                <RotateCcw className="h-4 w-4" />
                 Tovar qaytarish
-              </Button>
-              <Button
+              </button>
+              <button
                 type="button"
-                variant="outline"
-                size="sm"
                 onClick={() => setOneTimeOpen(true)}
-                className="h-8 gap-1.5 border-[#0836B0]/30 bg-[#0836B0]/5 px-2 text-xs font-semibold text-[#0836B0] hover:bg-[#0836B0]/10"
+                className="flex h-11 touch-manipulation items-center gap-1.5 rounded-[10px] border border-[#0836B0]/30 bg-[#0836B0]/5 px-3 text-xs font-semibold text-[#0836B0]"
               >
-                <PackagePlus className="h-3.5 w-3.5" />
+                <PackagePlus className="h-4 w-4" />
                 Bir martalik
-              </Button>
+              </button>
             </div>
             <ProductSearch
               value={query}
               onChange={setQuery}
               onEnter={handleSearchEnter}
+              onShiftEnter={handleAddNewPriceItem}
               inputRef={searchInputRef}
             />
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto p-3">
+          <div className="min-h-0 flex-1 p-3">
             <ProductGrid
-              products={filteredProducts}
+              products={gridProducts}
               cartQuantities={cartQuantities}
               onPick={handlePick}
+              onPreview={setPreviewProduct}
+              mode={isSearching ? "search" : "pinned"}
+              query={debouncedQuery}
             />
           </div>
-
-          {quickProducts.length > 0 && (
-            <QuickItemsPanel
-              products={quickProducts}
-              collapsed={quickCollapsed}
-              onToggleCollapsed={() => setQuickCollapsed((v) => !v)}
-              height={quickHeight}
-              onHeightChange={setQuickHeight}
-              onPick={handlePick}
-            />
-          )}
         </div>
 
-        {/* O'ng ustun: savatcha — 372px qat'iy */}
+        {/* O'ng ustun: savatcha — 388px qat'iy */}
         <CartPanel
           checks={cart.checks}
           activeCheckId={cart.activeCheckId}
@@ -299,14 +340,55 @@ export function PosPage({
           onNewCheck={cart.newCheck}
           onCloseCheck={cart.closeCheck}
           onLineQuantityChange={handleLineQuantityChange}
+          onOpenQuantityKeypad={(line) => setKeypad({ mode: "qty", line })}
           onRemoveLine={cart.removeLine}
-          onSetDiscount={handleSetDiscount}
+          onOpenDiscountKeypad={() => setKeypad({ mode: "discount" })}
           onClearCheck={cart.clearCheck}
           onConfirm={handleConfirm}
           pendingReturn={pendingReturn}
           onClearPendingReturn={onClearPendingReturn}
         />
       </div>
+
+      <QuantityKeypad
+        open={keypad !== null}
+        mode={keypad?.mode ?? "qty"}
+        initialValue={
+          keypad?.mode === "qty" ? keypad.line.quantity : (cart.activeCheck.discount ?? 0)
+        }
+        max={keypad?.mode === "qty" ? keypad.line.product.vitrinaQty : undefined}
+        unit={keypad?.mode === "qty" ? keypad.line.product.unit : undefined}
+        onConfirm={handleKeypadConfirm}
+        onClose={() => setKeypad(null)}
+      />
+
+      <Dialog open={!!previewProduct} onOpenChange={(open) => !open && setPreviewProduct(null)}>
+        <DialogContent className="max-w-lg overflow-hidden border-[#E2E7F0] bg-white p-0">
+          {previewProduct && (
+            <div className="flex flex-col">
+              <div className="flex aspect-square w-full items-center justify-center bg-[#F4F6FA]">
+                {previewProduct.image ? (
+                  <img
+                    src={previewProduct.image}
+                    alt={previewProduct.name}
+                    className="h-full w-full object-contain"
+                  />
+                ) : (
+                  <span className="text-6xl font-bold text-[#737D91]">
+                    {previewProduct.name.slice(0, 1).toUpperCase()}
+                  </span>
+                )}
+              </div>
+              <div className="space-y-1 p-4">
+                <div className="text-base font-semibold text-[#222C3B]">{previewProduct.name}</div>
+                <div className="text-lg font-bold text-[#0836B0]">
+                  {formatSom(previewProduct.price)}
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <OneTimeItemDialog
         open={oneTimeOpen}

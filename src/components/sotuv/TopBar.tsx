@@ -89,20 +89,20 @@ export function TopBar() {
   };
 
   return (
-    <header className="uzko-topbar flex min-h-12 flex-shrink-0 items-center justify-between gap-2 border-b bg-card px-3 py-1.5 shadow-sm lg:px-4">
+    <header className="uzko-topbar flex min-h-16 flex-shrink-0 items-center justify-between gap-2 border-b bg-card px-4 py-2 shadow-sm lg:px-5">
       <div className="uzko-brand flex min-w-0 items-center gap-2">
         <Popover>
           <PopoverTrigger asChild>
             <button
               type="button"
               onClick={handleEnsureCompanyProfile}
-              className="relative flex items-center gap-2 rounded-lg border border-transparent p-0.5 text-left transition-colors hover:border-primary/20 hover:bg-primary/5"
+              className="relative flex items-center gap-2.5 rounded-lg border border-transparent p-0.5 text-left transition-colors hover:border-primary/20 hover:bg-primary/5"
             >
-              <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-md">
+              <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-md">
                 <img src="/uzko-logo.jpg" alt="UZKO" className="h-full w-full object-cover" />
               </div>
               <div>
-                <div className="text-sm font-bold tracking-tight">UZKO</div>
+                <div className="text-lg font-bold tracking-tight">UZKO</div>
               </div>
               {unreadCount > 0 && (
                 <span className="absolute -right-1 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-bold text-destructive-foreground">
@@ -138,33 +138,33 @@ export function TopBar() {
         </Popover>
       </div>
 
-      <nav className="uzko-main-nav flex min-w-0 items-center gap-0.5 overflow-x-auto rounded-md bg-muted/50 p-0.5">
+      <nav className="uzko-main-nav flex min-w-0 items-center gap-1 overflow-x-auto rounded-md bg-muted/50 p-1">
         {navItems.map(({ Icon, ...item }) => (
           <Link
             key={item.to}
             to={item.to}
-            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded px-3 py-1.5 text-sm font-semibold text-muted-foreground hover:text-foreground"
+            className="inline-flex items-center gap-2 whitespace-nowrap rounded px-4 py-2 text-base font-semibold text-muted-foreground hover:text-foreground"
             activeOptions={item.to === "/" ? { exact: true } : undefined}
             activeProps={{
               className:
-                "inline-flex items-center gap-1.5 whitespace-nowrap rounded bg-card px-3 py-1.5 text-sm font-semibold text-primary shadow-sm",
+                "inline-flex items-center gap-2 whitespace-nowrap rounded bg-card px-4 py-2 text-base font-semibold text-primary shadow-sm",
             }}
           >
-            <Icon className="h-4 w-4" />
+            <Icon className="h-5 w-5" />
             {item.label}
           </Link>
         ))}
       </nav>
 
-      <div className="uzko-actions flex flex-shrink-0 items-center gap-1.5">
+      <div className="uzko-actions flex flex-shrink-0 items-center gap-2">
         <Popover>
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="relative flex h-8 w-8 items-center justify-center rounded-md border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="relative flex h-10 w-10 items-center justify-center rounded-md border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               aria-label="Notification"
             >
-              <Bell className="h-3.5 w-3.5" />
+              <Bell className="h-4 w-4" />
               {unreadCount > 0 && (
                 <span className="absolute -right-1 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-bold text-destructive-foreground">
                   {unreadCount}
@@ -235,8 +235,8 @@ export function TopBar() {
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="flex h-8 items-center gap-1 rounded-md border bg-card px-2 text-[11px] font-bold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
-              <Languages className="h-3.5 w-3.5" />
+            <button className="flex h-10 items-center gap-1.5 rounded-md border bg-card px-3 text-xs font-bold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+              <Languages className="h-4 w-4" />
               {currentLang}
             </button>
           </DropdownMenuTrigger>
@@ -261,25 +261,25 @@ export function TopBar() {
 
         <Link
           to="/sozlamalar"
-          className="flex h-8 w-8 items-center justify-center rounded-md border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="flex h-10 w-10 items-center justify-center rounded-md border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           activeProps={{
             className:
-              "flex h-8 w-8 items-center justify-center rounded-md border bg-primary text-primary-foreground",
+              "flex h-10 w-10 items-center justify-center rounded-md border bg-primary text-primary-foreground",
           }}
           aria-label="Profil"
           title="Profil"
         >
-          <UserRound className="h-3.5 w-3.5" />
+          <UserRound className="h-4 w-4" />
         </Link>
 
         <button
           type="button"
           onClick={handleLogout}
-          className="flex h-8 w-8 items-center justify-center rounded-md border bg-card text-muted-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground"
+          className="flex h-10 w-10 items-center justify-center rounded-md border bg-card text-muted-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground"
           aria-label="Chiqish"
           title="Chiqish"
         >
-          <LogOut className="h-3.5 w-3.5" />
+          <LogOut className="h-4 w-4" />
         </button>
       </div>
     </header>

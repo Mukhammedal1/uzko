@@ -674,6 +674,8 @@
   min-height: 0 !important;
   flex: 1 1 0% !important;
   overflow: hidden !important;
+  /* Faqat markaziy kontent zoom qilinadi — TopBar va BottomBar o'zgarmaydi. */
+  zoom: var(--app-zoom, 100%);
 }
 
 .responsive-card {
@@ -1299,4 +1301,34 @@
   .nasiya-savdolar-page td {
     padding: 0.48rem !important;
   }
+}
+
+/*
+ * TopBar/BottomBar barqaror kattaligi — fayldagi turli max-width breakpointlar
+ * bu elementlarni kichraytiradigan qoidalar bilan to'la (yuqorida), shu sabab
+ * bu blok ataylab @media'siz, fayl oxirida: bir xil specificity + !important
+ * bo'lganda CSS keyingi qoidani ustun qo'yadi, shuning uchun ekran o'lchamidan
+ * qat'i nazar shu qiymatlar g'olib chiqadi.
+ */
+.uzko-topbar {
+  min-height: 4rem !important;
+}
+
+.uzko-main-nav a {
+  font-size: 1rem !important;
+  padding: 0.5rem 1rem !important;
+}
+
+.uzko-bottombar {
+  min-height: 4rem !important;
+}
+
+.uzko-rates > div {
+  padding: 0.5rem 0.75rem !important;
+  font-size: 0.875rem !important;
+}
+
+.uzko-rates svg {
+  height: 1rem !important;
+  width: 1rem !important;
 }

@@ -2360,6 +2360,8 @@ export type SupplierReport = {
 
 export type ProductHistory = {
   id: string;
+  /** Har bir prixod uchun unikal nakladnoy/prixod raqami — masalan "PRX-000123". */
+  invoiceNumber: string;
   date: string;
   addedBy: string;
   productName: string;
@@ -2481,6 +2483,7 @@ export const MOCK_RECEIPT_DISPATCHES: ReceiptDispatchLog[] = [
 export const MOCK_PRODUCT_HISTORY: ProductHistory[] = [
   {
     id: "ph1",
+    invoiceNumber: "PRX-000001",
     date: new Date("2026-05-06T09:30:00").toISOString(),
     addedBy: "Admin",
     productName: "Sement M400 50kg",
@@ -2499,6 +2502,7 @@ export const MOCK_PRODUCT_HISTORY: ProductHistory[] = [
   },
   {
     id: "ph2",
+    invoiceNumber: "PRX-000002",
     date: new Date("2026-05-06T10:10:00").toISOString(),
     addedBy: "Omborchi",
     productName: "Armatura 10mm",
@@ -2529,6 +2533,7 @@ export type ProductHistoryEditLog = {
   date: string; // tahrir/o'chirish vaqti
   editedBy: string;
   entryId: string; // ProductHistory.id (qaysi nakladnoy)
+  invoiceNumber?: string;
   productName: string;
   action: "edit" | "delete";
   oldTotal: number;
@@ -2590,6 +2595,9 @@ export type StockCount = {
   editedAt?: string;
   /** Nechta marta tahrirlangan. */
   editCount?: number;
+  /** true bo'lsa — bu hujjat zarar/foyda sifatida hisoblanmaydi, faqat bazadagi
+   * qoldiqni to'g'irlash uchun ishlatilgan (shortage/surplus summalari 0 yoziladi). */
+  noLoss?: boolean;
   lines: StockCountLine[];
 };
 
@@ -3361,6 +3369,7 @@ function seedPresentationDemoData() {
   supplierReports.forEach((report, index) => {
     MOCK_PRODUCT_HISTORY.unshift({
       id: `ph-demo-${String(index + 1).padStart(3, "0")}`,
+      invoiceNumber: nextInvoiceNumber(),
       date: report.date,
       addedBy: report.addedBy,
       productName: report.items[0]?.productName ?? "Demo tovar",
@@ -3552,4 +3561,9 @@ export function getAgentsList(): AgentSummary[] {
 /** Yangi agent uchun keyingi navbatdagi ID, masalan `AG-0007`. */
 export function nextAgentId(): string {
   return `AG-${String(MOCK_SUPPLIER_REPORTS.length + 1).padStart(4, "0")}`;
+}
+
+/** Har bir prixod uchun keyingi navbatdagi unikal nakladnoy raqami, masalan `PRX-000123`. */
+export function nextInvoiceNumber(): string {
+  return `PRX-${String(MOCK_PRODUCT_HISTORY.length + 1).padStart(6, "0")}`;
 }

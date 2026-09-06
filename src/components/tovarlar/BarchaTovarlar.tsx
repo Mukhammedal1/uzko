@@ -22,12 +22,19 @@ import {
 } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   AlertTriangle,
   ArrowLeft,
   Barcode,
   Check,
   CheckSquare,
   ChevronDown,
+  Columns3,
   Download,
   FileSpreadsheet,
   Filter,
@@ -112,6 +119,30 @@ type Props = {
   selectionSlot?: HTMLElement | null;
 };
 
+type OptionalColumn = "limit" | "unit" | "shelf";
+
+const OPTIONAL_COLUMNS: { key: OptionalColumn; label: string }[] = [
+  { key: "limit", label: "Limit" },
+  { key: "unit", label: "Birlik" },
+  { key: "shelf", label: "Polka raqami" },
+];
+
+const HIDDEN_COLUMNS_STORAGE_KEY = "uzko-tovarlar-hidden-columns";
+
+function readHiddenColumns(): Set<OptionalColumn> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = JSON.parse(window.localStorage.getItem(HIDDEN_COLUMNS_STORAGE_KEY) ?? "[]");
+    return new Set(
+      (Array.isArray(raw) ? raw : []).filter((key): key is OptionalColumn =>
+        OPTIONAL_COLUMNS.some((col) => col.key === key),
+      ),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
 export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
   const { settings, updateSettings, t } = useApp();
   const [query, setQuery] = React.useState("");
@@ -119,6 +150,17 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
   const [version, setVersion] = React.useState(0);
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(() => new Set());
+  const [hiddenColumns, setHiddenColumns] = React.useState<Set<OptionalColumn>>(readHiddenColumns);
+
+  const toggleColumnVisibility = (key: OptionalColumn, visible: boolean) => {
+    setHiddenColumns((current) => {
+      const next = new Set(current);
+      if (visible) next.delete(key);
+      else next.add(key);
+      window.localStorage.setItem(HIDDEN_COLUMNS_STORAGE_KEY, JSON.stringify([...next]));
+      return next;
+    });
+  };
   const [printOpen, setPrintOpen] = React.useState(false);
   const [filterOpen, setFilterOpen] = React.useState(false);
   const [limitOpen, setLimitOpen] = React.useState(false);
@@ -505,8 +547,11 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
       ),
     );
 
-    const purchaseCurrencyId = rows.find((r) => r.purchase_currency_id != null)?.purchase_currency_id;
-    const purchaseCurrencyCode = excelCurrencies.find((c) => c.id === purchaseCurrencyId)?.code ?? "UZS";
+    const purchaseCurrencyId = rows.find(
+      (r) => r.purchase_currency_id != null,
+    )?.purchase_currency_id;
+    const purchaseCurrencyCode =
+      excelCurrencies.find((c) => c.id === purchaseCurrencyId)?.code ?? "UZS";
     const purchaseRate = MOCK_RATES[purchaseCurrencyCode] ?? 1;
     const totalCostSom = rows.reduce(
       (sum, row) => sum + row.quantity * (row.purchase_price ?? 0) * purchaseRate,
@@ -521,7 +566,9 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
 
     rows.forEach((row) => {
       const stockName =
-        excelStocks.find((s) => s.id === row.stock_id)?.name ?? settings.warehouses[0]?.name ?? "Asosiy ombor";
+        excelStocks.find((s) => s.id === row.stock_id)?.name ??
+        settings.warehouses[0]?.name ??
+        "Asosiy ombor";
       const shelfName = excelShelfNumbers.find((s) => s.id === row.shelf_number_id)?.name ?? "";
 
       const barcodes = row.barcodes.filter(Boolean);
@@ -531,12 +578,12 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
       const purchaseCurrency = purchaseCurrencyCode;
       const retailCurrency =
         row.retail_currency_id != null
-          ? excelCurrencies.find((c) => c.id === row.retail_currency_id)?.code ?? "UZS"
+          ? (excelCurrencies.find((c) => c.id === row.retail_currency_id)?.code ?? "UZS")
           : "UZS";
       const retailRate = MOCK_RATES[retailCurrency] ?? 1;
       const wholesaleCurrency =
         row.wholesale_currency_id != null
-          ? excelCurrencies.find((c) => c.id === row.wholesale_currency_id)?.code ?? "UZS"
+          ? (excelCurrencies.find((c) => c.id === row.wholesale_currency_id)?.code ?? "UZS")
           : "UZS";
       const wholesaleRate = MOCK_RATES[wholesaleCurrency] ?? 1;
 
@@ -567,10 +614,14 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
           wholesalePrice: wholesalePriceSom,
           costPrice: row.purchase_price ?? 0,
           costCurrency: purchaseCurrency,
-          barcode: barcode || `8690${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, "0")}`,
+          barcode:
+            barcode || `8690${String(Math.floor(Math.random() * 1_000_000_000)).padStart(9, "0")}`,
           customCode:
-            row.name.trim().slice(0, 4).toUpperCase().replace(/[^A-Z0-9]/g, "") +
-            Math.floor(Math.random() * 99),
+            row.name
+              .trim()
+              .slice(0, 4)
+              .toUpperCase()
+              .replace(/[^A-Z0-9]/g, "") + Math.floor(Math.random() * 99),
           unit: settings.units[0]?.name ?? "dona",
           warehouse: stockName,
           shelfLocation: shelfName,
@@ -1073,14 +1124,48 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                   <span>{t("product")}</span>
                 </div>
               </th>
-              <th className="px-4 py-2.5 text-center font-semibold">Limit</th>
+              {!hiddenColumns.has("limit") && (
+                <th className="px-4 py-2.5 text-center font-semibold">Limit</th>
+              )}
               <th className="px-4 py-2.5 text-right font-semibold">{t("cost_price")}</th>
               <th className="px-4 py-2.5 text-right font-semibold">{t("sale_price")}</th>
               <th className="px-4 py-2.5 text-right font-semibold">{t("qty")}</th>
-              <th className="px-4 py-2.5 text-left font-semibold">Birlik</th>
-              <th className="px-4 py-2.5 text-left font-semibold">{t("shelf_location")}</th>
+              {!hiddenColumns.has("unit") && (
+                <th className="px-4 py-2.5 text-left font-semibold">Birlik</th>
+              )}
+              {!hiddenColumns.has("shelf") && (
+                <th className="px-4 py-2.5 text-left font-semibold">{t("shelf_location")}</th>
+              )}
               <th className="px-4 py-2.5 text-left font-semibold">{t("warehouse")}</th>
               <th className="px-4 py-2.5 text-right font-semibold">{t("action")}</th>
+              <th className="w-10 px-2 py-2.5 text-right font-semibold">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7"
+                      title="Ustunlarni sozlash"
+                      aria-label="Ustunlarni sozlash"
+                    >
+                      <Columns3 className="h-3.5 w-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48 normal-case tracking-normal">
+                    {OPTIONAL_COLUMNS.map((col) => (
+                      <DropdownMenuCheckboxItem
+                        key={col.key}
+                        checked={!hiddenColumns.has(col.key)}
+                        onCheckedChange={(checked) => toggleColumnVisibility(col.key, checked)}
+                        onSelect={(e) => e.preventDefault()}
+                      >
+                        {col.label}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -1161,29 +1246,31 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                     </div>
                   )}
                 </td>
-                <td className="px-4 py-2.5 text-center">
-                  {editingId === p.id ? (
-                    <Input
-                      type="number"
-                      value={draft.minStockAlert}
-                      onChange={(e) => updateDraft({ minStockAlert: e.target.value })}
-                      className="mx-auto h-8 w-24 text-center"
-                      placeholder="—"
-                    />
-                  ) : typeof p.minStockAlert === "number" ? (
-                    <span
-                      className={`inline-flex rounded-md px-2 py-1 text-xs font-bold ${
-                        isProductAtLimit(p)
-                          ? "bg-amber-100 text-amber-700"
-                          : "bg-muted text-muted-foreground"
-                      }`}
-                    >
-                      {p.minStockAlert} {p.unit}
-                    </span>
-                  ) : (
-                    <span className="text-xs italic text-muted-foreground">yo'q</span>
-                  )}
-                </td>
+                {!hiddenColumns.has("limit") && (
+                  <td className="px-4 py-2.5 text-center">
+                    {editingId === p.id ? (
+                      <Input
+                        type="number"
+                        value={draft.minStockAlert}
+                        onChange={(e) => updateDraft({ minStockAlert: e.target.value })}
+                        className="mx-auto h-8 w-24 text-center"
+                        placeholder="—"
+                      />
+                    ) : typeof p.minStockAlert === "number" ? (
+                      <span
+                        className={`inline-flex rounded-md px-2 py-1 text-xs font-bold ${
+                          isProductAtLimit(p)
+                            ? "bg-amber-100 text-amber-700"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {p.minStockAlert} {p.unit}
+                      </span>
+                    ) : (
+                      <span className="text-xs italic text-muted-foreground">yo'q</span>
+                    )}
+                  </td>
+                )}
                 <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">
                   {editingId === p.id ? (
                     <Input
@@ -1242,55 +1329,59 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                     </span>
                   )}
                 </td>
-                <td className="px-4 py-2.5 text-muted-foreground">
-                  {editingId === p.id ? (
-                    <Select
-                      value={draft.unit}
-                      onValueChange={(value) => updateDraft({ unit: value })}
-                    >
-                      <SelectTrigger className="h-8 w-[120px]">
-                        <SelectValue placeholder="Birlik" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {settings.units.map((unit) => (
-                          <SelectItem key={unit.id} value={unit.name}>
-                            {unit.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : (
-                    p.unit
-                  )}
-                </td>
-                <td className="px-4 py-2.5 text-muted-foreground">
-                  {editingId === p.id ? (
-                    <Select
-                      value={draft.shelfLocation}
-                      onValueChange={(value) =>
-                        updateDraft({ shelfLocation: value === "NONE" ? "" : value })
-                      }
-                    >
-                      <SelectTrigger className="h-8 w-[140px]">
-                        <SelectValue placeholder="Tanlang" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="NONE">— Tozalash —</SelectItem>
-                        {settings.shelfLocations.map((loc) => (
-                          <SelectItem key={loc.id} value={loc.name}>
-                            {loc.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  ) : p.shelfLocation ? (
-                    <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-1 text-xs font-bold text-primary ring-1 ring-inset ring-primary/20">
-                      {p.shelfLocation}
-                    </span>
-                  ) : (
-                    <span className="text-xs italic text-muted-foreground">belgilanmagan</span>
-                  )}
-                </td>
+                {!hiddenColumns.has("unit") && (
+                  <td className="px-4 py-2.5 text-muted-foreground">
+                    {editingId === p.id ? (
+                      <Select
+                        value={draft.unit}
+                        onValueChange={(value) => updateDraft({ unit: value })}
+                      >
+                        <SelectTrigger className="h-8 w-[120px]">
+                          <SelectValue placeholder="Birlik" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {settings.units.map((unit) => (
+                            <SelectItem key={unit.id} value={unit.name}>
+                              {unit.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      p.unit
+                    )}
+                  </td>
+                )}
+                {!hiddenColumns.has("shelf") && (
+                  <td className="px-4 py-2.5 text-muted-foreground">
+                    {editingId === p.id ? (
+                      <Select
+                        value={draft.shelfLocation}
+                        onValueChange={(value) =>
+                          updateDraft({ shelfLocation: value === "NONE" ? "" : value })
+                        }
+                      >
+                        <SelectTrigger className="h-8 w-[140px]">
+                          <SelectValue placeholder="Tanlang" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="NONE">— Tozalash —</SelectItem>
+                          {settings.shelfLocations.map((loc) => (
+                            <SelectItem key={loc.id} value={loc.name}>
+                              {loc.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : p.shelfLocation ? (
+                      <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-1 text-xs font-bold text-primary ring-1 ring-inset ring-primary/20">
+                        {p.shelfLocation}
+                      </span>
+                    ) : (
+                      <span className="text-xs italic text-muted-foreground">belgilanmagan</span>
+                    )}
+                  </td>
+                )}
                 <td className="px-4 py-2.5 text-muted-foreground">
                   {editingId === p.id ? (
                     <Select
@@ -1346,11 +1437,15 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                     </Button>
                   </div>
                 </td>
+                <td className="px-2 py-2.5"></td>
               </tr>
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={10} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                <td
+                  colSpan={11 - hiddenColumns.size}
+                  className="px-4 py-10 text-center text-sm text-muted-foreground"
+                >
                   Hech narsa topilmadi
                 </td>
               </tr>
@@ -1631,15 +1726,16 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                   type="button"
                   onClick={() => setMergeMode("current-stock")}
                   className={`rounded-md border p-2.5 text-left text-xs transition-colors ${
-                    mergeMode === "current-stock"
-                      ? "border-primary bg-primary/5"
-                      : "hover:bg-muted"
+                    mergeMode === "current-stock" ? "border-primary bg-primary/5" : "hover:bg-muted"
                   }`}
                 >
                   <div className="font-semibold">Joriy qoldiq bo'yicha qarz sifatida</div>
                   <div className="mt-0.5 text-muted-foreground">
                     Tanlangan tovarlarning hozirgi qoldig'i tan narxda hisoblanib, agentga qarz
-                    sifatida yoziladi: <span className="font-semibold text-foreground">{formatSom(mergeTotalCost)}</span>
+                    sifatida yoziladi:{" "}
+                    <span className="font-semibold text-foreground">
+                      {formatSom(mergeTotalCost)}
+                    </span>
                   </div>
                 </button>
                 <button

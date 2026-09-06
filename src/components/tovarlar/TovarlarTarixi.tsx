@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -15,6 +16,7 @@ import {
   MOCK_PRODUCT_HISTORY_EDIT_LOG,
   MOCK_RETURN_RECEIPTS,
   formatSom,
+  getAgentsList,
   type ProductHistory,
   type ProductHistoryEditLog,
   type ReturnReceipt,
@@ -50,7 +52,7 @@ type EditChange = {
   newValue: unknown;
 };
 type FlexibleEditHistory = (typeof MOCK_EDIT_HISTORY)[number] & Record<string, unknown>;
-type DateMode = "all" | "today" | "month" | "custom";
+export type DateMode = "all" | "today" | "month" | "custom";
 
 export function TovarlarTarixi() {
   const [tab, setTab] = React.useState<Tab>("yangi");
@@ -172,23 +174,44 @@ function NewProductTable() {
   );
 }
 
-export function AddedTable() {
+/** AddedTable qidiruvi — tovar nomi YOKI prixod (nakladnoy) raqami bo'yicha mos keladi. */
+function matchesInvoiceOrProductName(h: ProductHistory, query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return h.productName.toLowerCase().includes(q) || h.invoiceNumber.toLowerCase().includes(q);
+}
+
+export function AddedTable({ initialDateMode = "all" }: { initialDateMode?: DateMode } = {}) {
   const { t, settings } = useApp();
   const [productQuery, setProductQuery] = React.useState("");
-  const [dateMode, setDateMode] = React.useState<DateMode>("all");
+  const [dateMode, setDateMode] = React.useState<DateMode>(initialDateMode);
   const [from, setFrom] = React.useState("");
   const [to, setTo] = React.useState("");
+  const [agentFilter, setAgentFilter] = React.useState("all");
+  const [warehouseFilter, setWarehouseFilter] = React.useState("all");
+  const [addedByFilter, setAddedByFilter] = React.useState("all");
   const [detailRow, setDetailRow] = React.useState<ProductHistory | null>(null);
   const [editRow, setEditRow] = React.useState<ProductHistory | null>(null);
   const [version, setVersion] = React.useState(0);
 
+  const agentOptions = React.useMemo(() => getAgentsList(), [version]);
+  const addedByOptions = React.useMemo(
+    () => Array.from(new Set(MOCK_PRODUCT_HISTORY.map((h) => h.addedBy))).sort(),
+    [version],
+  );
+
   const filtered = React.useMemo(
     () =>
       MOCK_PRODUCT_HISTORY.filter(
-        (h) => matchesProductName(h.productName, productQuery) && matchesDateFilter(h.date, dateMode, from, to),
+        (h) =>
+          matchesInvoiceOrProductName(h, productQuery) &&
+          matchesDateFilter(h.date, dateMode, from, to) &&
+          (agentFilter === "all" || h.agentId === agentFilter) &&
+          (warehouseFilter === "all" || h.warehouse === warehouseFilter) &&
+          (addedByFilter === "all" || h.addedBy === addedByFilter),
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [productQuery, dateMode, from, to, version],
+    [productQuery, dateMode, from, to, agentFilter, warehouseFilter, addedByFilter, version],
   );
 
   const deleteRow = (row: ProductHistory) => {
@@ -208,6 +231,7 @@ export function AddedTable() {
       date: new Date().toISOString(),
       editedBy: settings.username,
       entryId: row.id,
+      invoiceNumber: row.invoiceNumber,
       productName: row.productName,
       action: "delete",
       oldTotal: row.qty * row.costPrice,
@@ -225,6 +249,8 @@ export function AddedTable() {
       <HistoryFilters
         productQuery={productQuery}
         onProductQueryChange={setProductQuery}
+        searchLabel="Tovar nomi yoki prixod raqami bo'yicha qidirish"
+        searchPlaceholder="Masalan: sement yoki PRX-000123..."
         dateMode={dateMode}
         onDateModeChange={setDateMode}
         from={from}
@@ -233,17 +259,72 @@ export function AddedTable() {
         onToChange={setTo}
         summaryLabel="Jami kirim"
         summaryValue={formatSom(filtered.reduce((sum, h) => sum + h.qty * h.costPrice, 0))}
+        extraActiveCount={
+          (agentFilter !== "all" ? 1 : 0) +
+          (warehouseFilter !== "all" ? 1 : 0) +
+          (addedByFilter !== "all" ? 1 : 0)
+        }
+        extraFilters={
+          <>
+            <div className="space-y-1.5">
+              <Label className="block text-xs">Taminotchi</Label>
+              <Select value={agentFilter} onValueChange={setAgentFilter}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Barchasi</SelectItem>
+                  {agentOptions.map((a) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="block text-xs">Ombor</Label>
+              <Select value={warehouseFilter} onValueChange={setWarehouseFilter}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Barchasi</SelectItem>
+                  {settings.warehouses.map((w) => (
+                    <SelectItem key={w.id} value={w.name}>
+                      {w.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="block text-xs">Prixodchi xodim</Label>
+              <Select value={addedByFilter} onValueChange={setAddedByFilter}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Barchasi</SelectItem>
+                  {addedByOptions.map((name) => (
+                    <SelectItem key={name} value={name}>
+                      {name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </>
+        }
       />
 
       <div className="min-h-0 flex-1 overflow-auto">
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10 bg-muted/90 backdrop-blur">
             <tr className="border-b text-xs uppercase text-muted-foreground">
+              <th className="px-4 py-2 text-left">Prixod №</th>
               <th className="px-4 py-2 text-left">{t("date")}</th>
-              <th className="px-4 py-2 text-left">{t("product")}</th>
-              <th className="px-4 py-2 text-right">{t("qty")}</th>
-              <th className="px-4 py-2 text-right">{t("sale_price")}</th>
-              <th className="px-4 py-2 text-right">{t("cost_price")}</th>
+              <th className="px-4 py-2 text-right">Prixod tan narx</th>
               <th className="px-4 py-2 text-left">{t("warehouse")}</th>
               <th className="px-4 py-2 text-left">{t("agent")}</th>
               <th className="px-4 py-2 text-left">{t("added_by")}</th>
@@ -257,11 +338,11 @@ export function AddedTable() {
                 className="cursor-pointer border-b hover:bg-muted/40"
                 onClick={() => setDetailRow(h)}
               >
+                <td className="px-4 py-2 font-mono text-xs font-semibold">{h.invoiceNumber}</td>
                 <td className="px-4 py-2 text-muted-foreground">{fmtDate(h.date)}</td>
-                <td className="px-4 py-2 font-medium">{h.productName}</td>
-                <td className="px-4 py-2 text-right tabular-nums">{h.qty} {h.unit}</td>
-                <td className="px-4 py-2 text-right tabular-nums">{formatSom(h.price)}</td>
-                <td className="px-4 py-2 text-right tabular-nums">{formatSom(h.costPrice)}</td>
+                <td className="px-4 py-2 text-right font-medium tabular-nums">
+                  {formatSom(h.qty * h.costPrice)}
+                </td>
                 <td className="px-4 py-2">{h.warehouse}</td>
                 <td className="px-4 py-2">{h.agentName || "-"}</td>
                 <td className="px-4 py-2"><Badge variant="outline">{h.addedBy}</Badge></td>
@@ -309,7 +390,7 @@ export function AddedTable() {
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
+                <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
                   Tovar qo'shish tarixi topilmadi
                 </td>
               </tr>
@@ -453,6 +534,7 @@ function EditProductHistoryDialog({
       date: new Date().toISOString(),
       editedBy: settings.username,
       entryId: entry.id,
+      invoiceNumber: entry.invoiceNumber,
       productName: entry.productName,
       action: "edit",
       oldTotal,
@@ -478,7 +560,7 @@ function EditProductHistoryDialog({
             <div className="rounded-lg bg-muted/50 p-3 text-sm">
               <b>{row.productName}</b>
               <div className="text-muted-foreground">
-                {fmtDate(row.date)} · {row.addedBy}
+                {row.invoiceNumber} · {fmtDate(row.date)} · {row.addedBy}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -598,7 +680,7 @@ export function AddedEditLogTable() {
               <tr key={h.id} className="border-b hover:bg-muted/40">
                 <td className="px-4 py-2 text-muted-foreground">{fmtDate(h.date)}</td>
                 <td className="px-4 py-2 font-medium">{h.productName}</td>
-                <td className="px-4 py-2 font-mono text-xs">{h.entryId}</td>
+                <td className="px-4 py-2 font-mono text-xs">{h.invoiceNumber ?? h.entryId}</td>
                 <td className="px-4 py-2">
                   <Badge
                     variant="outline"
@@ -839,9 +921,11 @@ function WrittenOffTable() {
   );
 }
 
-function HistoryFilters({
+export function HistoryFilters({
   productQuery,
   onProductQueryChange,
+  searchLabel = "Tovar nomi bo'yicha qidirish",
+  searchPlaceholder = "Masalan: sement, armatura...",
   dateMode,
   onDateModeChange,
   from,
@@ -850,9 +934,13 @@ function HistoryFilters({
   onToChange,
   summaryLabel,
   summaryValue,
+  extraFilters,
+  extraActiveCount = 0,
 }: {
   productQuery: string;
   onProductQueryChange: (value: string) => void;
+  searchLabel?: string;
+  searchPlaceholder?: string;
   dateMode: DateMode;
   onDateModeChange: (value: DateMode) => void;
   from: string;
@@ -861,47 +949,71 @@ function HistoryFilters({
   onToChange: (value: string) => void;
   summaryLabel: string;
   summaryValue: string;
+  extraFilters?: React.ReactNode;
+  extraActiveCount?: number;
 }) {
+  const [filterOpen, setFilterOpen] = React.useState(false);
+  const activeCount = (dateMode !== "all" ? 1 : 0) + extraActiveCount;
+
   return (
     <div className="flex flex-wrap items-end gap-3 border-b bg-card p-3">
-      <div className="min-w-[240px] flex-1">
-        <Label className="mb-1 block text-xs">Tovar nomi bo'yicha qidirish</Label>
+      <div className="min-w-[280px] flex-1">
+        <Label className="mb-1 block text-xs">{searchLabel}</Label>
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={productQuery}
             onChange={(e) => onProductQueryChange(e.target.value)}
-            placeholder="Masalan: sement, armatura..."
+            placeholder={searchPlaceholder}
             className="pl-9"
           />
         </div>
       </div>
 
-      <div className="w-44">
-        <Label className="mb-1 block text-xs">Sana filter</Label>
-        <Select value={dateMode} onValueChange={(value) => onDateModeChange(value as DateMode)}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Barcha davr</SelectItem>
-            <SelectItem value="today">Bugun</SelectItem>
-            <SelectItem value="month">Bu oy</SelectItem>
-            <SelectItem value="custom">Istalgan davr</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      <Popover open={filterOpen} onOpenChange={setFilterOpen}>
+        <PopoverTrigger asChild>
+          <Button type="button" variant="outline" className="h-9 gap-2">
+            <Filter className="h-4 w-4" />
+            Filter
+            {activeCount > 0 && (
+              <Badge variant="secondary" className="h-5 min-w-5 justify-center px-1">
+                {activeCount}
+              </Badge>
+            )}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-80 space-y-3">
+          <div>
+            <Label className="mb-1 block text-xs">Sana filter</Label>
+            <Select value={dateMode} onValueChange={(value) => onDateModeChange(value as DateMode)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Barcha davr</SelectItem>
+                <SelectItem value="today">Bugun</SelectItem>
+                <SelectItem value="month">Bu oy</SelectItem>
+                <SelectItem value="custom">Istalgan davr</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-      {dateMode === "custom" && (
-        <>
-          <div>
-            <Label className="mb-1 block text-xs">Boshlanish</Label>
-            <Input type="date" value={from} onChange={(e) => onFromChange(e.target.value)} />
-          </div>
-          <div>
-            <Label className="mb-1 block text-xs">Tugash</Label>
-            <Input type="date" value={to} onChange={(e) => onToChange(e.target.value)} />
-          </div>
-        </>
-      )}
+          {dateMode === "custom" && (
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="mb-1 block text-xs">Boshlanish</Label>
+                <Input type="date" value={from} onChange={(e) => onFromChange(e.target.value)} />
+              </div>
+              <div>
+                <Label className="mb-1 block text-xs">Tugash</Label>
+                <Input type="date" value={to} onChange={(e) => onToChange(e.target.value)} />
+              </div>
+            </div>
+          )}
+
+          {extraFilters}
+        </PopoverContent>
+      </Popover>
 
       <div className="ml-auto rounded-xl bg-primary/10 px-4 py-2 text-right text-sm text-primary">
         <div className="flex items-center gap-1 text-xs">
@@ -917,6 +1029,7 @@ function HistoryFilters({
 function exportProductHistoryToExcel(row: ProductHistory) {
   const data = [
     {
+      "Prixod №": row.invoiceNumber,
       "Sana": fmtDate(row.date),
       "Tovar nomi": row.productName,
       "Miqdor": row.qty,
@@ -937,14 +1050,14 @@ function exportProductHistoryToExcel(row: ProductHistory) {
 
   const worksheet = XLSX.utils.json_to_sheet(data);
   worksheet["!cols"] = [
-    { wch: 18 }, { wch: 24 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 14 },
+    { wch: 14 }, { wch: 18 }, { wch: 24 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 14 },
     { wch: 16 }, { wch: 18 }, { wch: 12 }, { wch: 20 }, { wch: 16 }, { wch: 14 },
     { wch: 14 }, { wch: 24 }, { wch: 16 },
   ];
 
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, "Kirim");
-  XLSX.writeFile(workbook, `kirim-${row.id}.xlsx`);
+  XLSX.writeFile(workbook, `kirim-${row.invoiceNumber}.xlsx`);
 }
 
 function printNakladnoy(row: ProductHistory, storeName: string, phone: string) {
@@ -958,7 +1071,7 @@ function printNakladnoy(row: ProductHistory, storeName: string, phone: string) {
     <html>
       <head>
         <meta charset="utf-8" />
-        <title>Nakladnoy ${row.id}</title>
+        <title>Nakladnoy ${row.invoiceNumber}</title>
         <style>
           body { font-family: Arial, sans-serif; padding: 24px; color: #111; }
           h1 { font-size: 18px; margin: 0 0 2px; }
@@ -980,7 +1093,7 @@ function printNakladnoy(row: ProductHistory, storeName: string, phone: string) {
             ${phone ? `<div class="muted">Tel: ${phone}</div>` : ""}
           </div>
           <div class="muted">
-            <div>Nakladnoy №: ${row.id}</div>
+            <div>Nakladnoy №: ${row.invoiceNumber}</div>
             <div>Sana: ${fmtDate(row.date)}</div>
           </div>
         </div>
@@ -1055,6 +1168,9 @@ function ProductHistoryDetailDialog({
                 <div>
                   <div className="text-xs text-muted-foreground">Tovar</div>
                   <div className="text-lg font-bold">{row.productName}</div>
+                  <div className="mt-0.5 font-mono text-xs font-semibold text-primary">
+                    {row.invoiceNumber}
+                  </div>
                 </div>
                 <Badge variant="outline" className="gap-1">
                   <CalendarDays className="h-3.5 w-3.5" />
@@ -1131,7 +1247,7 @@ function Info({ label, value }: { label: string; value: string }) {
   );
 }
 
-function matchesDateFilter(value: string, mode: DateMode, from: string, to: string) {
+export function matchesDateFilter(value: string, mode: DateMode, from: string, to: string) {
   const date = new Date(value);
   const now = new Date();
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
