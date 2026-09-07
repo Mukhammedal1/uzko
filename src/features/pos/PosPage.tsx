@@ -13,7 +13,6 @@ import type {
   OneTimeItemInput,
   PendingReturnExchange,
 } from "@/components/sotuv/types";
-import { PosHeader } from "./PosHeader";
 import { ProductSearch } from "./ProductSearch";
 import { ProductGrid } from "./ProductGrid";
 import { CartPanel } from "./CartPanel";
@@ -266,8 +265,6 @@ export function PosPage({
 
   return (
     <div className="flex h-full min-h-0 w-full select-none touch-manipulation flex-col overflow-hidden bg-[#F4F6FA]">
-      <PosHeader />
-
       <div className="flex min-h-0 flex-1">
         {/* Chap ustun: qidiruv + tovarlar */}
         <div className="flex min-w-0 flex-1 flex-col">

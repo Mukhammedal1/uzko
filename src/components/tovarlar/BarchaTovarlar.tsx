@@ -1,6 +1,8 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -58,6 +60,7 @@ import {
   MOCK_EDIT_HISTORY,
   MOCK_RATES,
   MOCK_WITHDRAWALS,
+  MOCK_PRODUCT_HISTORY,
   formatSom,
   costInSom,
   isProductAtLimit,
@@ -129,6 +132,55 @@ const OPTIONAL_COLUMNS: { key: OptionalColumn; label: string }[] = [
 
 const HIDDEN_COLUMNS_STORAGE_KEY = "uzko-tovarlar-hidden-columns";
 
+type ExportFormat = "excel" | "pdf";
+
+type ExportColumnKey =
+  | "name"
+  | "qty"
+  | "costPrice"
+  | "wholesalePrice"
+  | "price"
+  | "barcode"
+  | "supplier";
+
+const EXPORT_COLUMNS: { key: ExportColumnKey; label: string }[] = [
+  { key: "name", label: "Mahsulot nomi" },
+  { key: "qty", label: "Soni" },
+  { key: "costPrice", label: "Tan narx" },
+  { key: "wholesalePrice", label: "Optom narx" },
+  { key: "price", label: "Sotuv narx" },
+  { key: "barcode", label: "Shtrix kod" },
+  { key: "supplier", label: "Taminotchi" },
+];
+
+const EXPORT_COLUMNS_STORAGE_KEY = "uzko-tovarlar-export-columns";
+
+function readExportColumns(): Set<ExportColumnKey> {
+  if (typeof window === "undefined") return new Set(EXPORT_COLUMNS.map((c) => c.key));
+  try {
+    const raw = JSON.parse(window.localStorage.getItem(EXPORT_COLUMNS_STORAGE_KEY) ?? "null");
+    if (!Array.isArray(raw)) return new Set(EXPORT_COLUMNS.map((c) => c.key));
+    const valid = raw.filter((key): key is ExportColumnKey =>
+      EXPORT_COLUMNS.some((col) => col.key === key),
+    );
+    return valid.length > 0 ? new Set(valid) : new Set(EXPORT_COLUMNS.map((c) => c.key));
+  } catch {
+    return new Set(EXPORT_COLUMNS.map((c) => c.key));
+  }
+}
+
+/** Mahsulot nomi bo'yicha eng so'nggi prixod yozuvidan taminotchi (agent) nomini topadi. */
+function getSupplierForProduct(productName: string): string {
+  let latest: (typeof MOCK_PRODUCT_HISTORY)[number] | undefined;
+  for (const entry of MOCK_PRODUCT_HISTORY) {
+    if (entry.productName !== productName || !entry.agentName) continue;
+    if (!latest || new Date(entry.date).getTime() > new Date(latest.date).getTime()) {
+      latest = entry;
+    }
+  }
+  return latest?.agentName ?? "-";
+}
+
 function readHiddenColumns(): Set<OptionalColumn> {
   if (typeof window === "undefined") return new Set();
   try {
@@ -151,6 +203,19 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(() => new Set());
   const [hiddenColumns, setHiddenColumns] = React.useState<Set<OptionalColumn>>(readHiddenColumns);
+  const [exportOpen, setExportOpen] = React.useState(false);
+  const [exportFormat, setExportFormat] = React.useState<ExportFormat>("excel");
+  const [exportColumns, setExportColumns] = React.useState<Set<ExportColumnKey>>(readExportColumns);
+
+  const toggleExportColumn = (key: ExportColumnKey, checked: boolean) => {
+    setExportColumns((current) => {
+      const next = new Set(current);
+      if (checked) next.add(key);
+      else next.delete(key);
+      window.localStorage.setItem(EXPORT_COLUMNS_STORAGE_KEY, JSON.stringify([...next]));
+      return next;
+    });
+  };
 
   const toggleColumnVisibility = (key: OptionalColumn, visible: boolean) => {
     setHiddenColumns((current) => {
@@ -183,6 +248,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
     () => settings.labelPrintSettings ?? DEFAULT_PRINT_SETTINGS,
   );
   const [stockFilter, setStockFilter] = React.useState<"all" | "limited">("all");
+  const [supplierFilter, setSupplierFilter] = React.useState<string>("ALL");
   const [draft, setDraft] = React.useState<EditDraft>({
     costPrice: "",
     price: "",
@@ -200,6 +266,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
     return MOCK_PRODUCTS.filter((p) => {
       if (warehouse !== "ALL" && p.warehouse !== warehouse) return false;
       if (stockFilter === "limited" && !isProductAtLimit(p)) return false;
+      if (supplierFilter !== "ALL" && getSupplierForProduct(p.name) !== supplierFilter) return false;
       if (!q) return true;
       return (
         p.name.toLowerCase().includes(q) ||
@@ -208,7 +275,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
         (isProductAtLimit(p) && "limit ogohlantirish kam qoldi".includes(q))
       );
     });
-  }, [query, stockFilter, warehouse, version]);
+  }, [query, stockFilter, warehouse, supplierFilter, version]);
 
   const totalCount = filtered.reduce((s, p) => s + p.vitrinaQty, 0);
   const totalCost = filtered.reduce((s, p) => s + costInSom(p) * p.vitrinaQty, 0);
@@ -222,7 +289,11 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
   );
   const allFilteredSelected =
     filtered.length > 0 && filtered.every((product) => selectedIds.has(product.id));
-  const activeFilterCount = (stockFilter === "limited" ? 1 : 0) + (warehouse !== "ALL" ? 1 : 0);
+  const activeFilterCount =
+    (stockFilter === "limited" ? 1 : 0) +
+    (warehouse !== "ALL" ? 1 : 0) +
+    (supplierFilter !== "ALL" ? 1 : 0);
+  const supplierOptions = React.useMemo(() => getAgentsList(), [version]);
 
   const toggleProduct = (productId: string) => {
     setSelectedIds((current) => {
@@ -888,35 +959,66 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
     setVersion((v) => v + 1);
   };
 
-  const exportToExcel = () => {
-    const rows = filtered.map((p) => ({
-      "Tovar nomi": p.name,
-      Kod: p.customCode,
-      "Shtrix kod": p.barcode,
-      "Tan narx": p.costPrice,
-      "Tan narx valyutasi": p.costCurrency,
-      "Sotuv narxi": p.price,
-      Soni: p.vitrinaQty,
-      Birligi: p.unit,
-      Ombori: p.warehouse,
-    }));
+  const buildExportRows = () => {
+    const columns = EXPORT_COLUMNS.filter((col) => exportColumns.has(col.key));
+    const rows = filtered.map((p) =>
+      columns.map((col) => {
+        switch (col.key) {
+          case "name":
+            return p.name;
+          case "qty":
+            return p.vitrinaQty;
+          case "costPrice":
+            return p.costPrice;
+          case "wholesalePrice":
+            return p.wholesalePrice ?? "-";
+          case "price":
+            return p.price;
+          case "barcode":
+            return p.barcode;
+          case "supplier":
+            return getSupplierForProduct(p.name);
+          default:
+            return "";
+        }
+      }),
+    );
+    return { columns, rows };
+  };
 
-    const worksheet = XLSX.utils.json_to_sheet(rows);
-    worksheet["!cols"] = [
-      { wch: 28 },
-      { wch: 12 },
-      { wch: 18 },
-      { wch: 12 },
-      { wch: 18 },
-      { wch: 14 },
-      { wch: 10 },
-      { wch: 10 },
-      { wch: 18 },
-    ];
+  const exportToExcel = () => {
+    const { columns, rows } = buildExportRows();
+    const worksheet = XLSX.utils.aoa_to_sheet([
+      columns.map((c) => c.label),
+      ...rows,
+    ]);
+    worksheet["!cols"] = columns.map(() => ({ wch: 20 }));
 
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Barcha tovarlar");
     XLSX.writeFile(workbook, `barcha-tovarlar-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  const exportToPdf = () => {
+    const { columns, rows } = buildExportRows();
+    const doc = new jsPDF({ orientation: "landscape" });
+    autoTable(doc, {
+      head: [columns.map((c) => c.label)],
+      body: rows.map((row) => row.map((cell) => String(cell))),
+      styles: { font: "helvetica", fontSize: 9 },
+      headStyles: { fillColor: [34, 44, 59] },
+    });
+    doc.save(`barcha-tovarlar-${new Date().toISOString().slice(0, 10)}.pdf`);
+  };
+
+  const handleExportConfirm = () => {
+    if (exportColumns.size === 0) {
+      toast.error("Kamida bitta ustunni tanlang");
+      return;
+    }
+    if (exportFormat === "excel") exportToExcel();
+    else exportToPdf();
+    setExportOpen(false);
   };
 
   const printQueue = React.useMemo(() => {
@@ -1006,6 +1108,23 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
               </Select>
             </div>
 
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Taminotchi bo'yicha</Label>
+              <Select value={supplierFilter} onValueChange={setSupplierFilter}>
+                <SelectTrigger className="h-9 text-sm">
+                  <SelectValue placeholder="Taminotchi" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">Barcha taminotchilar</SelectItem>
+                  {supplierOptions.map((agent) => (
+                    <SelectItem key={agent.id} value={agent.name}>
+                      {agent.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             {activeFilterCount > 0 && (
               <Button
                 type="button"
@@ -1014,6 +1133,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                 onClick={() => {
                   setStockFilter("all");
                   setWarehouse("ALL");
+                  setSupplierFilter("ALL");
                 }}
               >
                 Filtrni tozalash
@@ -1064,12 +1184,12 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
           </PopoverContent>
         </Popover>
         <Button
-          onClick={exportToExcel}
+          onClick={() => setExportOpen(true)}
           variant="outline"
           size="icon"
           className="h-10 w-10"
-          title="Excelga yuklab olish"
-          aria-label="Excelga yuklab olish"
+          title="Yuklab olish"
+          aria-label="Yuklab olish"
         >
           <Download className="h-4 w-4" />
         </Button>
@@ -1541,6 +1661,70 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
           </>,
           selectionSlot,
         )}
+
+      <Dialog open={exportOpen} onOpenChange={setExportOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Download className="h-5 w-5" />
+              Tovarlarni yuklab olish
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Format</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={exportFormat === "excel" ? "default" : "outline"}
+                  onClick={() => setExportFormat("excel")}
+                  className="gap-2"
+                >
+                  <FileSpreadsheet className="h-4 w-4" />
+                  Excel
+                </Button>
+                <Button
+                  type="button"
+                  variant={exportFormat === "pdf" ? "default" : "outline"}
+                  onClick={() => setExportFormat("pdf")}
+                  className="gap-2"
+                >
+                  <ReceiptText className="h-4 w-4" />
+                  PDF
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Qaysi ustunlar chiqsin?</Label>
+              <div className="grid grid-cols-2 gap-2 rounded-lg border p-3">
+                {EXPORT_COLUMNS.map((col) => (
+                  <label
+                    key={col.key}
+                    className="flex items-center gap-2 text-sm font-normal"
+                  >
+                    <Checkbox
+                      checked={exportColumns.has(col.key)}
+                      onCheckedChange={(checked) =>
+                        toggleExportColumn(col.key, checked === true)
+                      }
+                    />
+                    {col.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setExportOpen(false)}>
+              Bekor qilish
+            </Button>
+            <Button onClick={handleExportConfirm} className="gap-2">
+              <Download className="h-4 w-4" />
+              Yuklab olish
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={limitOpen} onOpenChange={setLimitOpen}>
         <DialogContent className="max-w-md">
