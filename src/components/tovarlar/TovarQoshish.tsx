@@ -33,6 +33,8 @@ type NewProductRow = {
   id: string;
   name: string;
   unit: string;
+  /** Birlik "a | b" ko'rinishida bo'lsa — bitta qadoqdagi (b) asosiy birlik (a) soni. */
+  perBox: string;
   costCurrency: Currency;
   costPrice: string;
   wholesalePrice: string;
@@ -57,6 +59,7 @@ const makeNewProductRow = (unit = "dona"): NewProductRow => ({
   id: `row-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
   name: "",
   unit,
+  perBox: "",
   costCurrency: "UZS",
   costPrice: "",
   wholesalePrice: "",
@@ -65,6 +68,13 @@ const makeNewProductRow = (unit = "dona"): NewProductRow => ({
   variantsOpen: false,
   variants: [],
 });
+
+/** "dona | karobka" -> { base: "dona", pack: "karobka" }. Oddiy birlikda pack = null. */
+function splitUnit(unit: string): { base: string; pack: string | null } {
+  if (!unit.includes("|")) return { base: unit.trim(), pack: null };
+  const [base, ...rest] = unit.split("|");
+  return { base: base.trim() || "dona", pack: rest.join("|").trim() || "karobka" };
+}
 
 function makeProductCode(name: string) {
   return (
@@ -105,7 +115,9 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
     const used = new Set<string>();
     MOCK_PRODUCTS.forEach((p) => {
       splitBarcodes(p.barcode).forEach((code) => used.add(code));
-      p.variants?.forEach((v) => v.barcode && splitBarcodes(v.barcode).forEach((code) => used.add(code)));
+      p.variants?.forEach(
+        (v) => v.barcode && splitBarcodes(v.barcode).forEach((code) => used.add(code)),
+      );
     });
     rows.forEach((row) => {
       splitBarcodes(row.barcode).forEach((code) => used.add(code));
@@ -154,7 +166,9 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
       return;
     }
     setRows((current) =>
-      current.map((r) => (r.id === id ? { ...r, variantsOpen: false, variants: validVariants } : r)),
+      current.map((r) =>
+        r.id === id ? { ...r, variantsOpen: false, variants: validVariants } : r,
+      ),
     );
   };
 
@@ -222,7 +236,8 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
         ...row,
         nameValue: row.name.trim(),
         unitValue: row.unit.trim() || settings.units[0]?.name || "dona",
-        costCurrency: rowCostNumber > 0 || !firstVariant ? row.costCurrency : firstVariant.costCurrency,
+        costCurrency:
+          rowCostNumber > 0 || !firstVariant ? row.costCurrency : firstVariant.costCurrency,
         costNumber: rowCostNumber || firstVariantCostNumber,
         wholesaleNumber:
           Math.max(0, parseNumberInput(row.wholesalePrice) || 0) ||
@@ -249,6 +264,14 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
       return;
     }
 
+    const missingPack = rows.some(
+      (row) => row.name.trim() && row.unit.includes("|") && !(parseNumberInput(row.perBox) >= 2),
+    );
+    if (missingPack) {
+      toast.error("Qadoqdagi dona sonini kiriting (kamida 2)");
+      return;
+    }
+
     const usedBarcodes = collectUsedBarcodes();
     const nextBarcode = (preferred: string) => {
       const code =
@@ -263,6 +286,8 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
 
     validRows.forEach((row) => {
       const barcode = nextBarcode(row.barcodeValue);
+      const { base: baseUnit, pack: packUnit } = splitUnit(row.unitValue);
+      const perBox = packUnit ? Math.max(0, parseNumberInput(row.perBox) || 0) : 0;
 
       const variants: ProductVariant[] | undefined = row.variantsValue.length
         ? row.variantsValue.map((v) => {
@@ -294,7 +319,9 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
         costCurrency: row.costCurrency,
         barcode,
         customCode: makeProductCode(row.nameValue),
-        unit: row.unitValue,
+        unit: perBox > 1 ? baseUnit : row.unitValue,
+        packUnit: perBox > 1 ? (packUnit ?? undefined) : undefined,
+        perBox: perBox > 1 ? perBox : undefined,
         warehouse: defaultWarehouse,
         shelfLocation: "",
         vitrinaQty: 0,
@@ -354,6 +381,10 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
               const usesVariants = row.variantsOpen || row.variants.length > 0;
               const priceInvalid =
                 showValidation && !usesVariants && !(parseNumberInput(row.price) > 0);
+              const dualUnit = row.unit.includes("|");
+              const { base: baseUnitLabel, pack: packUnitLabel } = splitUnit(row.unit);
+              const perBoxInvalid =
+                showValidation && dualUnit && !(parseNumberInput(row.perBox) >= 2);
               return (
                 <div key={row.id} className="relative">
                   <div className="relative rounded-lg border bg-card p-3 shadow-sm transition-colors focus-within:border-primary/40">
@@ -379,8 +410,12 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
                       className={cn(
                         "grid grid-cols-1 gap-4 pr-8",
                         usesVariants
-                          ? "md:grid-cols-2 xl:grid-cols-[minmax(200px,1.5fr)_minmax(90px,0.6fr)]"
-                          : "md:grid-cols-4 xl:grid-cols-[minmax(200px,1.5fr)_minmax(90px,0.6fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(150px,0.95fr)_minmax(110px,0.8fr)]",
+                          ? dualUnit
+                            ? "md:grid-cols-3 xl:grid-cols-[minmax(200px,1.5fr)_minmax(90px,0.6fr)_minmax(120px,0.8fr)]"
+                            : "md:grid-cols-2 xl:grid-cols-[minmax(200px,1.5fr)_minmax(90px,0.6fr)]"
+                          : dualUnit
+                            ? "md:grid-cols-4 xl:grid-cols-[minmax(200px,1.5fr)_minmax(90px,0.6fr)_minmax(120px,0.8fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(150px,0.95fr)_minmax(150px,1fr)]"
+                            : "md:grid-cols-4 xl:grid-cols-[minmax(200px,1.5fr)_minmax(90px,0.6fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(150px,0.95fr)_minmax(150px,1fr)]",
                       )}
                     >
                       <Field label="Mahsulot nomi" required error={nameInvalid}>
@@ -427,6 +462,28 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
                           </SelectContent>
                         </Select>
                       </Field>
+
+                      {dualUnit && (
+                        <Field label="Qadoqdagi soni" required error={perBoxInvalid}>
+                          <Input
+                            inputMode="numeric"
+                            value={row.perBox}
+                            onChange={(e) =>
+                              updateRow(row.id, { perBox: formatNumberInput(e.target.value) })
+                            }
+                            placeholder="masalan 12"
+                            className={cn(
+                              "h-9 text-xs",
+                              perBoxInvalid && "border-destructive focus-visible:ring-destructive",
+                            )}
+                          />
+                          {!perBoxInvalid && (
+                            <p className="text-[10px] text-muted-foreground">
+                              1 {packUnitLabel} = ? {baseUnitLabel}
+                            </p>
+                          )}
+                        </Field>
+                      )}
 
                       {!usesVariants && (
                         <>
@@ -514,7 +571,10 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
                             (row.name.trim() || "Mahsulot") +
                             (variant.label.trim() ? ` — ${variant.label.trim()}` : "");
                           return (
-                            <div key={variant.id} className="relative rounded-md border bg-muted/30 p-3">
+                            <div
+                              key={variant.id}
+                              className="relative rounded-md border bg-muted/30 p-3"
+                            >
                               <Button
                                 type="button"
                                 size="icon"
@@ -596,7 +656,9 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
                                     <Input
                                       value={variant.barcode}
                                       onChange={(e) =>
-                                        updateVariant(row.id, variant.id, { barcode: e.target.value })
+                                        updateVariant(row.id, variant.id, {
+                                          barcode: e.target.value,
+                                        })
                                       }
                                       placeholder="Shtrix kod"
                                       className="h-9 min-w-0 text-xs"
@@ -617,7 +679,9 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
                                 <Field label="Rasm">
                                   <ImageUploadField
                                     image={variant.image}
-                                    onPick={(file) => handleVariantImagePick(row.id, variant.id, file)}
+                                    onPick={(file) =>
+                                      handleVariantImagePick(row.id, variant.id, file)
+                                    }
                                     onClear={() =>
                                       updateVariant(row.id, variant.id, { image: undefined })
                                     }
@@ -729,22 +793,6 @@ function ImageUploadField({
 }) {
   const inputRef = React.useRef<HTMLInputElement>(null);
 
-  if (image) {
-    return (
-      <div className="relative h-9 w-9">
-        <img src={image} alt="Mahsulot rasmi" className="h-9 w-9 rounded-md border object-cover" />
-        <button
-          type="button"
-          onClick={onClear}
-          className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-destructive-foreground"
-          aria-label="Rasmni olib tashlash"
-        >
-          <X className="h-2.5 w-2.5" />
-        </button>
-      </div>
-    );
-  }
-
   return (
     <>
       <input
@@ -754,15 +802,42 @@ function ImageUploadField({
         className="hidden"
         onChange={(e) => onPick(e.target.files?.[0])}
       />
-      <Button
-        type="button"
-        variant="outline"
-        className="h-9 w-9 p-0"
-        onClick={() => inputRef.current?.click()}
-        title="Rasm yuklash"
-      >
-        <ImagePlus className="h-4 w-4 text-muted-foreground" />
-      </Button>
+      {image ? (
+        <div className="flex h-9 w-full items-center gap-2 rounded-md border px-1.5">
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            className="flex min-w-0 flex-1 items-center gap-2"
+            title="Rasmni almashtirish"
+          >
+            <img
+              src={image}
+              alt="Mahsulot rasmi"
+              className="h-6 w-6 shrink-0 rounded object-cover"
+            />
+            <span className="truncate text-xs text-muted-foreground">Rasm tanlandi</span>
+          </button>
+          <button
+            type="button"
+            onClick={onClear}
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+            aria-label="Rasmni olib tashlash"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ) : (
+        <Button
+          type="button"
+          variant="outline"
+          className="h-9 w-full justify-start gap-2 px-2 text-xs font-normal text-muted-foreground"
+          onClick={() => inputRef.current?.click()}
+          title="Rasm yuklash"
+        >
+          <ImagePlus className="h-4 w-4 shrink-0" />
+          Rasm yuklash
+        </Button>
+      )}
     </>
   );
 }

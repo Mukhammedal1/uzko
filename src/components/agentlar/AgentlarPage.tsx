@@ -3,15 +3,18 @@ import * as XLSX from "xlsx";
 import {
   ArrowLeftRight,
   Bot,
+  ImagePlus,
   FileSpreadsheet,
   FileText,
   Pencil,
+  Plus,
   Printer,
   ReceiptText,
   Search,
   Truck,
   UserPlus,
   Trash2,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,6 +39,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { PeriodFilter, type PeriodFilterValue } from "@/components/shared/PeriodFilter";
 import { MoneyOperationDialog } from "@/components/shared/MoneyOperationDialog";
 import { MoneyOperationsList } from "@/components/shared/MoneyOperationsList";
@@ -1116,26 +1120,51 @@ function AddAgentDialog({
 }) {
   const [name, setName] = React.useState("");
   const [phone, setPhone] = React.useState("");
+  const [altPhones, setAltPhones] = React.useState<string[]>([]);
   const [note, setNote] = React.useState("");
+  const [photo, setPhoto] = React.useState("");
+  const [company, setCompany] = React.useState("");
+  const [inn, setInn] = React.useState("");
+  const [address, setAddress] = React.useState("");
   const [sendBotUpdate, setSendBotUpdate] = React.useState(true);
   const [openingDebt, setOpeningDebt] = React.useState("");
   const agentId = React.useMemo(() => nextAgentId(), [open]);
+  const photoInputRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
     if (!open) {
       setName("");
       setPhone("");
+      setAltPhones([]);
       setNote("");
+      setPhoto("");
+      setCompany("");
+      setInn("");
+      setAddress("");
       setSendBotUpdate(true);
       setOpeningDebt("");
     }
   }, [open]);
+
+  const onPhotoPick = (file?: File) => {
+    if (!file || !file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = () => setPhoto(String(reader.result || ""));
+    reader.readAsDataURL(file);
+  };
+
+  const addAltPhone = () => setAltPhones((prev) => [...prev, ""]);
+  const updateAltPhone = (index: number, next: string) =>
+    setAltPhones((prev) => prev.map((p, i) => (i === index ? next : p)));
+  const removeAltPhone = (index: number) =>
+    setAltPhones((prev) => prev.filter((_, i) => i !== index));
 
   const save = () => {
     if (!name.trim()) {
       toast.error("Agent ismini kiriting");
       return;
     }
+    const altPhonesClean = altPhones.map((p) => p.trim()).filter(Boolean);
     if (sendBotUpdate && !phone.trim()) {
       toast.error("Botga yuborish uchun agent telefonini kiriting");
       return;
@@ -1148,6 +1177,12 @@ function AddAgentDialog({
       agentId,
       agentName: name.trim(),
       agentPhone: phone.trim(),
+      agentAltPhones: altPhonesClean.length ? altPhonesClean : undefined,
+      agentAltPhone: altPhonesClean[0],
+      agentPhoto: photo.trim() || undefined,
+      companyName: company.trim() || undefined,
+      inn: inn.trim() || undefined,
+      address: address.trim() || undefined,
       botEnabled: sendBotUpdate,
       items: [],
       totalAmount: openingDebtValue,
@@ -1180,7 +1215,7 @@ function AddAgentDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <UserPlus className="h-5 w-5 text-primary" />
@@ -1188,66 +1223,156 @@ function AddAgentDialog({
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-3">
-          <div>
-            <Label className="mb-1 block text-xs">Agent ID</Label>
-            <Input value={agentId} readOnly className="font-mono font-semibold" />
-          </div>
-          <div>
-            <Label className="mb-1 block text-xs">Ism *</Label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Ism familiya"
-            />
-          </div>
-          <div>
-            <Label className="mb-1 block text-xs">Telefon</Label>
-            <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+998" />
-          </div>
-          <div>
-            <Label className="mb-1 block text-xs">
-              Bizning unga qarzimiz (dastur ishlatishdan oldin)
-            </Label>
-            <Input
-              value={openingDebt}
-              onChange={(e) => setOpeningDebt(formatNumberInput(e.target.value))}
-              inputMode="decimal"
-              placeholder="0"
-            />
-            <p className="mt-1 text-xs text-muted-foreground">
-              Agar bu agentdan dasturdan foydalanishdan avval ham tovar olib, qarzimiz bo'lsa, shu
-              yerga qoldiq summani kiriting
-            </p>
-          </div>
-          <div className="rounded-md border bg-muted/20 p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <div className="text-sm font-semibold">Botga habar yuborish</div>
-                <div className="text-xs text-muted-foreground">
-                  Yoqilganda agent prixod va to'lov cheklari agent kodi orqali avtomatik yuboriladi
-                </div>
-              </div>
-              <Button
+        <div className="grid gap-4 sm:grid-cols-2">
+          {/* Chap ustun */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => onPhotoPick(e.target.files?.[0] ?? undefined)}
+              />
+              <button
                 type="button"
-                size="sm"
-                variant={sendBotUpdate ? "default" : "outline"}
-                onClick={() => setSendBotUpdate((value) => !value)}
-                className="gap-2"
+                onClick={() => photoInputRef.current?.click()}
+                className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-muted/30 text-muted-foreground hover:bg-muted/50"
+                aria-label="Rasm tanlash"
               >
-                <Bot className="h-4 w-4" />
-                {sendBotUpdate ? "Yoqilgan" : "Yoqish"}
-              </Button>
+                {photo ? (
+                  <img src={photo} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <ImagePlus className="h-5 w-5" />
+                )}
+              </button>
+              <div className="space-y-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => photoInputRef.current?.click()}
+                >
+                  {photo ? "Rasmni almashtirish" : "Rasm qo'shish"}
+                </Button>
+                {photo && (
+                  <button
+                    type="button"
+                    onClick={() => setPhoto("")}
+                    className="block text-[11px] font-medium text-destructive hover:underline"
+                  >
+                    Rasmni o'chirish
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <Label className="mb-1 block text-xs">Ism *</Label>
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Ism familiya"
+              />
+            </div>
+            <div>
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <Label className="block text-xs">Telefon</Label>
+                <button
+                  type="button"
+                  onClick={addAltPhone}
+                  className="flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+                >
+                  <Plus className="h-3 w-3" />
+                  Qo'shimcha raqam
+                </button>
+              </div>
+              <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+998" />
+              {altPhones.map((alt, index) => (
+                <div key={index} className="mt-2 flex items-center gap-2">
+                  <Input
+                    value={alt}
+                    onChange={(e) => updateAltPhone(index, e.target.value)}
+                    placeholder="+998 ... (qo'shimcha raqam)"
+                  />
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
+                    onClick={() => removeAltPhone(index)}
+                    aria-label="Qo'shimcha raqamni o'chirish"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <div>
+              <Label className="mb-1 block text-xs">
+                Bizning unga qarzimiz (dastur ishlatishdan oldin)
+              </Label>
+              <Input
+                value={openingDebt}
+                onChange={(e) => setOpeningDebt(formatNumberInput(e.target.value))}
+                inputMode="decimal"
+                placeholder="0"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Agar bu agentdan dasturdan foydalanishdan avval ham tovar olib, qarzimiz bo'lsa,
+                shu yerga qoldiq summani kiriting
+              </p>
             </div>
           </div>
-          <div>
-            <Label className="mb-1 block text-xs">Izoh</Label>
-            <Textarea
-              rows={3}
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="Qo'shimcha ma'lumot"
-            />
+
+          {/* O'ng ustun */}
+          <div className="space-y-3">
+            <div>
+              <Label className="mb-1 block text-xs">Tashkilot / firma nomi</Label>
+              <Input
+                value={company}
+                onChange={(e) => setCompany(e.target.value)}
+                placeholder="MChJ / YaTT nomi"
+              />
+            </div>
+            <div>
+              <Label className="mb-1 block text-xs">STIR (INN)</Label>
+              <Input
+                value={inn}
+                onChange={(e) => setInn(e.target.value.replace(/\D/g, "").slice(0, 9))}
+                inputMode="numeric"
+                placeholder="9 raqam"
+              />
+            </div>
+            <div>
+              <Label className="mb-1 block text-xs">Manzil / mo'ljal</Label>
+              <Input
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                placeholder="Tuman, ko'cha yoki mo'ljal"
+              />
+            </div>
+            <label className="flex cursor-pointer items-center justify-between gap-3 rounded-md border px-3 py-2.5">
+              <span className="flex items-center gap-2">
+                <Bot className="h-4 w-4 text-muted-foreground" />
+                <span>
+                  <span className="block text-sm font-medium">Botga habar yuborish</span>
+                  <span className="block text-xs text-muted-foreground">
+                    Agent prixod va to'lov cheklari agent kodi orqali avtomatik yuboriladi
+                  </span>
+                </span>
+              </span>
+              <Switch checked={sendBotUpdate} onCheckedChange={setSendBotUpdate} />
+            </label>
+            <div>
+              <Label className="mb-1 block text-xs">Izoh</Label>
+              <Textarea
+                rows={3}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Qo'shimcha ma'lumot"
+              />
+            </div>
           </div>
         </div>
 

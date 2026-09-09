@@ -3,10 +3,14 @@ import * as XLSX from "xlsx";
 import {
   ArrowLeftRight,
   Bot,
+  Building2,
+  ChevronDown,
   CreditCard,
   FileSpreadsheet,
   FileText,
   HandCoins,
+  IdCard,
+  ImagePlus,
   Pencil,
   Percent,
   Phone,
@@ -16,9 +20,11 @@ import {
   Star,
   Users,
   UserPlus,
+  UserRound,
   Plus,
   Trash2,
   Wallet,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -42,6 +48,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -1605,18 +1613,16 @@ function EditCreditCustomerDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [first, setFirst] = React.useState("");
-  const [last, setLast] = React.useState("");
-  const [phone, setPhone] = React.useState("");
+  const [core, setCore] = React.useState<CustomerCore>(EMPTY_CORE);
+  const [showValidation, setShowValidation] = React.useState(false);
   const [dueDate, setDueDate] = React.useState("");
   const [withLimit, setWithLimit] = React.useState(false);
   const [limit, setLimit] = React.useState("");
   const [currency, setCurrency] = React.useState<Currency>("UZS");
 
   React.useEffect(() => {
-    setFirst(customer?.firstName ?? "");
-    setLast(customer?.lastName ?? "");
-    setPhone(customer?.phone ?? "");
+    setCore(customer ? coreFromCustomer(customer) : EMPTY_CORE);
+    setShowValidation(false);
     setDueDate(customer?.dueDate ?? "");
     setWithLimit(Boolean(customer && customer.limit > 0));
     setLimit(customer && customer.limit > 0 ? String(customer.limit) : "");
@@ -1625,27 +1631,35 @@ function EditCreditCustomerDialog({
 
   if (!customer) return null;
 
-  const canSave = first.trim() && last.trim() && phone.trim();
+  const canSave = Boolean(
+    core.first.trim() &&
+      core.last.trim() &&
+      core.phone.trim() &&
+      (core.kind !== "legal" || (core.company.trim() && core.inn.trim())),
+  );
 
   const save = () => {
-    if (!canSave) return;
+    if (!canSave) {
+      setShowValidation(true);
+      return;
+    }
     const target = MOCK_CREDIT_CUSTOMERS.find((c) => c.id === customer.id);
     if (target) {
-      target.firstName = first.trim();
-      target.lastName = last.trim();
-      target.phone = phone.trim();
+      applyCore(target, core);
       target.dueDate = dueDate || undefined;
       target.limit = withLimit ? Number.parseFloat(limit) || 0 : 0;
       target.limitCurrency = withLimit ? currency : undefined;
     }
-    toast.success(`Nasiyachi ma'lumotlari yangilandi: ${first.trim()} ${last.trim()}`.trim());
+    toast.success(
+      `Nasiyachi ma'lumotlari yangilandi: ${core.first.trim()} ${core.last.trim()}`.trim(),
+    );
     onClose();
     onSaved();
   };
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Pencil className="h-5 w-5 text-primary" />
@@ -1653,21 +1667,9 @@ function EditCreditCustomerDialog({
           </DialogTitle>
         </DialogHeader>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label className="mb-1 block text-xs">Ism *</Label>
-            <Input value={first} onChange={(e) => setFirst(e.target.value)} />
-          </div>
-          <div>
-            <Label className="mb-1 block text-xs">Familya *</Label>
-            <Input value={last} onChange={(e) => setLast(e.target.value)} />
-          </div>
-        </div>
+        <CustomerKindTabs value={core.kind} onChange={(kind) => setCore({ ...core, kind })} />
 
-        <div>
-          <Label className="mb-1 block text-xs">Telefon raqami *</Label>
-          <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+998 ..." />
-        </div>
+        <CreditCustomerCoreFields value={core} onChange={setCore} showValidation={showValidation} />
 
         <div>
           <Label className="mb-1 block text-xs">Qaytarish sanasi</Label>
@@ -1732,6 +1734,342 @@ function EditCreditCustomerDialog({
   );
 }
 
+// ─── Nasiyachi asosiy maydonlari (Add va Edit uchun umumiy) ─────────────────
+
+type CustomerKind = "individual" | "legal";
+
+type CustomerCore = {
+  kind: CustomerKind;
+  company: string;
+  inn: string;
+  first: string;
+  last: string;
+  phone: string;
+  altPhones: string[];
+  jshshir: string;
+  passport: string;
+  address: string;
+  note: string;
+  photo: string;
+};
+
+const EMPTY_CORE: CustomerCore = {
+  kind: "individual",
+  company: "",
+  inn: "",
+  first: "",
+  last: "",
+  phone: "",
+  altPhones: [],
+  jshshir: "",
+  passport: "",
+  address: "",
+  note: "",
+  photo: "",
+};
+
+function coreFromCustomer(c: CreditCustomer): CustomerCore {
+  return {
+    kind: c.kind ?? (c.companyName || c.inn ? "legal" : "individual"),
+    company: c.companyName ?? "",
+    inn: c.inn ?? "",
+    first: c.firstName ?? "",
+    last: c.lastName ?? "",
+    phone: c.phone ?? "",
+    altPhones: c.altPhones ?? (c.altPhone ? [c.altPhone] : []),
+    jshshir: c.jshshir ?? "",
+    passport: c.passport ?? "",
+    address: c.address ?? "",
+    note: c.note ?? "",
+    photo: c.photo ?? "",
+  };
+}
+
+/** Yozuvga tozalab ko'chiradi — bo'sh maydonlar `undefined` bo'ladi. */
+function applyCore(target: CreditCustomer, core: CustomerCore) {
+  target.kind = core.kind;
+  target.companyName = core.kind === "legal" ? core.company.trim() || undefined : undefined;
+  target.inn = core.kind === "legal" ? core.inn.trim() || undefined : undefined;
+  target.firstName = core.first.trim();
+  target.lastName = core.last.trim();
+  target.phone = core.phone.trim() || undefined;
+  {
+    const cleaned = core.altPhones.map((p) => p.trim()).filter(Boolean);
+    target.altPhones = cleaned.length ? cleaned : undefined;
+    target.altPhone = cleaned[0];
+  }
+  target.jshshir = core.jshshir.replace(/\D/g, "").slice(0, 14) || undefined;
+  target.passport = core.passport.trim().toUpperCase() || undefined;
+  target.address = core.address.trim() || undefined;
+  target.note = core.note.trim() || undefined;
+  target.photo = core.photo.trim() || undefined;
+}
+
+const jshshirLooksValid = (v: string) => v === "" || /^\d{14}$/.test(v.replace(/\D/g, ""));
+const passportLooksValid = (v: string) =>
+  v === "" || /^[A-Z]{2}\d{7}$/.test(v.trim().toUpperCase());
+
+/** Nasiyachi turi tanlovi — ikki bo'lakli segment tugma. */
+function CustomerKindTabs({
+  value,
+  onChange,
+}: {
+  value: CustomerKind;
+  onChange: (kind: CustomerKind) => void;
+}) {
+  const items = [
+    { kind: "individual" as const, label: "Oddiy mijoz", Icon: UserRound },
+    { kind: "legal" as const, label: "Yuridik shaxs", Icon: Building2 },
+  ];
+  return (
+    <div className="grid grid-cols-2 gap-1 rounded-lg border bg-muted/40 p-1">
+      {items.map(({ kind, label, Icon }) => (
+        <button
+          key={kind}
+          type="button"
+          onClick={() => onChange(kind)}
+          className={cn(
+            "flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition-colors",
+            value === kind
+              ? "bg-card text-primary shadow-sm"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <Icon className="h-4 w-4" />
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function CreditCustomerCoreFields({
+  value,
+  onChange,
+  showValidation,
+}: {
+  value: CustomerCore;
+  onChange: (next: CustomerCore) => void;
+  showValidation: boolean;
+}) {
+  const hasExtra = Boolean(value.jshshir || value.passport || value.address);
+  const [open, setOpen] = React.useState(hasExtra);
+  React.useEffect(() => {
+    if (hasExtra) setOpen(true);
+  }, [hasExtra]);
+
+  const set = (patch: Partial<CustomerCore>) => onChange({ ...value, ...patch });
+
+  const addAltPhone = () => set({ altPhones: [...value.altPhones, ""] });
+  const updateAltPhone = (index: number, next: string) =>
+    set({ altPhones: value.altPhones.map((p, i) => (i === index ? next : p)) });
+  const removeAltPhone = (index: number) =>
+    set({ altPhones: value.altPhones.filter((_, i) => i !== index) });
+
+  const jshshirBad = !jshshirLooksValid(value.jshshir);
+  const passportBad = !passportLooksValid(value.passport);
+
+  const photoInputRef = React.useRef<HTMLInputElement>(null);
+  const onPhotoPick = (file?: File) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = () => set({ photo: String(reader.result || "") });
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-3">
+        <input
+          ref={photoInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => onPhotoPick(e.target.files?.[0] ?? undefined)}
+        />
+        <button
+          type="button"
+          onClick={() => photoInputRef.current?.click()}
+          className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full border bg-muted/30 text-muted-foreground hover:bg-muted/50"
+          aria-label="Rasm tanlash"
+        >
+          {value.photo ? (
+            <img src={value.photo} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <ImagePlus className="h-5 w-5" />
+          )}
+        </button>
+        <div className="space-y-1">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => photoInputRef.current?.click()}
+          >
+            {value.photo ? "Rasmni almashtirish" : "Rasm qo'shish"}
+          </Button>
+          {value.photo && (
+            <button
+              type="button"
+              onClick={() => set({ photo: "" })}
+              className="block text-[11px] font-medium text-destructive hover:underline"
+            >
+              Rasmni o'chirish
+            </button>
+          )}
+        </div>
+      </div>
+
+      {value.kind === "legal" && (
+        <div className="grid grid-cols-2 gap-3 rounded-md border bg-muted/20 p-3">
+          <div className="col-span-2">
+            <Label className="mb-1 block text-xs">Tashkilot nomi *</Label>
+            <Input
+              value={value.company}
+              onChange={(e) => set({ company: e.target.value })}
+              placeholder="MChJ / YaTT nomi"
+              className={cn(showValidation && !value.company.trim() && "border-destructive")}
+            />
+          </div>
+          <div className="col-span-2">
+            <Label className="mb-1 block text-xs">STIR (INN) *</Label>
+            <Input
+              value={value.inn}
+              onChange={(e) => set({ inn: e.target.value.replace(/\D/g, "").slice(0, 9) })}
+              inputMode="numeric"
+              placeholder="9 raqam"
+              className={cn(showValidation && !value.inn.trim() && "border-destructive")}
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="mb-1 block text-xs">
+            {value.kind === "legal" ? "Rahbar ismi *" : "Ism *"}
+          </Label>
+          <Input
+            value={value.first}
+            onChange={(e) => set({ first: e.target.value })}
+            className={cn(showValidation && !value.first.trim() && "border-destructive")}
+          />
+        </div>
+        <div>
+          <Label className="mb-1 block text-xs">
+            {value.kind === "legal" ? "Rahbar familiyasi *" : "Familya *"}
+          </Label>
+          <Input
+            value={value.last}
+            onChange={(e) => set({ last: e.target.value })}
+            className={cn(showValidation && !value.last.trim() && "border-destructive")}
+          />
+        </div>
+      </div>
+
+      <div>
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <Label className="block text-xs">Telefon raqami *</Label>
+          <button
+            type="button"
+            onClick={addAltPhone}
+            className="flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+          >
+            <Plus className="h-3 w-3" />
+            Qo'shimcha raqam
+          </button>
+        </div>
+        <Input
+          value={value.phone}
+          onChange={(e) => set({ phone: e.target.value })}
+          placeholder="+998 ..."
+          className={cn(showValidation && !value.phone.trim() && "border-destructive")}
+        />
+        {value.altPhones.map((alt, index) => (
+          <div key={index} className="mt-2 flex items-center gap-2">
+            <Input
+              value={alt}
+              onChange={(e) => updateAltPhone(index, e.target.value)}
+              placeholder="+998 ... (qo'shimcha / qarindosh raqami)"
+            />
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
+              onClick={() => removeAltPhone(index)}
+              aria-label="Qo'shimcha raqamni o'chirish"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        ))}
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-2 rounded-md border bg-muted/20 px-3 py-2 text-left text-sm font-medium hover:bg-muted/40"
+      >
+        <IdCard className="h-4 w-4 text-muted-foreground" />
+        Qo'shimcha ma'lumot — hujjat, manzil
+        <ChevronDown className={cn("ml-auto h-4 w-4 transition-transform", open && "rotate-180")} />
+      </button>
+
+      {open && (
+        <div className="space-y-3 rounded-md border bg-muted/10 p-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="mb-1 block text-xs">JSHSHIR</Label>
+              <Input
+                value={value.jshshir}
+                onChange={(e) => set({ jshshir: e.target.value.replace(/\D/g, "").slice(0, 14) })}
+                inputMode="numeric"
+                placeholder="14 raqam"
+                className={cn(jshshirBad && "border-amber-500")}
+              />
+              {jshshirBad && (
+                <p className="mt-1 text-[10px] text-amber-600">14 ta raqam bo'lishi kerak</p>
+              )}
+            </div>
+            <div>
+              <Label className="mb-1 block text-xs">Passport seriya-raqam</Label>
+              <Input
+                value={value.passport}
+                onChange={(e) => set({ passport: e.target.value.toUpperCase().slice(0, 9) })}
+                placeholder="AA1234567"
+                className={cn(passportBad && "border-amber-500")}
+              />
+              {passportBad && <p className="mt-1 text-[10px] text-amber-600">Masalan: AA1234567</p>}
+            </div>
+          </div>
+
+          <div>
+            <Label className="mb-1 block text-xs">Manzil / mo'ljal</Label>
+            <Input
+              value={value.address}
+              onChange={(e) => set({ address: e.target.value })}
+              placeholder="Tuman, mahalla, ko'cha yoki mo'ljal"
+            />
+          </div>
+
+        </div>
+      )}
+
+      <div>
+        <Label className="mb-1 block text-xs">Qo'shimcha izoh</Label>
+        <Textarea
+          value={value.note}
+          onChange={(e) => set({ note: e.target.value })}
+          rows={2}
+          placeholder="Masalan: kim tanishtirdi, kelishuv shartlari, eslatma"
+        />
+      </div>
+    </div>
+  );
+}
+
 function AddCreditCustomerDialog({
   open,
   onOpenChange,
@@ -1741,9 +2079,8 @@ function AddCreditCustomerDialog({
   onOpenChange: (open: boolean) => void;
   onSaved: () => void;
 }) {
-  const [first, setFirst] = React.useState("");
-  const [last, setLast] = React.useState("");
-  const [phone, setPhone] = React.useState("");
+  const [core, setCore] = React.useState<CustomerCore>(EMPTY_CORE);
+  const [showValidation, setShowValidation] = React.useState(false);
   const [withLimit, setWithLimit] = React.useState(false);
   const [limit, setLimit] = React.useState("");
   const [currency, setCurrency] = React.useState<Currency>("UZS");
@@ -1753,9 +2090,8 @@ function AddCreditCustomerDialog({
 
   React.useEffect(() => {
     if (!open) {
-      setFirst("");
-      setLast("");
-      setPhone("");
+      setCore(EMPTY_CORE);
+      setShowValidation(false);
       setWithLimit(false);
       setLimit("");
       setCurrency("UZS");
@@ -1765,22 +2101,31 @@ function AddCreditCustomerDialog({
     }
   }, [open]);
 
-  const canSave = first.trim() && last.trim() && phone.trim();
+  const canSave = Boolean(
+    core.first.trim() &&
+      core.last.trim() &&
+      core.phone.trim() &&
+      (core.kind !== "legal" || (core.company.trim() && core.inn.trim())),
+  );
 
   const save = () => {
-    if (!canSave) return;
+    if (!canSave) {
+      setShowValidation(true);
+      return;
+    }
     const openingDebtValue = Number.parseFloat(openingDebt.replace(/\s/g, "")) || 0;
     const customer: CreditCustomer = {
       id: `c${Date.now()}`,
-      firstName: first.trim(),
-      lastName: last.trim(),
-      phone: phone.trim(),
+      firstName: core.first.trim(),
+      lastName: core.last.trim(),
+      phone: core.phone.trim(),
       botEnabled: sendBotUpdate,
       role: "mijoz",
       limit: withLimit ? Number.parseFloat(limit) || 0 : 0,
       limitCurrency: withLimit ? currency : "UZS",
       currentDebt: openingDebtValue,
     };
+    applyCore(customer, core);
     if (openingDebtValue > 0) {
       customer.receipts = [
         {
@@ -1839,7 +2184,7 @@ function AddCreditCustomerDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <UserPlus className="h-5 w-5 text-primary" />
@@ -1847,22 +2192,14 @@ function AddCreditCustomerDialog({
           </DialogTitle>
         </DialogHeader>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label className="mb-1 block text-xs">Ism *</Label>
-            <Input value={first} onChange={(e) => setFirst(e.target.value)} />
-          </div>
-          <div>
-            <Label className="mb-1 block text-xs">Familya *</Label>
-            <Input value={last} onChange={(e) => setLast(e.target.value)} />
-          </div>
+        <CustomerKindTabs value={core.kind} onChange={(kind) => setCore({ ...core, kind })} />
+
+        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-4">
+        <CreditCustomerCoreFields value={core} onChange={setCore} showValidation={showValidation} />
         </div>
 
-        <div>
-          <Label className="mb-1 block text-xs">Telefon raqami *</Label>
-          <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+998 ..." />
-        </div>
-
+        <div className="space-y-4">
         <div>
           <Label className="mb-1 block text-xs">Bizga qarzi (dastur ishlatishdan oldin)</Label>
           <Input
@@ -1877,77 +2214,35 @@ function AddCreditCustomerDialog({
           </p>
         </div>
 
-        <div className="space-y-3">
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" variant="outline" className="gap-2" onClick={addObject}>
-              <Plus className="h-4 w-4" />
-              Obyekt qo'shish
-            </Button>
+        <label className="flex cursor-pointer items-center justify-between gap-3 rounded-md border px-3 py-2.5">
+          <span className="flex items-center gap-2">
+            <Bot className="h-4 w-4 text-muted-foreground" />
+            <span>
+              <span className="block text-sm font-medium">Botga habar yuborish</span>
+              <span className="block text-xs text-muted-foreground">
+                Nasiya savdo va qarz to'lovlari avtomatik yuboriladi
+              </span>
+            </span>
+          </span>
+          <Switch checked={sendBotUpdate} onCheckedChange={setSendBotUpdate} />
+        </label>
+
+        <div className="rounded-md border p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <Label className="text-sm">Qarz limiti</Label>
+              <div className="text-xs text-muted-foreground">
+                {withLimit ? "Nasiyachiga qarz limiti belgilanadi" : "Limit belgilanmagan"}
+              </div>
+            </div>
             <Button
               type="button"
               size="sm"
               variant={withLimit ? "default" : "outline"}
               onClick={() => setWithLimit((value) => !value)}
             >
-              Limit qo'yish
+              {withLimit ? "Olib tashlash" : "Limit qo'yish"}
             </Button>
-          </div>
-
-          {objects.length > 0 && (
-            <div className="space-y-2 rounded-md border bg-muted/20 p-3">
-              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Obyektlar
-              </div>
-              <div className="space-y-2">
-                {objects.map((item, index) => (
-                  <div key={item.id} className="flex gap-2">
-                    <Input
-                      value={item.name}
-                      onChange={(e) => updateObjectName(item.id, e.target.value)}
-                      placeholder={`Obyekt ${index + 1} nomi`}
-                    />
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="outline"
-                      className="shrink-0"
-                      onClick={() => removeObject(item.id)}
-                      aria-label="Obyektni o'chirish"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-md border bg-muted/20 p-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <div className="text-sm font-semibold">Botga habar yuborish</div>
-              <div className="text-xs text-muted-foreground">
-                Yoqilganda nasiya savdo va qarz to'lovlari nasiyachi kodi orqali avtomatik
-                yuboriladi
-              </div>
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              variant={sendBotUpdate ? "default" : "outline"}
-              onClick={() => setSendBotUpdate((value) => !value)}
-              className="gap-2"
-            >
-              <Bot className="h-4 w-4" />
-              {sendBotUpdate ? "Yoqilgan" : "Yoqish"}
-            </Button>
-          </div>
-        </div>
-
-        <div className="rounded-md border p-3">
-          <div className="flex items-center justify-between gap-2">
-            <Label className="text-sm">Limit qo'yish</Label>
           </div>
           {withLimit && (
             <div className="mt-3 grid grid-cols-[1fr_120px] gap-2">
@@ -1975,6 +2270,8 @@ function AddCreditCustomerDialog({
               </div>
             </div>
           )}
+        </div>
+        </div>
         </div>
 
         <DialogFooter>

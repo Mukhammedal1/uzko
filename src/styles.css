@@ -658,10 +658,13 @@
 
 /* Fixed app-frame override: header and bottom tools stay visible; only content scrolls. */
 .app-shell {
+  /* `zoom` <html> ga qo'yilgani uchun bo'yni koeffitsientga bo'lamiz —
+     miqyoslashdan keyin shell aynan bitta ekranни to'ldiradi (bo'sh joy
+     yoki ortiqcha scroll qolmaydi). --app-zoom birliksiz son (masalan 0.8). */
   height: 100vh !important;
-  height: 100dvh !important;
+  height: calc(100dvh / var(--app-zoom, 1)) !important;
   min-height: 100vh !important;
-  min-height: 100dvh !important;
+  min-height: calc(100dvh / var(--app-zoom, 1)) !important;
   overflow: hidden !important;
 }
 
@@ -674,8 +677,7 @@
   min-height: 0 !important;
   flex: 1 1 0% !important;
   overflow: hidden !important;
-  /* Faqat markaziy kontent zoom qilinadi — TopBar va BottomBar o'zgarmaydi. */
-  zoom: var(--app-zoom, 100%);
+  /* Global miqyoslash <html> ga qo'yiladi (use-ui-scale) — bu yerda takror emas. */
 }
 
 .responsive-card {

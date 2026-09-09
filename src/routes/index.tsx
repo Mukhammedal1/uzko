@@ -89,7 +89,8 @@ function SotuvchiPage() {
   const handlePick = (p: Product) => {
     const needsPrompt =
       p.unit === "kg" ||
-      (active.priceMode === "wholesale" && p.unit === "dona" && (p.perBox ?? 0) > 1);
+      ((p.perBox ?? 0) > 1 &&
+        (!!p.packUnit || (active.priceMode === "wholesale" && p.unit === "dona")));
     if (settings.quickAddToCart && !needsPrompt) {
       handleAddToCart(p, 1, "retail");
       return;

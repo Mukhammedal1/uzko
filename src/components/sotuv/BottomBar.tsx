@@ -15,7 +15,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { Slider } from "@/components/ui/slider";
 import { useFullscreen } from "@/hooks/use-fullscreen";
-import { MAX_ZOOM, MIN_ZOOM, useZoom } from "@/hooks/use-zoom";
+import { MAX_MANUAL, MIN_MANUAL, MANUAL_STEP, useUiScale } from "@/hooks/use-ui-scale";
 
 type Props = {
   /** Kalkulator va valyuta orasiga joylashadigan slot (Sotuv tablari) */
@@ -27,7 +27,9 @@ export function BottomBar({ middleSlot, afterCalculatorSlot }: Props) {
   const [date, setDate] = React.useState<Date | undefined>(undefined);
   const [dateStr, setDateStr] = React.useState("Sana");
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen();
-  const { zoom, setZoom, zoomIn, zoomOut, canZoomIn, canZoomOut } = useZoom();
+  const { manualPct, setManualPct, bump } = useUiScale();
+  const canZoomIn = manualPct < MAX_MANUAL;
+  const canZoomOut = manualPct > MIN_MANUAL;
 
   React.useEffect(() => {
     const today = new Date();
@@ -83,7 +85,7 @@ export function BottomBar({ middleSlot, afterCalculatorSlot }: Props) {
         <div className="flex h-11 items-center gap-2 rounded-md border bg-background px-2.5">
           <button
             type="button"
-            onClick={zoomOut}
+            onClick={() => bump(-MANUAL_STEP)}
             disabled={!canZoomOut}
             title="Kichiklashtirish"
             aria-label="Ekranni kichiklashtirish"
@@ -92,16 +94,16 @@ export function BottomBar({ middleSlot, afterCalculatorSlot }: Props) {
             <Minus className="h-4 w-4" />
           </button>
           <Slider
-            value={[zoom]}
-            min={MIN_ZOOM}
-            max={MAX_ZOOM}
-            step={10}
-            onValueChange={([value]) => setZoom(value)}
+            value={[manualPct]}
+            min={MIN_MANUAL}
+            max={MAX_MANUAL}
+            step={MANUAL_STEP}
+            onValueChange={([value]) => setManualPct(value)}
             className="w-24"
           />
           <button
             type="button"
-            onClick={zoomIn}
+            onClick={() => bump(MANUAL_STEP)}
             disabled={!canZoomIn}
             title="Kattalashtirish"
             aria-label="Ekranni kattalashtirish"
@@ -110,7 +112,7 @@ export function BottomBar({ middleSlot, afterCalculatorSlot }: Props) {
             <Plus className="h-4 w-4" />
           </button>
           <span className="w-10 select-none text-right text-sm font-semibold tabular-nums text-muted-foreground">
-            {zoom}%
+            {manualPct}%
           </span>
         </div>
 

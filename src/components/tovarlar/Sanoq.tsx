@@ -26,25 +26,29 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   ArrowLeft,
   Barcode,
   Check,
+  ChevronDown,
   ClipboardList,
   Download,
   Eye,
   FileText,
+  Filter,
   History,
   Package,
   Pencil,
   Plus,
   Save,
+  Search,
   Trash2,
-  Warehouse,
   X,
 } from "lucide-react";
 import {
   MOCK_PRODUCTS,
+  getAgentForProductName,
   MOCK_STOCK_COUNTS,
   MOCK_STOCK_COUNT_EDITS,
   costInSom,
@@ -62,51 +66,33 @@ import {
   stockCountTotals,
 } from "@/lib/data-actions";
 import { useApp } from "@/lib/app-context";
+import { ProductAuditDialog } from "./ProductAuditDialog";
 import { toast } from "sonner";
 import { HistoryFilters, matchesDateFilter, type DateMode } from "./TovarlarTarixi";
 
-type View = "list" | "setup" | "session" | "report" | "edit";
+type View = "list" | "session" | "report" | "edit";
 type ListTab = "counts" | "edits";
 type RowFilter = "all" | "uncounted" | "diff";
 
 type SessionConfig = {
   scope: StockCountScope;
   scopeValue: string;
+  /** scope "custom" bo'lsa — qo'lda tanlangan tovar id'lari. */
+  customIds: string[];
 };
 
-const DEFAULT_CONFIG: SessionConfig = { scope: "all", scopeValue: "" };
-
-const SCOPE_OPTIONS: {
-  scope: StockCountScope;
-  title: string;
-  hint: string;
-  icon: typeof Package;
-  placeholder?: string;
-  emptyHint?: string;
-}[] = [
-  {
-    scope: "all",
-    title: "Barcha tovarlar",
-    hint: "Bazadagi hamma tovar sanaladi — to'liq reviziya",
-    icon: Package,
-  },
-  {
-    scope: "warehouse",
-    title: "Bitta ombor",
-    hint: "Faqat tanlangan ombordagi tovarlar",
-    icon: Warehouse,
-    placeholder: "Omborni tanlang",
-    emptyHint: "Ombor ro'yxati bo'sh — Sozlamalardan ombor qo'shing.",
-  },
-];
+const DEFAULT_CONFIG: SessionConfig = { scope: "all", scopeValue: "", customIds: [] };
 
 function matchesScope(product: Product, config: SessionConfig) {
   if (config.scope === "warehouse") return product.warehouse === config.scopeValue;
+  if (config.scope === "custom") return config.customIds.includes(product.id);
   return true;
 }
 
 function scopeSummary(scope: StockCountScope, scopeValue?: string) {
-  return scope === "all" ? "Barcha tovarlar" : `Ombor: ${scopeValue ?? "—"}`;
+  if (scope === "all") return "Barcha tovarlar";
+  if (scope === "custom") return `Tanlangan tovarlar${scopeValue ? ` (${scopeValue} ta)` : ""}`;
+  return `Ombor: ${scopeValue ?? "—"}`;
 }
 
 function fmtDate(iso: string) {
@@ -330,11 +316,14 @@ export function Sanoq() {
   const [snapshot, setSnapshot] = React.useState<Product[]>([]);
   const [systemQtys, setSystemQtys] = React.useState<Record<string, number>>({});
   const [sessionId, setSessionId] = React.useState("");
+  const [sessionStartedAt, setSessionStartedAt] = React.useState("");
+  const [auditLine, setAuditLine] = React.useState<StockCountLine | null>(null);
   const [query, setQuery] = React.useState("");
   const [rowFilter, setRowFilter] = React.useState<RowFilter>("all");
   // Sessiya ichidagi ko'rinish filtrlari — hujjat qamroviga ta'sir qilmaydi.
   const [viewWarehouse, setViewWarehouse] = React.useState("ALL");
   const [viewShelf, setViewShelf] = React.useState("ALL");
+  const [viewAgent, setViewAgent] = React.useState("ALL");
   const [lastScannedId, setLastScannedId] = React.useState<string | null>(null);
   const [finishOpen, setFinishOpen] = React.useState(false);
   const [note, setNote] = React.useState("");
@@ -343,17 +332,6 @@ export function Sanoq() {
   const [activeRecord, setActiveRecord] = React.useState<StockCount | null>(null);
   const [version, setVersion] = React.useState(0);
   const scanRef = React.useRef<HTMLInputElement>(null);
-
-  const warehouseOptions = React.useMemo(() => {
-    const set = new Set<string>((settings.warehouses ?? []).map((w) => w.name));
-    MOCK_PRODUCTS.forEach((p) => p.warehouse && set.add(p.warehouse));
-    return Array.from(set).sort();
-  }, [settings.warehouses]);
-
-  const scopeMatchCount = React.useMemo(
-    () => MOCK_PRODUCTS.filter((p) => matchesScope(p, config)).length,
-    [config],
-  );
 
   const lines = React.useMemo<StockCountLine[]>(
     () =>
@@ -382,26 +360,42 @@ export function Sanoq() {
     [snapshot, systemQtys, counts],
   );
 
-  const sessionWarehouses = React.useMemo(
-    () => Array.from(new Set(lines.map((line) => line.warehouse).filter(Boolean))).sort(),
-    [lines],
+  const isCustom = config.scope === "custom";
+
+  /**
+   * Filtr manbasi: "Ma'lum tovarlar" sanoqda filtr yuqoridagi qidiruv natijalariga
+   * (butun baza) qo'llanadi; boshqa qamrovlarda — sessiyadagi qatorlarga.
+   */
+  const filterPool = React.useMemo<Product[]>(
+    () => (isCustom ? MOCK_PRODUCTS : snapshot),
+    [isCustom, snapshot],
   );
 
-  // Polka ro'yxati tanlangan omborga bog'liq — avval ombor, keyin polka.
-  const shelfScope = config.scope === "warehouse" ? config.scopeValue : viewWarehouse;
-  const warehouseChosen = Boolean(shelfScope) && shelfScope !== "ALL";
+  const filterWarehouses = React.useMemo(
+    () => Array.from(new Set(filterPool.map((p) => p.warehouse).filter(Boolean))).sort(),
+    [filterPool],
+  );
 
-  const sessionShelves = React.useMemo(() => {
-    if (!warehouseChosen) return [];
-    return Array.from(
-      new Set(
-        lines
-          .filter((line) => line.warehouse === shelfScope)
-          .map((line) => line.shelfLocation)
-          .filter((value): value is string => !!value),
-      ),
-    ).sort();
-  }, [lines, shelfScope, warehouseChosen]);
+  const filterAgents = React.useMemo(
+    () => Array.from(new Set(filterPool.map((p) => getAgentForProductName(p.name)))).sort(),
+    [filterPool],
+  );
+
+  // Polka ro'yxati — ombor tanlansa faqat o'sha ombor polkalari, aks holda barchasi.
+  const warehouseChosen = viewWarehouse !== "ALL";
+
+  const filterShelves = React.useMemo(
+    () =>
+      Array.from(
+        new Set(
+          filterPool
+            .filter((p) => !warehouseChosen || p.warehouse === viewWarehouse)
+            .map((p) => p.shelfLocation)
+            .filter((value): value is string => !!value),
+        ),
+      ).sort(),
+    [filterPool, viewWarehouse, warehouseChosen],
+  );
 
   const stats = React.useMemo(() => {
     const counted = lines.filter((line) => line.countedQty !== null);
@@ -420,38 +414,37 @@ export function Sanoq() {
   const visibleLines = React.useMemo(() => {
     const q = query.trim().toLowerCase();
     return lines.filter((line) => {
-      if (viewWarehouse !== "ALL" && line.warehouse !== viewWarehouse) return false;
-      if (viewShelf !== "ALL" && (line.shelfLocation ?? "") !== viewShelf) return false;
+      // Custom sanoqda ombor/polka/agent filtri qidiruvga tegishli — qo'shilgan qatorlarga emas.
+      if (!isCustom) {
+        if (viewWarehouse !== "ALL" && line.warehouse !== viewWarehouse) return false;
+        if (viewShelf !== "ALL" && (line.shelfLocation ?? "") !== viewShelf) return false;
+        if (viewAgent !== "ALL" && getAgentForProductName(line.productName) !== viewAgent)
+          return false;
+      }
       if (rowFilter === "uncounted" && line.countedQty !== null) return false;
       if (rowFilter === "diff" && (line.countedQty === null || line.diff === 0)) return false;
-      if (!q) return true;
+      if (isCustom || !q) return true;
       return (
         line.productName.toLowerCase().includes(q) ||
         line.barcode.includes(q) ||
         line.customCode.toLowerCase().includes(q)
       );
     });
-  }, [lines, query, rowFilter, viewWarehouse, viewShelf]);
+  }, [lines, query, rowFilter, isCustom, viewWarehouse, viewShelf, viewAgent]);
 
   // ── Amallar ───────────────────────────────────────────────────────────────
-  const startSession = () => {
-    if (config.scope !== "all" && !config.scopeValue) {
-      toast.error("Omborni tanlang");
-      return;
-    }
-    const products = MOCK_PRODUCTS.filter((p) => matchesScope(p, config));
-    if (products.length === 0) {
-      toast.error("Bu qamrovda tovar topilmadi");
-      return;
-    }
+  const beginSession = (cfg: SessionConfig, products: Product[]) => {
+    setConfig(cfg);
     setSnapshot(products.map((p) => ({ ...p })));
     setSystemQtys(Object.fromEntries(products.map((p) => [p.id, p.vitrinaQty])));
     setSessionId(nextStockCountId());
+    setSessionStartedAt(new Date().toISOString());
     setCounts({});
     setQuery("");
     setRowFilter("all");
     setViewWarehouse("ALL");
     setViewShelf("ALL");
+    setViewAgent("ALL");
     setNote("");
     setTreatUncountedAsZero(false);
     setNoLossCorrection(false);
@@ -460,17 +453,75 @@ export function Sanoq() {
     window.setTimeout(() => scanRef.current?.focus(), 50);
   };
 
+  const beginAllProducts = () => {
+    beginSession({ scope: "all", scopeValue: "", customIds: [] }, MOCK_PRODUCTS);
+  };
+
+  /** "Ma'lum tovarlar" — bo'sh ro'yxat bilan boshlanadi, tovarlar qidiruvdan qo'shiladi. */
+  const beginCustomProducts = () => {
+    beginSession({ scope: "custom", scopeValue: "", customIds: [] }, []);
+  };
+
+  /** Custom sanoqqa qidiruvdan tovar qo'shadi (yoki mavjudini belgilaydi). */
+  const addProduct = (product: Product) => {
+    if (!snapshot.some((p) => p.id === product.id)) {
+      setSnapshot((s) => [product, ...s]);
+      setSystemQtys((m) => ({ ...m, [product.id]: product.vitrinaQty }));
+    }
+    setLastScannedId(product.id);
+    setQuery("");
+    window.setTimeout(() => scanRef.current?.focus(), 0);
+  };
+
   const setCount = (productId: string, value: string) => {
     setCounts((current) => ({ ...current, [productId]: value }));
   };
 
   /**
-   * Bitta input ikki vazifani bajaradi: yozilgani bo'yicha ro'yxat filtrlanadi,
-   * Enter bosilganda esa aniq mos tovar (yoki yagona qolgan natija) +1 sanaladi.
+   * Custom sanoqda qidiruv/filtrga mos, hali qo'shilmagan bazadagi tovarlar.
+   * Filtr (ombor/polka/agent) aynan shu ro'yxatni toraytiradi.
+   */
+  const customResults = React.useMemo(() => {
+    if (!isCustom) return [];
+    const q = query.trim().toLowerCase();
+    const hasFilter = viewWarehouse !== "ALL" || viewShelf !== "ALL" || viewAgent !== "ALL";
+    if (!q && !hasFilter) return [];
+    const have = new Set(snapshot.map((p) => p.id));
+    return MOCK_PRODUCTS.filter((p) => {
+      if (have.has(p.id)) return false;
+      if (viewWarehouse !== "ALL" && p.warehouse !== viewWarehouse) return false;
+      if (viewShelf !== "ALL" && (p.shelfLocation ?? "") !== viewShelf) return false;
+      if (viewAgent !== "ALL" && getAgentForProductName(p.name) !== viewAgent) return false;
+      if (!q) return true;
+      return (
+        p.name.toLowerCase().includes(q) ||
+        p.barcode.includes(q) ||
+        p.customCode.toLowerCase().includes(q)
+      );
+    }).slice(0, 12);
+  }, [isCustom, query, snapshot, viewWarehouse, viewShelf, viewAgent]);
+
+  /**
+   * Custom sanoqda Enter — mos tovarni ro'yxatga qo'shadi.
+   * Boshqa qamrovlarda — mavjud qatorni +1 sanaydi (skaner rejimi).
    */
   const handleScan = () => {
     const code = query.trim().toLowerCase();
     if (!code) return;
+
+    if (config.scope === "custom") {
+      const found =
+        MOCK_PRODUCTS.find(
+          (p) => p.barcode.toLowerCase() === code || p.customCode.toLowerCase() === code,
+        ) ?? (customResults.length === 1 ? customResults[0] : undefined);
+      if (!found) {
+        toast.error(`"${query.trim()}" topilmadi`);
+        return;
+      }
+      addProduct(found);
+      return;
+    }
+
     const line =
       lines.find(
         (item) => item.barcode.toLowerCase() === code || item.customCode.toLowerCase() === code,
@@ -534,7 +585,12 @@ export function Sanoq() {
       id: sessionId,
       countedBy: settings.username,
       scope: config.scope,
-      scopeValue: config.scope === "all" ? undefined : config.scopeValue,
+      scopeValue:
+        config.scope === "warehouse"
+          ? config.scopeValue
+          : config.scope === "custom"
+            ? String(snapshot.length)
+            : undefined,
       note,
       lines: linesToApply,
       noLoss: noLossCorrection,
@@ -572,7 +628,12 @@ export function Sanoq() {
       date: new Date().toISOString(),
       countedBy: settings.username,
       scope: config.scope,
-      scopeValue: config.scope === "all" ? undefined : config.scopeValue,
+      scopeValue:
+        config.scope === "warehouse"
+          ? config.scopeValue
+          : config.scope === "custom"
+            ? String(snapshot.length)
+            : undefined,
       lines,
       ...stockCountTotals(lines),
     };
@@ -635,10 +696,25 @@ export function Sanoq() {
               Sanoq tahrirlash tarixi
             </Button>
           </div>
-          <Button size="sm" className="gap-2" onClick={() => setView("setup")}>
-            <Plus className="h-4 w-4" />
-            Yangi sanoq
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" className="gap-2">
+                <Plus className="h-4 w-4" />
+                Yangi sanoq
+                <ChevronDown className="h-4 w-4 opacity-80" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={beginAllProducts} className="gap-2">
+                <Package className="h-4 w-4" />
+                Barcha tovarlar o'rtasida sanoq
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={beginCustomProducts} className="gap-2">
+                <ClipboardList className="h-4 w-4" />
+                Ma'lum tovarlar o'rtasida sanoq
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         {listTab === "counts" ? (
@@ -660,100 +736,18 @@ export function Sanoq() {
     );
   }
 
-  // ── Sozlash ───────────────────────────────────────────────────────────────
-  if (view === "setup") {
-    return (
-      <div className="flex h-full flex-col">
-        <div className="flex items-center gap-2 border-b bg-muted/30 px-4 py-3">
-          <div className="mr-auto text-sm font-semibold">Yangi sanoq — qamrovni tanlang</div>
-          <Button variant="outline" size="sm" onClick={() => setView("list")}>
-            Orqaga
-          </Button>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-auto p-4">
-          <div className="mx-auto flex max-w-xl flex-col gap-4">
-            <Label className="text-muted-foreground">Nimani sanaymiz?</Label>
-
-            <div className="flex flex-col gap-2">
-              {SCOPE_OPTIONS.map((option) => {
-                const active = config.scope === option.scope;
-                const Icon = option.icon;
-                return (
-                  <div
-                    key={option.scope}
-                    className={`rounded-lg border transition-colors ${
-                      active ? "border-primary bg-primary/5" : "hover:bg-muted/40"
-                    }`}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setConfig({ scope: option.scope, scopeValue: "" })}
-                      className="flex w-full items-center gap-3 p-3 text-left"
-                    >
-                      <span
-                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${
-                          active ? "bg-primary text-primary-foreground" : "bg-muted"
-                        }`}
-                      >
-                        <Icon className="h-4 w-4" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-medium">{option.title}</span>
-                        <span className="block text-xs text-muted-foreground">{option.hint}</span>
-                      </span>
-                      {active && <Check className="h-4 w-4 shrink-0 text-primary" />}
-                    </button>
-
-                    {active && option.scope !== "all" && (
-                      <div className="border-t px-3 py-3">
-                        <Select
-                          value={config.scopeValue}
-                          onValueChange={(value) => setConfig((c) => ({ ...c, scopeValue: value }))}
-                        >
-                          <SelectTrigger className="w-full">
-                            <SelectValue placeholder={option.placeholder} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {warehouseOptions.map((name) => (
-                              <SelectItem key={name} value={name}>
-                                {name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        {warehouseOptions.length === 0 && (
-                          <p className="mt-2 text-xs text-muted-foreground">{option.emptyHint}</p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-4 py-3 text-sm">
-              <span className="text-muted-foreground">Sanaladigan tovar</span>
-              <span className="text-lg font-semibold">{scopeMatchCount} ta</span>
-            </div>
-
-            <Button size="lg" className="gap-2" onClick={startSession}>
-              <ClipboardList className="h-4 w-4" />
-              Sanoqni boshlash
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   // ── Sanoq jarayoni ────────────────────────────────────────────────────────
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-col gap-2 border-b bg-muted/30 px-4 py-3">
         <div className="flex flex-wrap items-center gap-2">
           <Badge className="font-mono">{sessionId}</Badge>
-          <Badge variant="outline">{scopeSummary(config.scope, config.scopeValue)}</Badge>
+          <Badge variant="outline">
+            {scopeSummary(
+              config.scope,
+              config.scope === "custom" ? String(snapshot.length) : config.scopeValue,
+            )}
+          </Badge>
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -785,8 +779,118 @@ export function Sanoq() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {(() => {
+            const activeViewFilters =
+              (viewWarehouse !== "ALL" ? 1 : 0) +
+              (viewShelf !== "ALL" ? 1 : 0) +
+              (viewAgent !== "ALL" ? 1 : 0);
+            return (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant={activeViewFilters > 0 ? "default" : "outline"}
+                    size="sm"
+                    className="relative gap-2"
+                  >
+                    <Filter className="h-4 w-4" />
+                    Filtr
+                    {activeViewFilters > 0 && (
+                      <span className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground">
+                        {activeViewFilters}
+                      </span>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-64 space-y-3 p-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Ombor bo'yicha</Label>
+                    <Select
+                      value={viewWarehouse}
+                      onValueChange={(value) => {
+                        setViewWarehouse(value);
+                        setViewShelf("ALL");
+                      }}
+                    >
+                      <SelectTrigger className="h-9 text-sm">
+                        <SelectValue placeholder="Ombor" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ALL">Barcha omborlar</SelectItem>
+                        {filterWarehouses.map((name) => (
+                          <SelectItem key={name} value={name}>
+                            {name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Polka bo'yicha</Label>
+                    <Select
+                      value={viewShelf}
+                      onValueChange={setViewShelf}
+                      disabled={filterShelves.length === 0}
+                    >
+                      <SelectTrigger className="h-9 text-sm">
+                        <SelectValue placeholder="Polka" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ALL">Barcha polkalar</SelectItem>
+                        {filterShelves.map((name) => (
+                          <SelectItem key={name} value={name}>
+                            {name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Agent bo'yicha</Label>
+                    <Select
+                      value={viewAgent}
+                      onValueChange={setViewAgent}
+                      disabled={filterAgents.length === 0}
+                    >
+                      <SelectTrigger className="h-9 text-sm">
+                        <SelectValue
+                          placeholder={filterAgents.length === 0 ? "Agent ma'lumoti yo'q" : "Agent"}
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ALL">Barcha agentlar</SelectItem>
+                        {filterAgents.map((name) => (
+                          <SelectItem key={name} value={name}>
+                            {name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {activeViewFilters > 0 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="h-8 w-full text-xs text-muted-foreground"
+                      onClick={() => {
+                        setViewWarehouse("ALL");
+                        setViewShelf("ALL");
+                        setViewAgent("ALL");
+                      }}
+                    >
+                      Filtrni tozalash
+                    </Button>
+                  )}
+                </PopoverContent>
+              </Popover>
+            );
+          })()}
+
           <div className="relative min-w-64 flex-1">
-            <Barcode className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Barcode className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               ref={scanRef}
               value={query}
@@ -797,9 +901,35 @@ export function Sanoq() {
                   handleScan();
                 }
               }}
-              placeholder="Shtrix-kod skaner qiling yoki nom / kod bo'yicha qidiring — Enter +1"
-              className="pl-8"
+              placeholder={
+                config.scope === "custom"
+                  ? "Bazadan tovar qidiring — nomi, kodi yoki shtrix-kod, Enter bilan qo'shing"
+                  : "Shtrix-kod skaner qiling yoki nom / kod bo'yicha qidiring — Enter +1"
+              }
+              className={config.scope === "custom" ? "h-11 pl-9 text-base" : "pl-9"}
             />
+            {config.scope === "custom" && customResults.length > 0 && (
+              <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-72 overflow-auto rounded-md border bg-popover shadow-md">
+                {customResults.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => addProduct(p)}
+                    className="flex w-full items-start gap-2 border-b px-3 py-2 text-left text-sm last:border-b-0 hover:bg-muted/60"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-medium">{p.name}</span>
+                      <span className="block text-xs text-muted-foreground">
+                        {[p.customCode, p.warehouse, p.shelfLocation].filter(Boolean).join(" · ")}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {p.vitrinaQty} {p.unit}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-1">
             {(
@@ -808,77 +938,24 @@ export function Sanoq() {
                 ["uncounted", `Sanalmagan ${stats.total - stats.counted}`],
                 ["diff", `Farqli ${stats.diffCount}`],
               ] as [RowFilter, string][]
-            ).map(([value, label]) => (
-              <Button
-                key={value}
-                variant={rowFilter === value ? "default" : "outline"}
-                size="sm"
-                onClick={() => setRowFilter(value)}
-              >
-                {label}
-              </Button>
-            ))}
+            )
+              .filter(([value]) => !isCustom || value === "all" || value === "diff")
+              .map(([value, label]) => (
+                <Button
+                  key={value}
+                  variant={rowFilter === value ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setRowFilter(value)}
+                >
+                  {label}
+                </Button>
+              ))}
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-muted-foreground">Bo'lib sanash:</span>
-
-          {sessionWarehouses.length > 1 && (
-            <Select
-              value={viewWarehouse}
-              onValueChange={(value) => {
-                setViewWarehouse(value);
-                setViewShelf("ALL"); // ombor almashsa polka tanlovi kuchini yo'qotadi
-              }}
-            >
-              <SelectTrigger className="h-8 w-48">
-                <SelectValue placeholder="Ombor" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">Barcha omborlar</SelectItem>
-                {sessionWarehouses.map((name) => (
-                  <SelectItem key={name} value={name}>
-                    {name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-
-          <Select value={viewShelf} onValueChange={setViewShelf} disabled={!warehouseChosen}>
-            <SelectTrigger className="h-8 w-44">
-              <SelectValue placeholder={warehouseChosen ? "Polka" : "Avval omborni tanlang"} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">Barcha polkalar</SelectItem>
-              {sessionShelves.map((name) => (
-                <SelectItem key={name} value={name}>
-                  {name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          {(viewWarehouse !== "ALL" || viewShelf !== "ALL") && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="gap-1"
-              onClick={() => {
-                setViewWarehouse("ALL");
-                setViewShelf("ALL");
-              }}
-            >
-              <X className="h-3.5 w-3.5" />
-              Tozalash
-            </Button>
-          )}
-
-          <span className="text-xs text-muted-foreground">
-            Ekranda {visibleLines.length} ta — hisob-kitob butun sanoq bo'yicha
-          </span>
-        </div>
+        <span className="text-xs text-muted-foreground">
+          Ekranda {visibleLines.length} ta — hisob-kitob butun sanoq bo'yicha
+        </span>
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
@@ -921,7 +998,22 @@ export function Sanoq() {
                   />
                 </td>
                 <td className={`px-4 py-2 text-right font-semibold tabular-nums ${diffTone(line)}`}>
-                  {line.countedQty === null ? "—" : line.diff > 0 ? `+${line.diff}` : line.diff}
+                  <div className="flex items-center justify-end gap-1.5">
+                    {line.countedQty !== null && line.diff !== 0 && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
+                        title="Farq sababini tekshirish — sotuv, prixod, qaytaruv"
+                        onClick={() => setAuditLine(line)}
+                      >
+                        <Search className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    <span>
+                      {line.countedQty === null ? "—" : line.diff > 0 ? `+${line.diff}` : line.diff}
+                    </span>
+                  </div>
                 </td>
                 <td className={`px-4 py-2 text-right tabular-nums ${diffTone(line)}`}>
                   {line.countedQty === null || line.diff === 0 ? "—" : formatSom(line.diffAmount)}
@@ -931,7 +1023,9 @@ export function Sanoq() {
             {visibleLines.length === 0 && (
               <tr>
                 <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground">
-                  Bu filtrga mos tovar yo'q
+                  {config.scope === "custom" && lines.length === 0
+                    ? "Yuqoridagi qidiruvdan sanaladigan tovarlarni qo'shing"
+                    : "Bu filtrga mos tovar yo'q"}
                 </td>
               </tr>
             )}
@@ -1031,6 +1125,12 @@ export function Sanoq() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ProductAuditDialog
+        line={auditLine}
+        before={sessionStartedAt || new Date().toISOString()}
+        onOpenChange={(open) => !open && setAuditLine(null)}
+      />
     </div>
   );
 }
@@ -1060,7 +1160,13 @@ function StatTile({ label, value, tone }: { label: string; value: string; tone?:
   );
 }
 
-function DiffTable({ lines }: { lines: StockCountLine[] }) {
+function DiffTable({
+  lines,
+  onInspect,
+}: {
+  lines: StockCountLine[];
+  onInspect?: (line: StockCountLine) => void;
+}) {
   return (
     <table className="w-full text-sm">
       <thead className="sticky top-0 bg-muted/90 backdrop-blur">
@@ -1084,7 +1190,20 @@ function DiffTable({ lines }: { lines: StockCountLine[] }) {
             <td className="px-3 py-1.5 text-right tabular-nums">{line.systemQty}</td>
             <td className="px-3 py-1.5 text-right tabular-nums">{line.countedQty}</td>
             <td className={`px-3 py-1.5 text-right font-semibold tabular-nums ${diffTone(line)}`}>
-              {line.diff > 0 ? `+${line.diff}` : line.diff}
+              <div className="flex items-center justify-end gap-1.5">
+                {onInspect && line.countedQty !== null && line.diff !== 0 && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
+                    title="Farq sababini tekshirish — sotuv, prixod, qaytaruv"
+                    onClick={() => onInspect(line)}
+                  >
+                    <Search className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+                <span>{line.diff > 0 ? `+${line.diff}` : line.diff}</span>
+              </div>
             </td>
             <td className={`px-3 py-1.5 text-right tabular-nums ${diffTone(line)}`}>
               {formatSom(line.diffAmount)}
@@ -1420,6 +1539,7 @@ function ReportView({
 }) {
   const a = assessStockCount(record);
   const diffs = diffLinesOf(record);
+  const [auditLine, setAuditLine] = React.useState<StockCountLine | null>(null);
 
   return (
     <div className="flex h-full flex-col">
@@ -1531,10 +1651,16 @@ function ReportView({
             <div className="border-b bg-muted/40 px-4 py-2 text-sm font-semibold">
               Farq chiqqan tovarlar ({diffs.length} ta)
             </div>
-            <DiffTable lines={diffs} />
+            <DiffTable lines={diffs} onInspect={setAuditLine} />
           </div>
         </div>
       </div>
+
+      <ProductAuditDialog
+        line={auditLine}
+        before={record.date}
+        onOpenChange={(open) => !open && setAuditLine(null)}
+      />
     </div>
   );
 }

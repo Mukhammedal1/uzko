@@ -2,10 +2,25 @@ import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { User, Palette, Globe, Sun, Moon, Check, ShieldCheck, Lock } from "lucide-react";
+import {
+  User,
+  Palette,
+  Globe,
+  Sun,
+  Moon,
+  Check,
+  ShieldCheck,
+  Lock,
+  Minus,
+  Plus,
+  RotateCcw,
+  ScanEye,
+} from "lucide-react";
 import { useApp, type Lang } from "@/lib/app-context";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { Slider } from "@/components/ui/slider";
+import { useUiScale, MIN_MANUAL, MAX_MANUAL, MANUAL_STEP } from "@/hooks/use-ui-scale";
 
 const SECTIONS = [
   { id: "user", icon: User, key: "user_settings" },
@@ -194,7 +209,82 @@ function InterfaceSection() {
           />
         </div>
       </Card>
+
+      <UiScaleCard />
     </div>
+  );
+}
+
+function UiScaleCard() {
+  const { autoFit, manualPct, effective, setManualPct, bump, reset } = useUiScale();
+
+  return (
+    <Card>
+      <CardHeader title="Ekran o'lchami (masshtab)" icon={ScanEye} />
+      <p className="mb-4 text-xs text-muted-foreground">
+        Dastur ekran o'lchamiga avtomatik moslashadi. Kerak bo'lsa quyidan qo'lda
+        kattalashtiring yoki kichiklashtiring — sozlama shu qurilmada saqlanadi.
+        Klaviaturada <kbd className="rounded border px-1">Ctrl</kbd> +{" "}
+        <kbd className="rounded border px-1">+</kbd> /{" "}
+        <kbd className="rounded border px-1">−</kbd> /{" "}
+        <kbd className="rounded border px-1">0</kbd>.
+      </p>
+
+      <div className="flex items-center gap-3">
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          onClick={() => bump(-MANUAL_STEP)}
+          disabled={manualPct <= MIN_MANUAL}
+          aria-label="Kichiklashtirish"
+        >
+          <Minus className="h-4 w-4" />
+        </Button>
+
+        <Slider
+          value={[manualPct]}
+          min={MIN_MANUAL}
+          max={MAX_MANUAL}
+          step={MANUAL_STEP}
+          onValueChange={(v) => setManualPct(v[0] ?? 100)}
+          className="flex-1"
+        />
+
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          onClick={() => bump(MANUAL_STEP)}
+          disabled={manualPct >= MAX_MANUAL}
+          aria-label="Kattalashtirish"
+        >
+          <Plus className="h-4 w-4" />
+        </Button>
+
+        <div className="w-14 text-right text-sm font-semibold tabular-nums">{manualPct}%</div>
+
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={reset}
+          disabled={manualPct === 100}
+          aria-label="Tiklash"
+        >
+          <RotateCcw className="h-4 w-4" />
+        </Button>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+        <span>
+          Avtomatik moslash: <b>{Math.round(autoFit * 100)}%</b>
+        </span>
+        <span>
+          Natijaviy masshtab: <b>{Math.round(effective * 100)}%</b>
+        </span>
+      </div>
+    </Card>
   );
 }
 

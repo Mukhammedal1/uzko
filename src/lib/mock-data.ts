@@ -15,6 +15,11 @@ export type Product = {
   barcode: string;
   customCode: string;
   unit: string;
+  /**
+   * Ikkinchi (qadoq) birligi — masalan tovar "dona | karobka" birlikda sotilsa,
+   * `unit` = "dona", `packUnit` = "karobka". `perBox` — bitta qadoqdagi dona soni.
+   */
+  packUnit?: string;
   warehouse: string;
   vitrinaQty: number;
   omborQty: number;
@@ -84,9 +89,29 @@ export type CustomerDebtReceipt = {
 
 export type CreditCustomer = {
   id: string;
+  /** "individual" — jismoniy shaxs; "legal" — yuridik shaxs (tashkilot). */
+  kind?: "individual" | "legal";
+  /** Yuridik shaxs bo'lsa — tashkilot nomi. */
+  companyName?: string;
+  /** Yuridik shaxs bo'lsa — tashkilot STIR (INN). */
+  inn?: string;
   firstName: string;
   lastName: string;
   phone?: string;
+  /** Qo'shimcha (qarindosh/ikkinchi) telefon raqami — eski format. */
+  altPhone?: string;
+  /** Qo'shimcha telefon raqamlari (istalgancha). */
+  altPhones?: string[];
+  /** JSHSHIR (PINFL) — 14 raqam. */
+  jshshir?: string;
+  /** Passport seriya va raqami, masalan "AA1234567". */
+  passport?: string;
+  /** Manzil yoki mo'ljal. */
+  address?: string;
+  /** Erkin qo'shimcha izoh. */
+  note?: string;
+  /** Mijoz rasmi — data URL yoki tashqi havola. */
+  photo?: string;
   botEnabled?: boolean;
   role: "prorab" | "usta" | "mijoz";
   limit: number;
@@ -2146,13 +2171,42 @@ export const MOCK_PRODUCTS: Product[] = [
     perBox: 12,
     salesHistory: genHistory(60, 4),
   },
-].map((product: Product) => ({
+].map((product: Product, index: number) => ({
   ...product,
   wholesalePrice:
     product.wholesalePrice ??
     Math.max(0, Math.round(product.price * (product.price > 5000 ? 0.92 : 0.95))),
   image: product.image ?? placeholderProductImage(product),
+  // Demo: polka bo'yicha filtr ishlashi uchun har bir tovarga ombor kodi + raqamli polka biriktiriladi.
+  shelfLocation:
+    product.shelfLocation ||
+    `${(product.warehouse.replace(/[^A-Za-z]/g, "").slice(0, 3) || "OMB").toUpperCase()}-${String(
+      (index % 15) + 1,
+    ).padStart(2, "0")}`,
 }));
+
+/** Demo ta'minotchi agentlar — tovarlarni agent bo'yicha filtrlash uchun. */
+const DEMO_SUPPLY_AGENTS = ["Bekzod Agent", "Sardor Ta'minot", "Jasur Logistika"];
+
+/**
+ * Tovar nomi bo'yicha uni yetkazib bergan agentni qaytaradi: avval haqiqiy
+ * prixod/ta'minot tarixidan, topilmasa — nom bo'yicha barqaror demo taqsimoti.
+ */
+export function getAgentForProductName(productName: string): string {
+  for (const entry of MOCK_PRODUCT_HISTORY) {
+    if (entry.productName === productName && entry.agentName) return entry.agentName;
+  }
+  for (const report of MOCK_SUPPLIER_REPORTS) {
+    if (report.agentName && report.items.some((item) => item.productName === productName)) {
+      return report.agentName;
+    }
+  }
+  let hash = 0;
+  for (let i = 0; i < productName.length; i += 1) {
+    hash = (hash * 31 + productName.charCodeAt(i)) | 0;
+  }
+  return DEMO_SUPPLY_AGENTS[Math.abs(hash) % DEMO_SUPPLY_AGENTS.length];
+}
 
 export const MOCK_MASTERS: Master[] = [
   { cardNumber: "1001", firstName: "Akmal", lastName: "Karimov", balance: 245000 },
@@ -2346,6 +2400,18 @@ export type SupplierReport = {
   agentId: string;
   agentName: string;
   agentPhone: string;
+  /** Qo'shimcha (ikkinchi) telefon raqami — eski format. */
+  agentAltPhone?: string;
+  /** Qo'shimcha telefon raqamlari (istalgancha). */
+  agentAltPhones?: string[];
+  /** Agent rasmi — data URL yoki tashqi havola. */
+  agentPhoto?: string;
+  /** Tashkilot / firma nomi. */
+  companyName?: string;
+  /** Tashkilot STIR (INN) raqami. */
+  inn?: string;
+  /** Manzil yoki mo'ljal. */
+  address?: string;
   botEnabled?: boolean;
   items: { productName: string; qty: number; unit: string; amount: number }[];
   totalAmount: number;
@@ -2545,8 +2611,8 @@ export const MOCK_PRODUCT_HISTORY_EDIT_LOG: ProductHistoryEditLog[] = [];
 
 // ─── Sanoq (reviziya) ───────────────────────────────────────────────────────
 
-/** Sanoq qaysi qamrovda o'tkazildi: butun baza yoki bitta ombor. */
-export type StockCountScope = "all" | "warehouse";
+/** Sanoq qaysi qamrovda o'tkazildi: butun baza, bitta ombor yoki qo'lda tanlangan tovarlar. */
+export type StockCountScope = "all" | "warehouse" | "custom";
 
 export type StockCountLine = {
   productId: string;
@@ -2573,7 +2639,7 @@ export type StockCount = {
   date: string;
   countedBy: string;
   scope: StockCountScope;
-  /** scope "warehouse" bo'lsa — ombor nomi. */
+  /** scope "warehouse" bo'lsa — ombor nomi; scope "custom" bo'lsa — tanlangan tovar soni. */
   scopeValue?: string;
   totalLines: number;
   countedLines: number;

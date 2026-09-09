@@ -30,11 +30,12 @@ export function QuantityModal({ product, open, onOpenChange, onAdd, currency = "
   const [amountMode, setAmountMode] = React.useState<"qty" | "amount">("qty");
   const [selectedPriceMode, setSelectedPriceMode] = React.useState<PriceMode>("retail");
 
+  // Qadoq birligi aniq belgilangan tovar (packUnit) — har doim dona/karobka tanlovi;
+  // eski "dona" + perBox tovarlarda esa faqat optom narxda.
   const hasBoxOption =
     !!product &&
-    selectedPriceMode === "wholesale" &&
-    product.unit === "dona" &&
-    (product.perBox ?? 0) > 1;
+    (product.perBox ?? 0) > 1 &&
+    (!!product.packUnit || (product.unit === "dona" && selectedPriceMode === "wholesale"));
   const isWeightUnit = !!product && WEIGHT_UNITS.has(product.unit);
 
   React.useEffect(() => {
@@ -150,7 +151,7 @@ export function QuantityModal({ product, open, onOpenChange, onAdd, currency = "
                 (boxMode === "dona" ? "bg-card text-primary shadow-sm" : "text-muted-foreground")
               }
             >
-              Dona
+              {product.unit.replace(/^./, (c) => c.toUpperCase())}
             </button>
             <button
               type="button"
@@ -163,7 +164,8 @@ export function QuantityModal({ product, open, onOpenChange, onAdd, currency = "
                 (boxMode === "karobka" ? "bg-card text-primary shadow-sm" : "text-muted-foreground")
               }
             >
-              Karobka ({product.perBox} dona)
+              {(product.packUnit ?? "karobka").replace(/^./, (c) => c.toUpperCase())} (
+              {product.perBox} {product.unit})
             </button>
           </div>
         )}
@@ -205,8 +207,8 @@ export function QuantityModal({ product, open, onOpenChange, onAdd, currency = "
           <Label className="mb-2 block">
             {hasBoxOption
               ? boxMode === "karobka"
-                ? "Nechta karobka"
-                : "Umumiy soni (dona)"
+                ? `Nechta ${product.packUnit ?? "karobka"}`
+                : `Umumiy soni (${product.unit})`
               : isWeightUnit && amountMode === "amount"
                 ? "Summasi (so'm)"
                 : `Umumiy soni (${product.unit})`}
@@ -221,7 +223,9 @@ export function QuantityModal({ product, open, onOpenChange, onAdd, currency = "
             onKeyDown={(e) => e.key === "Enter" && handleAdd()}
           />
           {hasBoxOption && boxMode === "karobka" && enteredValue > 0 && (
-            <p className="mt-1 text-xs text-muted-foreground">= {numQty} dona</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              = {numQty} {product.unit}
+            </p>
           )}
           {isWeightUnit && amountMode === "amount" && enteredValue > 0 && (
             <p className="mt-1 text-xs text-muted-foreground">

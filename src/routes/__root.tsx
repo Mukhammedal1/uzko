@@ -10,6 +10,7 @@ import {
 } from "@tanstack/react-router";
 import { AppProvider } from "@/lib/app-context";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
+import { UiScaleProvider } from "@/hooks/use-ui-scale";
 
 import appCss from "../styles.css?url";
 
@@ -124,11 +125,13 @@ function RootShell({ children }: { children: React.ReactNode }) {
 function RootComponent() {
   return (
     <AppProvider>
-      <AuthProvider>
-        <AuthGate>
-          <Outlet />
-        </AuthGate>
-      </AuthProvider>
+      <UiScaleProvider>
+        <AuthProvider>
+          <AuthGate>
+            <Outlet />
+          </AuthGate>
+        </AuthProvider>
+      </UiScaleProvider>
     </AppProvider>
   );
 }

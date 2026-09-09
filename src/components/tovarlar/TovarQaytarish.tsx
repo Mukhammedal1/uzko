@@ -371,10 +371,22 @@ export function TovarQaytarish({ exchangeShortcut = false, onExchangeCreated }: 
       total: refundTotal,
       reason: `${reason}${receiptNumber.trim() ? ` · Asl chek: ${receiptNumber.trim()}` : " · Asl chek kiritilmadi"}${noReceiptDiscount > 0 ? ` · ${normalizedPenaltyPercent}% jarima/skidka: ${formatSom(noReceiptDiscount)}` : ""}`,
       comment: comment.trim() || undefined,
-      vehicleName: effectiveCustomerType === "agent" && routeEnabled ? vehicleName.trim() || undefined : undefined,
-      vehiclePlate: effectiveCustomerType === "agent" && routeEnabled ? vehiclePlate.trim() || undefined : undefined,
-      driverName: effectiveCustomerType === "agent" && routeEnabled ? driverName.trim() || undefined : undefined,
-      driverPhone: effectiveCustomerType === "agent" && routeEnabled ? driverPhone.trim() || undefined : undefined,
+      vehicleName:
+        effectiveCustomerType === "agent" && routeEnabled
+          ? vehicleName.trim() || undefined
+          : undefined,
+      vehiclePlate:
+        effectiveCustomerType === "agent" && routeEnabled
+          ? vehiclePlate.trim() || undefined
+          : undefined,
+      driverName:
+        effectiveCustomerType === "agent" && routeEnabled
+          ? driverName.trim() || undefined
+          : undefined,
+      driverPhone:
+        effectiveCustomerType === "agent" && routeEnabled
+          ? driverPhone.trim() || undefined
+          : undefined,
       receiptNumber: receiptNumber.trim() || undefined,
       noReceiptDiscount,
       penaltyPercent: normalizedPenaltyPercent,
@@ -776,12 +788,16 @@ export function TovarQaytarish({ exchangeShortcut = false, onExchangeCreated }: 
                       {productModal.omborQty} {productModal.unit}
                     </b>
                   </div>
-                  <div className="rounded-lg bg-card p-2">
-                    <span className="text-muted-foreground">Karobka</span>
-                    <b className="block">
-                      {productModal.perBox ?? 1} {productModal.unit}
-                    </b>
-                  </div>
+                  {(productModal.perBox ?? 0) > 1 && (
+                    <div className="rounded-lg bg-card p-2">
+                      <span className="text-muted-foreground">
+                        1 {productModal.packUnit ?? "karobka"}
+                      </span>
+                      <b className="block">
+                        {productModal.perBox} {productModal.unit}
+                      </b>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -827,9 +843,9 @@ export function TovarQaytarish({ exchangeShortcut = false, onExchangeCreated }: 
               </div>
 
               <div className="grid grid-cols-2 gap-3">
-                {modalPriceMode === "wholesale" &&
-                productModal.unit === "dona" &&
-                (productModal.perBox ?? 0) > 1 ? (
+                {(productModal.perBox ?? 0) > 1 &&
+                (!!productModal.packUnit ||
+                  (modalPriceMode === "wholesale" && productModal.unit === "dona")) ? (
                   <div>
                     <Label className="mb-1 block text-xs">O'lchov</Label>
                     <div className="grid grid-cols-2 gap-1 rounded-lg border bg-muted/30 p-1">
@@ -840,7 +856,7 @@ export function TovarQaytarish({ exchangeShortcut = false, onExchangeCreated }: 
                         onClick={() => setModalMode("dona")}
                       >
                         <PackageOpen className="h-3.5 w-3.5" />
-                        Dona
+                        {productModal.unit.replace(/^./, (c) => c.toUpperCase())}
                       </Button>
                       <Button
                         type="button"
@@ -849,7 +865,7 @@ export function TovarQaytarish({ exchangeShortcut = false, onExchangeCreated }: 
                         onClick={() => setModalMode("karobka")}
                       >
                         <Box className="h-3.5 w-3.5" />
-                        Karobka
+                        {(productModal.packUnit ?? "karobka").replace(/^./, (c) => c.toUpperCase())}
                       </Button>
                     </div>
                   </div>
@@ -986,7 +1002,8 @@ export function TovarQaytarish({ exchangeShortcut = false, onExchangeCreated }: 
                 </div>
                 {suggestedAgent && agentId === suggestedAgent.id && (
                   <div className="mb-2 rounded-md bg-primary/10 px-2 py-1 text-[11px] font-semibold text-primary">
-                    Avtomatik tanlandi: shu tovarni oxirgi marta {suggestedAgent.name} olib kelgan edi
+                    Avtomatik tanlandi: shu tovarni oxirgi marta {suggestedAgent.name} olib kelgan
+                    edi
                   </div>
                 )}
                 <Select value={agentId} onValueChange={setAgentId}>
