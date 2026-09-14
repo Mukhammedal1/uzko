@@ -673,6 +673,18 @@
   flex-shrink: 0 !important;
 }
 
+/* --- Radix floating layers (dropdown / popover / select / tooltip) + `zoom` tuzatish ---
+   `zoom` <html> ga qo'yilgani uchun, Radix popper `transform: translate(x,y)` bilan
+   joylashtirgan qatlam yana bir marta koeffitsientga ko'payadi va tugmadan uzoqda
+   (odatda chap-yuqoriga siljib) chiqadi. Wrapper'ga teskari `zoom` berib net
+   koeffitsientni 1 ga keltiramiz, ichidagi kontent esa ilova miqyosida qoladi. */
+[data-radix-popper-content-wrapper] {
+  zoom: calc(1 / var(--app-zoom, 1));
+}
+[data-radix-popper-content-wrapper] > * {
+  zoom: var(--app-zoom, 1);
+}
+
 .responsive-main {
   min-height: 0 !important;
   flex: 1 1 0% !important;

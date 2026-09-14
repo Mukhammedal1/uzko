@@ -1,4 +1,5 @@
 import * as React from "react";
+import type { PrintSettings } from "@/lib/label-print";
 
 // ─── Til / i18n ─────────────────────────────────────────────────────────────
 
@@ -490,20 +491,7 @@ export type AppSettings = {
   units: UnitEntry[];
   shelfLocations: ShelfLocationEntry[];
   quickAddToCart: boolean;
-  labelPrintSettings?: {
-    receiptMode: boolean;
-    includeName: boolean;
-    includePrice: boolean;
-    includeBarcode: boolean;
-    includeCustomCode: boolean;
-    includeShelfLocation: boolean;
-    size: "small" | "medium" | "large";
-    fieldScale: Record<"name" | "barcode" | "code" | "price" | "shelf", number>;
-    paperSize: "thermal58" | "thermal80" | "a6" | "a4";
-    commentEnabled: boolean;
-    comment: string;
-    matchStockQty: boolean;
-  };
+  labelPrintSettings?: PrintSettings;
 };
 
 const DEFAULT_SETTINGS: AppSettings = {

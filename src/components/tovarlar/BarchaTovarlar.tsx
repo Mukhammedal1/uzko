@@ -27,6 +27,7 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -34,9 +35,9 @@ import {
   ArrowLeft,
   Barcode,
   Check,
-  CheckSquare,
   ChevronDown,
   Columns3,
+  DollarSign,
   Download,
   FileSpreadsheet,
   Filter,
@@ -50,6 +51,7 @@ import {
   Printer,
   ReceiptText,
   Save,
+  ScanLine,
   Search,
   Tag,
   Trash2,
@@ -77,12 +79,21 @@ import {
 import {
   DEFAULT_PRINT_SETTINGS,
   LABEL_SIZE_PRESETS,
+  MIN_LABEL_MARGIN_MM,
+  buildBarcodeSvg,
+  clampMarginMm,
+  flattenPrintQueue,
+  formatCostCode,
+  getLabelDimensionsMm,
   printProductLabels,
+  type LabelPreset,
   type PrintField,
   type PrintSettings,
+  type ScanCodeSource,
 } from "@/lib/label-print";
 import { useApp } from "@/lib/app-context";
 import { joinBarcodes, makeUniqueBarcode, splitBarcodes } from "@/lib/barcode-utils";
+import { formatNumberInput, parseNumberInput } from "@/lib/utils";
 import type { ProductCreateMode } from "@/routes/tovarlar";
 import { toast } from "sonner";
 
@@ -135,13 +146,7 @@ const HIDDEN_COLUMNS_STORAGE_KEY = "uzko-tovarlar-hidden-columns";
 type ExportFormat = "excel" | "pdf";
 
 type ExportColumnKey =
-  | "name"
-  | "qty"
-  | "costPrice"
-  | "wholesalePrice"
-  | "price"
-  | "barcode"
-  | "supplier";
+  "name" | "qty" | "costPrice" | "wholesalePrice" | "price" | "barcode" | "supplier";
 
 const EXPORT_COLUMNS: { key: ExportColumnKey; label: string }[] = [
   { key: "name", label: "Mahsulot nomi" },
@@ -236,7 +241,6 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
   const [writeOffOpen, setWriteOffOpen] = React.useState(false);
   const [writeOffRows, setWriteOffRows] = React.useState<WriteOffRow[]>([]);
   const [writeOffReason, setWriteOffReason] = React.useState("");
-  const [addMenuOpen, setAddMenuOpen] = React.useState(false);
   const [excelModalOpen, setExcelModalOpen] = React.useState(false);
   const [mergeAgentOpen, setMergeAgentOpen] = React.useState(false);
   const [mergeAgentId, setMergeAgentId] = React.useState<string>("__new__");
@@ -244,9 +248,14 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
   const [mergeAgentPhone, setMergeAgentPhone] = React.useState("");
   const [mergeMode, setMergeMode] = React.useState<"current-stock" | "zero-debt">("current-stock");
   const [mergeNote, setMergeNote] = React.useState("");
-  const [printSettings, setPrintSettings] = React.useState<PrintSettings>(
-    () => settings.labelPrintSettings ?? DEFAULT_PRINT_SETTINGS,
-  );
+  const [printSettings, setPrintSettings] = React.useState<PrintSettings>(() => ({
+    ...DEFAULT_PRINT_SETTINGS,
+    ...settings.labelPrintSettings,
+    fieldScale: {
+      ...DEFAULT_PRINT_SETTINGS.fieldScale,
+      ...settings.labelPrintSettings?.fieldScale,
+    },
+  }));
   const [stockFilter, setStockFilter] = React.useState<"all" | "limited">("all");
   const [supplierFilter, setSupplierFilter] = React.useState<string>("ALL");
   const [draft, setDraft] = React.useState<EditDraft>({
@@ -266,7 +275,8 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
     return MOCK_PRODUCTS.filter((p) => {
       if (warehouse !== "ALL" && p.warehouse !== warehouse) return false;
       if (stockFilter === "limited" && !isProductAtLimit(p)) return false;
-      if (supplierFilter !== "ALL" && getSupplierForProduct(p.name) !== supplierFilter) return false;
+      if (supplierFilter !== "ALL" && getSupplierForProduct(p.name) !== supplierFilter)
+        return false;
       if (!q) return true;
       return (
         p.name.toLowerCase().includes(q) ||
@@ -988,10 +998,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
 
   const exportToExcel = () => {
     const { columns, rows } = buildExportRows();
-    const worksheet = XLSX.utils.aoa_to_sheet([
-      columns.map((c) => c.label),
-      ...rows,
-    ]);
+    const worksheet = XLSX.utils.aoa_to_sheet([columns.map((c) => c.label), ...rows]);
     worksheet["!cols"] = columns.map(() => ({ wch: 20 }));
 
     const workbook = XLSX.utils.book_new();
@@ -1029,12 +1036,47 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
     }
     return selectedProducts.map((product) => ({ product, copies: 1 }));
   }, [selectedProducts, printSettings.matchStockQty]);
-  const printQueueCount = printQueue.reduce((sum, item) => sum + item.copies, 0);
+  const printFlatQueue = React.useMemo(() => flattenPrintQueue(printQueue), [printQueue]);
+
+  // Ko'p sonli yorliqni bir necha qismga bo'lib chop etish uchun ikki
+  // alohida boshqaruv bor: usul (dropdown — hammasi bir yo'la / necha
+  // qismga bo'lib / necha tadan) va shu usulga mos son (input). Ikkisidan
+  // qaysi tanlansa ham, natijada bitta "qism o'lchami" (printEffectiveBatch)
+  // hisoblanadi — chop etilganlik shu bitta hisoblagich (printedCount)
+  // orqali kuzatiladi, shuning uchun usul yoki son o'zgarganda ham allaqachon
+  // chop etilgan yorliqlar qayta bosilmaydi. Tovarlar ro'yxati o'zgarsa
+  // (masalan tanlov yoki "Miqdorga mos chop etish" o'zgarsa) yoki dialog
+  // qayta ochilsa, hisoblagich boshidan (0) qilinadi.
+  const [printSplitMode, setPrintSplitMode] = React.useState<"all" | "parts" | "batch">("all");
+  const [printSplitValue, setPrintSplitValue] = React.useState("");
+  const [printedCount, setPrintedCount] = React.useState(0);
+  React.useEffect(() => {
+    setPrintedCount(0);
+  }, [printOpen, printFlatQueue]);
+
+  const printSplitValueNum = parseNumberInput(printSplitValue) || 0;
+  const printEffectiveBatch =
+    printSplitMode === "batch" && printSplitValueNum > 0
+      ? printSplitValueNum
+      : printSplitMode === "parts" && printSplitValueNum > 0
+        ? Math.max(1, Math.ceil((printFlatQueue.length || 1) / printSplitValueNum))
+        : printFlatQueue.length || 1;
+  const printRemaining = Math.max(0, printFlatQueue.length - printedCount);
+  const printNextBatchCount = Math.min(printEffectiveBatch, printRemaining);
+  const printTotalParts = Math.max(
+    1,
+    Math.ceil((printFlatQueue.length || 1) / printEffectiveBatch),
+  );
 
   const printSelected = () => {
-    if (printQueue.length === 0) return;
-    printProductLabels(printQueue, printSettings);
-    setPrintOpen(false);
+    const batch = printFlatQueue
+      .slice(printedCount, printedCount + printNextBatchCount)
+      .map((product) => ({ product, copies: 1 }));
+    if (batch.length === 0) return;
+    printProductLabels(batch, printSettings);
+    const nextCount = printedCount + batch.length;
+    setPrintedCount(nextCount);
+    if (nextCount >= printFlatQueue.length) setPrintOpen(false);
   };
 
   const saveLabelPrintDefaults = () => {
@@ -1151,38 +1193,28 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
             className="h-10 pl-9 text-sm"
           />
         </div>
-        <Popover open={addMenuOpen} onOpenChange={setAddMenuOpen}>
-          <PopoverTrigger asChild>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
             <Button className="h-10 gap-2">
               <PackagePlus className="h-4 w-4" /> Yangi tovar qo'shish
               <ChevronDown className="h-3.5 w-3.5 opacity-70" />
             </Button>
-          </PopoverTrigger>
-          <PopoverContent align="start" className="w-64 space-y-1 p-2">
-            <button
-              type="button"
-              onClick={() => {
-                setAddMenuOpen(false);
-                onSetCreateMode("qabul");
-              }}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm font-medium hover:bg-muted"
-            >
-              <PackagePlus className="h-4 w-4" />
-              Yangi tovar qo'shish
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setAddMenuOpen(false);
-                setExcelModalOpen(true);
-              }}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm font-medium hover:bg-muted"
-            >
-              <FileSpreadsheet className="h-4 w-4" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            sideOffset={6}
+            className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-52 normal-case tracking-normal"
+          >
+            <DropdownMenuItem onSelect={() => onSetCreateMode("qabul")}>
+              <PackagePlus className="mr-2 h-4 w-4" />
+              Qo'lda qo'shish
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setExcelModalOpen(true)}>
+              <FileSpreadsheet className="mr-2 h-4 w-4" />
               Exceldan yuklash
-            </button>
-          </PopoverContent>
-        </Popover>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Button
           onClick={() => setExportOpen(true)}
           variant="outline"
@@ -1212,22 +1244,20 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10 bg-muted/80 backdrop-blur">
             <tr className="border-b text-xs uppercase tracking-wide text-muted-foreground">
-              <th className="w-12 px-4 py-2.5 text-left font-semibold"></th>
+              <th className="w-12 px-4 py-2.5 text-left font-semibold">
+                <Checkbox
+                  checked={
+                    allFilteredSelected ? true : selectedIds.size > 0 ? "indeterminate" : false
+                  }
+                  onCheckedChange={() =>
+                    allFilteredSelected ? clearSelection() : selectAllFiltered()
+                  }
+                  title="Barchasini belgilash"
+                  aria-label="Barchasini belgilash"
+                />
+              </th>
               <th className="px-4 py-2.5 text-left font-semibold">
                 <div className="flex items-center gap-2">
-                  {selectedIds.size > 2 && !allFilteredSelected && (
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="outline"
-                      className="h-7 w-7"
-                      onClick={selectAllFiltered}
-                      title="Barchasini belgilash"
-                      aria-label="Barchasini belgilash"
-                    >
-                      <CheckSquare className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
                   {selectedIds.size > 0 && (
                     <Button
                       type="button"
@@ -1698,15 +1728,10 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
               <Label>Qaysi ustunlar chiqsin?</Label>
               <div className="grid grid-cols-2 gap-2 rounded-lg border p-3">
                 {EXPORT_COLUMNS.map((col) => (
-                  <label
-                    key={col.key}
-                    className="flex items-center gap-2 text-sm font-normal"
-                  >
+                  <label key={col.key} className="flex items-center gap-2 text-sm font-normal">
                     <Checkbox
                       checked={exportColumns.has(col.key)}
-                      onCheckedChange={(checked) =>
-                        toggleExportColumn(col.key, checked === true)
-                      }
+                      onCheckedChange={(checked) => toggleExportColumn(col.key, checked === true)}
                     />
                     {col.label}
                   </label>
@@ -1967,55 +1992,6 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
           </DialogHeader>
           <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_280px]">
             <div className="space-y-3">
-              <div className="rounded-lg border bg-muted/30 p-3 text-sm">
-                <div className="font-semibold">{selectedProducts.length} ta mahsulot tanlangan</div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  Kerakli ko'rinish, qog'oz razmeri va kattalikni shu yerdan o'zgartiring.
-                </div>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-lg border p-3">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setPrintSettings((current) => ({
-                        ...current,
-                        receiptMode: !current.receiptMode,
-                      }))
-                    }
-                    className="flex w-full items-center justify-between text-left"
-                  >
-                    <span className="flex items-center gap-2 text-xs font-semibold">
-                      <ReceiptText className="h-4 w-4" /> Chek holati
-                    </span>
-                    <span className="text-xs font-bold text-primary">
-                      {printSettings.receiptMode ? "Yoqilgan" : "Ixtiyoriy"}
-                    </span>
-                  </button>
-                </div>
-
-                <div className="rounded-lg border p-3">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setPrintSettings((current) => ({
-                        ...current,
-                        matchStockQty: !current.matchStockQty,
-                      }))
-                    }
-                    className="flex w-full items-center justify-between text-left"
-                  >
-                    <span className="flex items-center gap-2 text-xs font-semibold">
-                      <PackagePlus className="h-4 w-4" /> Miqdorga mos chop etish
-                    </span>
-                    <span className="text-xs font-bold text-primary">
-                      {printSettings.matchStockQty ? "Yoqilgan" : "Ixtiyoriy"}
-                    </span>
-                  </button>
-                </div>
-              </div>
-
               <div className="space-y-2 rounded-lg border p-3">
                 <Label className="text-xs">Maydonlar va har birining o'lchami</Label>
                 <div className="grid gap-1.5 sm:grid-cols-2">
@@ -2109,63 +2085,232 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                       }))
                     }
                   />
+                  <PrintFieldRow
+                    icon={<DollarSign className="h-3.5 w-3.5" />}
+                    title="Tan narx (maxfiy kod)"
+                    active={printSettings.includeCostPrice}
+                    scale={printSettings.fieldScale.cost}
+                    onToggle={() =>
+                      setPrintSettings((current) => ({
+                        ...current,
+                        includeCostPrice: !current.includeCostPrice,
+                      }))
+                    }
+                    onScaleChange={(next) =>
+                      setPrintSettings((current) => ({
+                        ...current,
+                        fieldScale: { ...current.fieldScale, cost: next },
+                      }))
+                    }
+                  />
                 </div>
+                {printSettings.includeCostPrice && (
+                  <p className="-mt-1 text-[11px] text-muted-foreground">
+                    Tan narx xaridorga oddiy kod bo'lib ko'rinishi uchun raqam oldiga "0" qo'shib,
+                    pul birligisiz bosiladi (masalan 5 → 05, 54000 → 054000).
+                  </p>
+                )}
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-2 rounded-lg border p-3">
-                  <Label className="text-xs">Qog'oz razmeri</Label>
+              <div className="space-y-1.5 rounded-lg border p-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <Label className="flex items-center gap-1.5 text-[11px]">
+                    <ScanLine className="h-3.5 w-3.5" /> Skanerlanadigan kod
+                  </Label>
+                  <div className="flex gap-1">
+                    {(
+                      [
+                        { value: "barcode" as const, label: "Shtrix kod" },
+                        { value: "customCode" as const, label: "Artikul" },
+                      ] satisfies { value: ScanCodeSource; label: string }[]
+                    ).map((item) => (
+                      <Button
+                        key={item.value}
+                        type="button"
+                        size="sm"
+                        variant={
+                          printSettings.scanCodeSource === item.value ? "default" : "outline"
+                        }
+                        className="h-7 px-2.5 text-[11px]"
+                        onClick={() =>
+                          setPrintSettings((current) => ({
+                            ...current,
+                            scanCodeSource: item.value,
+                          }))
+                        }
+                      >
+                        {item.label}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+                <p className="text-[10px] leading-snug text-muted-foreground">
+                  Tanlangan kod tayoqcha skaner o'qiy oladigan chiziqlar bilan bosiladi; ikkinchisi
+                  (yoqilgan bo'lsa) oddiy matn sifatida chiqadi.
+                </p>
+              </div>
+
+              <div className="space-y-2 rounded-lg border p-3">
+                <Label className="text-xs">Qog'oz razmeri</Label>
+                <Select
+                  value={printSettings.labelPreset}
+                  onValueChange={(value: LabelPreset) =>
+                    setPrintSettings((current) => ({ ...current, labelPreset: value }))
+                  }
+                >
+                  <SelectTrigger className="h-9 text-sm">
+                    <SelectValue placeholder="Qog'oz razmeri" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="58x40">58×40mm</SelectItem>
+                    <SelectItem value="40x30">40×30mm</SelectItem>
+                    <SelectItem value="30x20">30×20mm</SelectItem>
+                    <SelectItem value="custom">Boshqa (ixtiyoriy o'lcham)</SelectItem>
+                  </SelectContent>
+                </Select>
+                {printSettings.labelPreset === "custom" && (
                   <div className="grid grid-cols-2 gap-2">
-                    {[
-                      { value: "thermal58" as const, label: "58mm" },
-                      { value: "thermal80" as const, label: "80mm" },
-                      { value: "a6" as const, label: "A6" },
-                      { value: "a4" as const, label: "A4" },
-                    ].map((item) => (
-                      <Button
-                        key={item.value}
-                        type="button"
-                        variant={printSettings.paperSize === item.value ? "default" : "outline"}
-                        className="h-9 text-xs"
-                        onClick={() =>
-                          setPrintSettings((current) => ({ ...current, paperSize: item.value }))
+                    <div className="space-y-1">
+                      <Label className="text-[11px] text-muted-foreground">Kengligi (mm)</Label>
+                      <Input
+                        value={printSettings.labelWidthMm}
+                        onChange={(e) =>
+                          setPrintSettings((current) => ({
+                            ...current,
+                            labelWidthMm: parseNumberInput(e.target.value) || 0,
+                          }))
                         }
-                      >
-                        {item.label}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-2 rounded-lg border p-3">
-                  <Label className="text-xs">Bazaviy o'lcham</Label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {[
-                      { value: "small" as const, label: "Kichik" },
-                      { value: "medium" as const, label: "O'rtacha" },
-                      { value: "large" as const, label: "Katta" },
-                    ].map((item) => (
-                      <Button
-                        key={item.value}
-                        type="button"
-                        variant={printSettings.size === item.value ? "default" : "outline"}
-                        className="h-9 text-xs"
-                        onClick={() =>
-                          setPrintSettings((current) => ({ ...current, size: item.value }))
+                        inputMode="numeric"
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[11px] text-muted-foreground">Balandligi (mm)</Label>
+                      <Input
+                        value={printSettings.labelHeightMm}
+                        onChange={(e) =>
+                          setPrintSettings((current) => ({
+                            ...current,
+                            labelHeightMm: parseNumberInput(e.target.value) || 0,
+                          }))
                         }
-                      >
-                        {item.label}
-                      </Button>
-                    ))}
+                        inputMode="numeric"
+                        className="h-9 text-sm"
+                      />
+                    </div>
                   </div>
+                )}
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-muted-foreground">
+                    Chegara / margin (mm) — kamida {MIN_LABEL_MARGIN_MM}mm
+                  </Label>
+                  <Input
+                    value={printSettings.marginMm}
+                    onChange={(e) =>
+                      setPrintSettings((current) => ({
+                        ...current,
+                        marginMm: parseNumberInput(e.target.value) || 0,
+                      }))
+                    }
+                    onBlur={() =>
+                      setPrintSettings((current) => ({
+                        ...current,
+                        marginMm: clampMarginMm(current.marginMm),
+                      }))
+                    }
+                    inputMode="numeric"
+                    className="h-9 text-sm"
+                  />
+                  <p className="text-[10px] leading-snug text-muted-foreground">
+                    Matn/shtrix-kod bu chegaradan tashqariga chiqmasligi uchun qattiq cheklanadi —{" "}
+                    {MIN_LABEL_MARGIN_MM}mm dan kichik bo'lishi mumkin emas.
+                  </p>
                 </div>
               </div>
-              <p className="-mt-1 text-[11px] text-muted-foreground">
-                Bazaviy o'lcham barcha maydonlarning boshlang'ich razmerini belgilaydi; har birini
-                alohida moslashtirish uchun yuqoridagi ro'yxatdan foydalaning. "Miqdorga mos chop
-                etish" yoqilsa, har bir mahsulot uchun vitrinadagi qoldiq soniga teng miqdorda
-                shtrix kod chop etiladi.
-              </p>
+
+              <Button
+                type="button"
+                variant={printSettings.matchStockQty ? "default" : "outline"}
+                className="h-9 w-full justify-between gap-2 text-xs"
+                onClick={() =>
+                  setPrintSettings((current) => ({
+                    ...current,
+                    matchStockQty: !current.matchStockQty,
+                  }))
+                }
+              >
+                <span className="flex items-center gap-2">
+                  <PackagePlus className="h-4 w-4" /> Miqdorga mos chop etish
+                </span>
+                <span className="text-[11px] font-bold">
+                  {printSettings.matchStockQty ? "Yoqilgan" : "Ixtiyoriy"}
+                </span>
+              </Button>
+
+              <div className="space-y-2 rounded-lg border p-3">
+                <Label className="text-xs">Chop etish usuli</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <Select
+                    value={printSplitMode}
+                    onValueChange={(value: "all" | "parts" | "batch") => {
+                      setPrintSplitMode(value);
+                      setPrintSplitValue("");
+                    }}
+                  >
+                    <SelectTrigger className="h-9 text-sm">
+                      <SelectValue placeholder="Usul" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Hammasi bir yo'la</SelectItem>
+                      <SelectItem value="parts">Necha qismga bo'lib</SelectItem>
+                      <SelectItem value="batch">Necha tadan</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    value={printSplitValue}
+                    onChange={(e) => setPrintSplitValue(formatNumberInput(e.target.value))}
+                    onFocus={(e) => e.currentTarget.select()}
+                    inputMode="numeric"
+                    disabled={printSplitMode === "all"}
+                    placeholder={
+                      printSplitMode === "parts"
+                        ? "Masalan: 2"
+                        : printSplitMode === "batch"
+                          ? "Masalan: 20"
+                          : `Hammasi (${printFlatQueue.length} ta)`
+                    }
+                    className="h-9 text-sm"
+                  />
+                </div>
+                {printSplitMode !== "all" && (
+                  <p className="text-[10px] leading-snug text-muted-foreground">
+                    {printSplitMode === "parts"
+                      ? `${printFlatQueue.length} ta tovar ${printSplitValueNum > 0 ? printSplitValueNum : "?"} qismga bo'linsa, har qismda ${printEffectiveBatch} tadan bo'ladi.`
+                      : `Har safar "Print" bosilganda ${printEffectiveBatch} tadan chop etiladi (jami ${printTotalParts} qism).`}
+                  </p>
+                )}
+                <p className="text-[10px] leading-snug text-muted-foreground">
+                  Qaysi usul tanlansa ham, har safar "Print" bosilganda faqat{" "}
+                  <b>keyingi, hali chop etilmagan</b> qism chop etiladi — avval chop etilganlar
+                  qayta bosilmaydi.
+                </p>
+                {printFlatQueue.length > 0 && (
+                  <div className="flex items-center justify-between gap-2 rounded-md bg-muted/40 px-2 py-1.5 text-[11px]">
+                    <span>
+                      Chop etilgan: <b>{printedCount}</b> / {printFlatQueue.length} ta
+                    </span>
+                    {printedCount > 0 && printedCount < printFlatQueue.length && (
+                      <button
+                        type="button"
+                        className="font-semibold text-primary hover:underline"
+                        onClick={() => setPrintedCount(0)}
+                      >
+                        Boshidan boshlash
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
 
               <div className="space-y-2 rounded-lg border p-3">
                 <Button
@@ -2214,9 +2359,15 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
               <Button variant="outline" onClick={() => setPrintOpen(false)}>
                 Bekor
               </Button>
-              <Button onClick={printSelected} disabled={printQueue.length === 0} className="gap-2">
+              <Button
+                onClick={printSelected}
+                disabled={printNextBatchCount === 0}
+                className="gap-2"
+              >
                 <Printer className="h-4 w-4" />
-                Print ({printQueueCount})
+                {printedCount > 0
+                  ? `Keyingi qismni chop etish (${printNextBatchCount})`
+                  : `Print (${printNextBatchCount})`}
               </Button>
             </div>
           </DialogFooter>
@@ -2237,17 +2388,28 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
   );
 }
 
+/** Haqiqiy (tayoqcha skaner o'qiy oladigan) shtrix-kod chiziqlarini ko'rsatadi. */
+function BarcodePreview({ value, heightPx }: { value: string; heightPx: number }) {
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!containerRef.current) return;
+    containerRef.current.innerHTML = buildBarcodeSvg(value, { heightPx });
+  }, [value, heightPx]);
+
+  return (
+    <div ref={containerRef} className="mt-2 [&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-w-full" />
+  );
+}
+
 function PrintPreview({ product, settings }: { product?: Product; settings: PrintSettings }) {
   const previewProduct = product ?? MOCK_PRODUCTS[0];
   const base = LABEL_SIZE_PRESETS[settings.size];
   const fieldPx = (basePx: number, field: PrintField) =>
     Math.round(basePx * (settings.fieldScale[field] / 100));
-  const paperLabel = {
-    thermal58: "58mm lenta",
-    thermal80: "80mm lenta",
-    a6: "A6 qog'oz",
-    a4: "A4 qog'oz",
-  }[settings.paperSize];
+  const { width: labelWidth, height: labelHeight } = getLabelDimensionsMm(settings);
+  const paperLabel = `${labelWidth}×${labelHeight}mm`;
+  const previewScale = Math.min(6, 230 / labelWidth);
 
   return (
     <div className="rounded-lg border bg-muted/20 p-3">
@@ -2258,44 +2420,63 @@ function PrintPreview({ product, settings }: { product?: Product; settings: Prin
         </span>
       </div>
       <div
-        className={`mx-auto rounded-md border bg-white p-3 text-slate-900 shadow-sm ${
-          settings.receiptMode ? "max-w-[190px] border-dashed text-center" : "max-w-[230px]"
+        className={`mx-auto flex flex-col overflow-hidden rounded-md border bg-white p-3 text-slate-900 shadow-sm ${
+          settings.receiptMode ? "border-dashed text-center" : ""
         }`}
+        style={{
+          width: labelWidth * previewScale,
+          minHeight: labelHeight * previewScale,
+        }}
       >
         {settings.receiptMode && (
           <div className="mb-2 border-b border-dashed border-slate-400 pb-1 text-[10px] font-black tracking-widest">
             TOVAR CHEKI
           </div>
         )}
-        {settings.includeName && (
-          <div
-            className="font-bold leading-tight"
-            style={{ fontSize: fieldPx(base.nameSize, "name") }}
-          >
-            {previewProduct?.name ?? "Mahsulot nomi"}
-          </div>
-        )}
-        {settings.includeBarcode && (
-          <div
-            className="mt-2 break-all font-mono tracking-wide"
-            style={{ fontSize: fieldPx(base.barcodeSize, "barcode") }}
-          >
-            {previewProduct?.barcode || "8690123456789"}
-          </div>
-        )}
-        {settings.includeCustomCode && (
-          <div className="mt-1 text-slate-500" style={{ fontSize: fieldPx(base.codeSize, "code") }}>
-            {previewProduct?.customCode || "KOD-001"}
-          </div>
-        )}
         {settings.includePrice && (
           <div
-            className="mt-2 font-black text-slate-950"
+            className="text-center font-black text-slate-950"
             style={{ fontSize: fieldPx(base.priceSize, "price") }}
           >
             {formatSom(previewProduct?.price ?? 0)}
           </div>
         )}
+        {settings.includeName && (
+          <div
+            className="mt-1 font-bold leading-tight"
+            style={{ fontSize: fieldPx(base.nameSize, "name") }}
+          >
+            {previewProduct?.name ?? "Mahsulot nomi"}
+          </div>
+        )}
+        {settings.includeBarcode &&
+          (settings.scanCodeSource === "barcode" ? (
+            <BarcodePreview
+              value={previewProduct?.barcode || "8690123456789"}
+              heightPx={fieldPx(base.barcodeSize, "barcode") * 2}
+            />
+          ) : (
+            <div
+              className="mt-2 break-all font-mono tracking-wide"
+              style={{ fontSize: fieldPx(base.barcodeSize, "barcode") }}
+            >
+              {previewProduct?.barcode || "8690123456789"}
+            </div>
+          ))}
+        {settings.includeCustomCode &&
+          (settings.scanCodeSource === "customCode" ? (
+            <BarcodePreview
+              value={previewProduct?.customCode || "KOD-001"}
+              heightPx={fieldPx(base.barcodeSize, "barcode") * 2}
+            />
+          ) : (
+            <div
+              className="mt-1 text-slate-500"
+              style={{ fontSize: fieldPx(base.codeSize, "code") }}
+            >
+              {previewProduct?.customCode || "KOD-001"}
+            </div>
+          ))}
         {settings.includeShelfLocation && (
           <div
             className="mt-1 text-slate-500"
@@ -2307,6 +2488,14 @@ function PrintPreview({ product, settings }: { product?: Product; settings: Prin
         {settings.commentEnabled && settings.comment.trim() && (
           <div className="mt-2 border-t border-dashed border-slate-300 pt-1 text-[11px] text-slate-600">
             {settings.comment.trim()}
+          </div>
+        )}
+        {settings.includeCostPrice && (
+          <div
+            className="mt-auto pt-1 font-mono text-slate-400"
+            style={{ fontSize: fieldPx(base.costSize, "cost") }}
+          >
+            {formatCostCode(previewProduct?.costPrice ?? 0)}
           </div>
         )}
       </div>

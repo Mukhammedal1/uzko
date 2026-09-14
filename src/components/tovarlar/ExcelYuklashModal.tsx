@@ -234,6 +234,8 @@ export function ExcelYuklashModal({
   const printItems: PrintBarcodeItem[] = React.useMemo(() => {
     const retailCurrencyCode = currencies.find((c) => c.id === retailCurrencyId)?.code ?? "UZS";
     const retailRate = MOCK_RATES[retailCurrencyCode] ?? 1;
+    const purchaseCurrencyCode = currencies.find((c) => c.id === purchaseCurrencyId)?.code ?? "UZS";
+    const purchaseRate = MOCK_RATES[purchaseCurrencyCode] ?? 1;
     const shelfName = shelfId != null ? (shelfNumbers.find((s) => s.id === shelfId)?.name ?? "") : "";
     return validatedRows
       .filter((row) => row.errors.length === 0)
@@ -244,12 +246,21 @@ export function ExcelYuklashModal({
           barcode: row.barcodes.join(" | "),
           customCode: "",
           price: row.retail.value != null ? Math.round(row.retail.value * retailRate) : 0,
+          costPrice: row.purchase.value != null ? Math.round(row.purchase.value * purchaseRate) : 0,
           shelfLocation: shelfName,
         },
         qtyAdded: row.quantity.value ?? 0,
         barcodeAuto: fixedBarcodes.has(row.line) || row.barcodes.length === 0,
       }));
-  }, [validatedRows, currencies, retailCurrencyId, shelfId, shelfNumbers, fixedBarcodes]);
+  }, [
+    validatedRows,
+    currencies,
+    retailCurrencyId,
+    purchaseCurrencyId,
+    shelfId,
+    shelfNumbers,
+    fixedBarcodes,
+  ]);
 
   const openPrintDialog = () => {
     applyBarcodeAutoFix();
