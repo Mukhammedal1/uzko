@@ -36,6 +36,8 @@ import {
   Barcode,
   Check,
   ChevronDown,
+  ChevronRight,
+  ChevronUp,
   Columns3,
   DollarSign,
   Download,
@@ -78,6 +80,8 @@ import {
 } from "@/components/tovarlar/ExcelYuklashModal";
 import {
   DEFAULT_PRINT_SETTINGS,
+  FIELD_LABELS,
+  LABEL_FONT_OPTIONS,
   LABEL_SIZE_PRESETS,
   MIN_LABEL_MARGIN_MM,
   buildBarcodeSvg,
@@ -85,8 +89,11 @@ import {
   flattenPrintQueue,
   formatCostCode,
   getLabelDimensionsMm,
+  normalizeFieldOrder,
   printProductLabels,
+  type LabelFont,
   type LabelPreset,
+  type OrderableField,
   type PrintField,
   type PrintSettings,
   type ScanCodeSource,
@@ -1048,6 +1055,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
   // (masalan tanlov yoki "Miqdorga mos chop etish" o'zgarsa) yoki dialog
   // qayta ochilsa, hisoblagich boshidan (0) qilinadi.
   const [printSplitMode, setPrintSplitMode] = React.useState<"all" | "parts" | "batch">("all");
+  const [fieldOrderPageOpen, setFieldOrderPageOpen] = React.useState(false);
   const [printSplitValue, setPrintSplitValue] = React.useState("");
   const [printedCount, setPrintedCount] = React.useState(0);
   React.useEffect(() => {
@@ -1084,6 +1092,20 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
     toast.success("Print sozlamalari standart qilib saqlandi");
   };
 
+  // Yorliqdagi maydonlar (narx, nomi, shtrix kod, artikul, polka) tartibini
+  // foydalanuvchi o'zi belgilagan ketma-ketlikka ko'chirish uchun.
+  const moveFieldOrder = (field: OrderableField, direction: -1 | 1) => {
+    setPrintSettings((current) => {
+      const order = normalizeFieldOrder(current.fieldOrder);
+      const index = order.indexOf(field);
+      const nextIndex = index + direction;
+      if (nextIndex < 0 || nextIndex >= order.length) return current;
+      const next = [...order];
+      [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+      return { ...current, fieldOrder: next };
+    });
+  };
+
   if (bulkEditOpen) {
     return (
       <BulkEditPage
@@ -1095,6 +1117,460 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
         shelfLocations={settings.shelfLocations.map((l) => l.name)}
         t={t}
       />
+    );
+  }
+
+  if (fieldOrderPageOpen) {
+    return (
+      <FieldOrderPage
+        order={normalizeFieldOrder(printSettings.fieldOrder)}
+        onMove={moveFieldOrder}
+        onDone={() => setFieldOrderPageOpen(false)}
+      />
+    );
+  }
+
+  if (printOpen) {
+    return (
+      <div className="flex h-full flex-col">
+        <div className="flex flex-shrink-0 flex-wrap items-center gap-3 border-b bg-card p-3">
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-10 w-10"
+            onClick={() => setPrintOpen(false)}
+            title="Orqaga"
+            aria-label="Orqaga"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div className="text-base font-bold">Print sozlamalari</div>
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              className="gap-2"
+              onClick={saveLabelPrintDefaults}
+            >
+              <Save className="h-4 w-4" />
+              Standart qilib saqlash
+            </Button>
+            <Button variant="outline" onClick={() => setPrintOpen(false)}>
+              Bekor
+            </Button>
+            <Button onClick={printSelected} disabled={printNextBatchCount === 0} className="gap-2">
+              <Printer className="h-4 w-4" />
+              {printedCount > 0
+                ? `Keyingi qismni chop etish (${printNextBatchCount})`
+                : `Print (${printNextBatchCount})`}
+            </Button>
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto p-3">
+          <div className="grid min-h-0 gap-3 md:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="grid min-h-0 gap-3 sm:grid-cols-2 xl:grid-cols-3 [&>*]:h-fit">
+              <div className="space-y-2 rounded-lg border p-3">
+                <Label className="text-xs">Shrift (tovar nomi va narxi uchun)</Label>
+                <Select
+                  value={printSettings.fontFamily}
+                  onValueChange={(value: LabelFont) =>
+                    setPrintSettings((current) => ({ ...current, fontFamily: value }))
+                  }
+                >
+                  <SelectTrigger className="h-9 text-sm">
+                    <SelectValue placeholder="Shrift" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(
+                      Object.entries(LABEL_FONT_OPTIONS) as [
+                        LabelFont,
+                        { label: string; family: string },
+                      ][]
+                    ).map(([value, opt]) => (
+                      <SelectItem key={value} value={value} style={{ fontFamily: opt.family }}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[10px] leading-snug text-muted-foreground">
+                  Tovar nomi va narxi shu shriftda bosiladi — aniq va oson o'qilishi uchun tanlang.
+                </p>
+              </div>
+
+              <div className="space-y-2 rounded-lg border p-3">
+                <Label className="text-xs">Maydonlar va har birining o'lchami</Label>
+                <div className="grid gap-1.5 sm:grid-cols-2">
+                  <PrintFieldRow
+                    icon={<Tag className="h-3.5 w-3.5" />}
+                    title="Mahsulot nomi"
+                    active={printSettings.includeName}
+                    scale={printSettings.fieldScale.name}
+                    onToggle={() =>
+                      setPrintSettings((current) => ({
+                        ...current,
+                        includeName: !current.includeName,
+                      }))
+                    }
+                    onScaleChange={(next) =>
+                      setPrintSettings((current) => ({
+                        ...current,
+                        fieldScale: { ...current.fieldScale, name: next },
+                      }))
+                    }
+                  />
+                  <PrintFieldRow
+                    icon={<Barcode className="h-3.5 w-3.5" />}
+                    title="Shtrix kodi"
+                    active={printSettings.includeBarcode}
+                    scale={printSettings.fieldScale.barcode}
+                    onToggle={() =>
+                      setPrintSettings((current) => ({
+                        ...current,
+                        includeBarcode: !current.includeBarcode,
+                      }))
+                    }
+                    onScaleChange={(next) =>
+                      setPrintSettings((current) => ({
+                        ...current,
+                        fieldScale: { ...current.fieldScale, barcode: next },
+                      }))
+                    }
+                  />
+                  <PrintFieldRow
+                    icon={<Barcode className="h-3.5 w-3.5" />}
+                    title="Artikuli"
+                    active={printSettings.includeCustomCode}
+                    scale={printSettings.fieldScale.code}
+                    onToggle={() =>
+                      setPrintSettings((current) => ({
+                        ...current,
+                        includeCustomCode: !current.includeCustomCode,
+                      }))
+                    }
+                    onScaleChange={(next) =>
+                      setPrintSettings((current) => ({
+                        ...current,
+                        fieldScale: { ...current.fieldScale, code: next },
+                      }))
+                    }
+                  />
+                  <PrintFieldRow
+                    icon={<Tag className="h-3.5 w-3.5" />}
+                    title="Sotuv narxi"
+                    active={printSettings.includePrice}
+                    scale={printSettings.fieldScale.price}
+                    onToggle={() =>
+                      setPrintSettings((current) => ({
+                        ...current,
+                        includePrice: !current.includePrice,
+                      }))
+                    }
+                    onScaleChange={(next) =>
+                      setPrintSettings((current) => ({
+                        ...current,
+                        fieldScale: { ...current.fieldScale, price: next },
+                      }))
+                    }
+                  />
+                  <PrintFieldRow
+                    icon={<Tag className="h-3.5 w-3.5" />}
+                    title="Polka raqami"
+                    active={printSettings.includeShelfLocation}
+                    scale={printSettings.fieldScale.shelf}
+                    onToggle={() =>
+                      setPrintSettings((current) => ({
+                        ...current,
+                        includeShelfLocation: !current.includeShelfLocation,
+                      }))
+                    }
+                    onScaleChange={(next) =>
+                      setPrintSettings((current) => ({
+                        ...current,
+                        fieldScale: { ...current.fieldScale, shelf: next },
+                      }))
+                    }
+                  />
+                  <PrintFieldRow
+                    icon={<DollarSign className="h-3.5 w-3.5" />}
+                    title="Tan narx (maxfiy kod)"
+                    active={printSettings.includeCostPrice}
+                    scale={printSettings.fieldScale.cost}
+                    onToggle={() =>
+                      setPrintSettings((current) => ({
+                        ...current,
+                        includeCostPrice: !current.includeCostPrice,
+                      }))
+                    }
+                    onScaleChange={(next) =>
+                      setPrintSettings((current) => ({
+                        ...current,
+                        fieldScale: { ...current.fieldScale, cost: next },
+                      }))
+                    }
+                  />
+                </div>
+                {printSettings.includeCostPrice && (
+                  <p className="-mt-1 text-[11px] text-muted-foreground">
+                    Tan narx xaridorga oddiy kod bo'lib ko'rinishi uchun raqam oldiga "0" qo'shib,
+                    pul birligisiz bosiladi (masalan 5 → 05, 54000 → 054000).
+                  </p>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setFieldOrderPageOpen(true)}
+                className="flex w-full items-center justify-between gap-2 rounded-lg border p-2.5 text-left hover:bg-muted/40"
+              >
+                <div className="min-w-0">
+                  <div className="text-[11px] font-semibold">Maydonlar tartibi (ketma-ketlik)</div>
+                  <div className="truncate text-[10px] text-muted-foreground">
+                    {normalizeFieldOrder(printSettings.fieldOrder)
+                      .map((field) => FIELD_LABELS[field])
+                      .join(" | ")}
+                  </div>
+                </div>
+                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+              </button>
+
+              <div className="space-y-1.5 rounded-lg border p-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <Label className="flex items-center gap-1.5 text-[11px]">
+                    <ScanLine className="h-3.5 w-3.5" /> Skanerlanadigan kod
+                  </Label>
+                  <div className="flex gap-1">
+                    {(
+                      [
+                        { value: "barcode" as const, label: "Shtrix kod" },
+                        { value: "customCode" as const, label: "Artikul" },
+                      ] satisfies { value: ScanCodeSource; label: string }[]
+                    ).map((item) => (
+                      <Button
+                        key={item.value}
+                        type="button"
+                        size="sm"
+                        variant={
+                          printSettings.scanCodeSource === item.value ? "default" : "outline"
+                        }
+                        className="h-7 px-2.5 text-[11px]"
+                        onClick={() =>
+                          setPrintSettings((current) => ({
+                            ...current,
+                            scanCodeSource: item.value,
+                          }))
+                        }
+                      >
+                        {item.label}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+                <p className="text-[10px] leading-snug text-muted-foreground">
+                  Tanlangan kod tayoqcha skaner o'qiy oladigan chiziqlar bilan bosiladi; ikkinchisi
+                  (yoqilgan bo'lsa) oddiy matn sifatida chiqadi.
+                </p>
+              </div>
+
+              <div className="space-y-2 rounded-lg border p-3">
+                <Label className="text-xs">Qog'oz razmeri</Label>
+                <Select
+                  value={printSettings.labelPreset}
+                  onValueChange={(value: LabelPreset) =>
+                    setPrintSettings((current) => ({ ...current, labelPreset: value }))
+                  }
+                >
+                  <SelectTrigger className="h-9 text-sm">
+                    <SelectValue placeholder="Qog'oz razmeri" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="58x40">58×40mm</SelectItem>
+                    <SelectItem value="40x30">40×30mm</SelectItem>
+                    <SelectItem value="30x20">30×20mm</SelectItem>
+                    <SelectItem value="custom">Boshqa (ixtiyoriy o'lcham)</SelectItem>
+                  </SelectContent>
+                </Select>
+                {printSettings.labelPreset === "custom" && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-[11px] text-muted-foreground">Kengligi (mm)</Label>
+                      <Input
+                        value={printSettings.labelWidthMm}
+                        onChange={(e) =>
+                          setPrintSettings((current) => ({
+                            ...current,
+                            labelWidthMm: parseNumberInput(e.target.value) || 0,
+                          }))
+                        }
+                        inputMode="numeric"
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[11px] text-muted-foreground">Balandligi (mm)</Label>
+                      <Input
+                        value={printSettings.labelHeightMm}
+                        onChange={(e) =>
+                          setPrintSettings((current) => ({
+                            ...current,
+                            labelHeightMm: parseNumberInput(e.target.value) || 0,
+                          }))
+                        }
+                        inputMode="numeric"
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                  </div>
+                )}
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-muted-foreground">
+                    Chegara / margin (mm) — kamida {MIN_LABEL_MARGIN_MM}mm
+                  </Label>
+                  <Input
+                    value={printSettings.marginMm}
+                    onChange={(e) =>
+                      setPrintSettings((current) => ({
+                        ...current,
+                        marginMm: parseNumberInput(e.target.value) || 0,
+                      }))
+                    }
+                    onBlur={() =>
+                      setPrintSettings((current) => ({
+                        ...current,
+                        marginMm: clampMarginMm(current.marginMm),
+                      }))
+                    }
+                    inputMode="numeric"
+                    className="h-9 text-sm"
+                  />
+                  <p className="text-[10px] leading-snug text-muted-foreground">
+                    Matn/shtrix-kod bu chegaradan tashqariga chiqmasligi uchun qattiq cheklanadi —{" "}
+                    {MIN_LABEL_MARGIN_MM}mm dan kichik bo'lishi mumkin emas.
+                  </p>
+                </div>
+              </div>
+
+              <Button
+                type="button"
+                variant={printSettings.matchStockQty ? "default" : "outline"}
+                className="h-9 w-full justify-between gap-2 text-xs"
+                onClick={() =>
+                  setPrintSettings((current) => ({
+                    ...current,
+                    matchStockQty: !current.matchStockQty,
+                  }))
+                }
+              >
+                <span className="flex items-center gap-2">
+                  <PackagePlus className="h-4 w-4" /> Miqdorga mos chop etish
+                </span>
+                <span className="text-[11px] font-bold">
+                  {printSettings.matchStockQty ? "Yoqilgan" : "Ixtiyoriy"}
+                </span>
+              </Button>
+
+              <div className="space-y-2 rounded-lg border p-3">
+                <Label className="text-xs">Chop etish usuli</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <Select
+                    value={printSplitMode}
+                    onValueChange={(value: "all" | "parts" | "batch") => {
+                      setPrintSplitMode(value);
+                      setPrintSplitValue("");
+                    }}
+                  >
+                    <SelectTrigger className="h-9 text-sm">
+                      <SelectValue placeholder="Usul" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Hammasi bir yo'la</SelectItem>
+                      <SelectItem value="parts">Necha qismga bo'lib</SelectItem>
+                      <SelectItem value="batch">Necha tadan</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    value={printSplitValue}
+                    onChange={(e) => setPrintSplitValue(formatNumberInput(e.target.value))}
+                    onFocus={(e) => e.currentTarget.select()}
+                    inputMode="numeric"
+                    disabled={printSplitMode === "all"}
+                    placeholder={
+                      printSplitMode === "parts"
+                        ? "Masalan: 2"
+                        : printSplitMode === "batch"
+                          ? "Masalan: 20"
+                          : `Hammasi (${printFlatQueue.length} ta)`
+                    }
+                    className="h-9 text-sm"
+                  />
+                </div>
+                {printSplitMode !== "all" && (
+                  <p className="text-[10px] leading-snug text-muted-foreground">
+                    {printSplitMode === "parts"
+                      ? `${printFlatQueue.length} ta tovar ${printSplitValueNum > 0 ? printSplitValueNum : "?"} qismga bo'linsa, har qismda ${printEffectiveBatch} tadan bo'ladi.`
+                      : `Har safar "Print" bosilganda ${printEffectiveBatch} tadan chop etiladi (jami ${printTotalParts} qism).`}
+                  </p>
+                )}
+                <p className="text-[10px] leading-snug text-muted-foreground">
+                  Qaysi usul tanlansa ham, har safar "Print" bosilganda faqat{" "}
+                  <b>keyingi, hali chop etilmagan</b> qism chop etiladi — avval chop etilganlar
+                  qayta bosilmaydi.
+                </p>
+                {printFlatQueue.length > 0 && (
+                  <div className="flex items-center justify-between gap-2 rounded-md bg-muted/40 px-2 py-1.5 text-[11px]">
+                    <span>
+                      Chop etilgan: <b>{printedCount}</b> / {printFlatQueue.length} ta
+                    </span>
+                    {printedCount > 0 && printedCount < printFlatQueue.length && (
+                      <button
+                        type="button"
+                        className="font-semibold text-primary hover:underline"
+                        onClick={() => setPrintedCount(0)}
+                      >
+                        Boshidan boshlash
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2 rounded-lg border p-3">
+                <Button
+                  type="button"
+                  variant={printSettings.commentEnabled ? "default" : "outline"}
+                  className="h-9 w-full justify-start gap-2 text-xs"
+                  onClick={() =>
+                    setPrintSettings((current) => ({
+                      ...current,
+                      commentEnabled: !current.commentEnabled,
+                    }))
+                  }
+                >
+                  <MessageSquareText className="h-4 w-4" />
+                  Pastki comment qo'shish
+                </Button>
+                {printSettings.commentEnabled && (
+                  <Input
+                    value={printSettings.comment}
+                    onChange={(event) =>
+                      setPrintSettings((current) => ({
+                        ...current,
+                        comment: event.target.value,
+                      }))
+                    }
+                    placeholder="Masalan: Xaridingiz uchun rahmat"
+                    className="h-9 text-xs"
+                  />
+                )}
+              </div>
+            </div>
+
+            <PrintPreview product={selectedProducts[0]} settings={printSettings} />
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -1985,395 +2461,6 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={printOpen} onOpenChange={setPrintOpen}>
-        <DialogContent className="max-h-[85vh] max-w-6xl overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Print sozlamalari</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_280px]">
-            <div className="space-y-3">
-              <div className="space-y-2 rounded-lg border p-3">
-                <Label className="text-xs">Maydonlar va har birining o'lchami</Label>
-                <div className="grid gap-1.5 sm:grid-cols-2">
-                  <PrintFieldRow
-                    icon={<Tag className="h-3.5 w-3.5" />}
-                    title="Mahsulot nomi"
-                    active={printSettings.includeName}
-                    scale={printSettings.fieldScale.name}
-                    onToggle={() =>
-                      setPrintSettings((current) => ({
-                        ...current,
-                        includeName: !current.includeName,
-                      }))
-                    }
-                    onScaleChange={(next) =>
-                      setPrintSettings((current) => ({
-                        ...current,
-                        fieldScale: { ...current.fieldScale, name: next },
-                      }))
-                    }
-                  />
-                  <PrintFieldRow
-                    icon={<Barcode className="h-3.5 w-3.5" />}
-                    title="Shtrix kodi"
-                    active={printSettings.includeBarcode}
-                    scale={printSettings.fieldScale.barcode}
-                    onToggle={() =>
-                      setPrintSettings((current) => ({
-                        ...current,
-                        includeBarcode: !current.includeBarcode,
-                      }))
-                    }
-                    onScaleChange={(next) =>
-                      setPrintSettings((current) => ({
-                        ...current,
-                        fieldScale: { ...current.fieldScale, barcode: next },
-                      }))
-                    }
-                  />
-                  <PrintFieldRow
-                    icon={<Barcode className="h-3.5 w-3.5" />}
-                    title="Artikuli"
-                    active={printSettings.includeCustomCode}
-                    scale={printSettings.fieldScale.code}
-                    onToggle={() =>
-                      setPrintSettings((current) => ({
-                        ...current,
-                        includeCustomCode: !current.includeCustomCode,
-                      }))
-                    }
-                    onScaleChange={(next) =>
-                      setPrintSettings((current) => ({
-                        ...current,
-                        fieldScale: { ...current.fieldScale, code: next },
-                      }))
-                    }
-                  />
-                  <PrintFieldRow
-                    icon={<Tag className="h-3.5 w-3.5" />}
-                    title="Sotuv narxi"
-                    active={printSettings.includePrice}
-                    scale={printSettings.fieldScale.price}
-                    onToggle={() =>
-                      setPrintSettings((current) => ({
-                        ...current,
-                        includePrice: !current.includePrice,
-                      }))
-                    }
-                    onScaleChange={(next) =>
-                      setPrintSettings((current) => ({
-                        ...current,
-                        fieldScale: { ...current.fieldScale, price: next },
-                      }))
-                    }
-                  />
-                  <PrintFieldRow
-                    icon={<Tag className="h-3.5 w-3.5" />}
-                    title="Polka raqami"
-                    active={printSettings.includeShelfLocation}
-                    scale={printSettings.fieldScale.shelf}
-                    onToggle={() =>
-                      setPrintSettings((current) => ({
-                        ...current,
-                        includeShelfLocation: !current.includeShelfLocation,
-                      }))
-                    }
-                    onScaleChange={(next) =>
-                      setPrintSettings((current) => ({
-                        ...current,
-                        fieldScale: { ...current.fieldScale, shelf: next },
-                      }))
-                    }
-                  />
-                  <PrintFieldRow
-                    icon={<DollarSign className="h-3.5 w-3.5" />}
-                    title="Tan narx (maxfiy kod)"
-                    active={printSettings.includeCostPrice}
-                    scale={printSettings.fieldScale.cost}
-                    onToggle={() =>
-                      setPrintSettings((current) => ({
-                        ...current,
-                        includeCostPrice: !current.includeCostPrice,
-                      }))
-                    }
-                    onScaleChange={(next) =>
-                      setPrintSettings((current) => ({
-                        ...current,
-                        fieldScale: { ...current.fieldScale, cost: next },
-                      }))
-                    }
-                  />
-                </div>
-                {printSettings.includeCostPrice && (
-                  <p className="-mt-1 text-[11px] text-muted-foreground">
-                    Tan narx xaridorga oddiy kod bo'lib ko'rinishi uchun raqam oldiga "0" qo'shib,
-                    pul birligisiz bosiladi (masalan 5 → 05, 54000 → 054000).
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-1.5 rounded-lg border p-2.5">
-                <div className="flex items-center justify-between gap-2">
-                  <Label className="flex items-center gap-1.5 text-[11px]">
-                    <ScanLine className="h-3.5 w-3.5" /> Skanerlanadigan kod
-                  </Label>
-                  <div className="flex gap-1">
-                    {(
-                      [
-                        { value: "barcode" as const, label: "Shtrix kod" },
-                        { value: "customCode" as const, label: "Artikul" },
-                      ] satisfies { value: ScanCodeSource; label: string }[]
-                    ).map((item) => (
-                      <Button
-                        key={item.value}
-                        type="button"
-                        size="sm"
-                        variant={
-                          printSettings.scanCodeSource === item.value ? "default" : "outline"
-                        }
-                        className="h-7 px-2.5 text-[11px]"
-                        onClick={() =>
-                          setPrintSettings((current) => ({
-                            ...current,
-                            scanCodeSource: item.value,
-                          }))
-                        }
-                      >
-                        {item.label}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-                <p className="text-[10px] leading-snug text-muted-foreground">
-                  Tanlangan kod tayoqcha skaner o'qiy oladigan chiziqlar bilan bosiladi; ikkinchisi
-                  (yoqilgan bo'lsa) oddiy matn sifatida chiqadi.
-                </p>
-              </div>
-
-              <div className="space-y-2 rounded-lg border p-3">
-                <Label className="text-xs">Qog'oz razmeri</Label>
-                <Select
-                  value={printSettings.labelPreset}
-                  onValueChange={(value: LabelPreset) =>
-                    setPrintSettings((current) => ({ ...current, labelPreset: value }))
-                  }
-                >
-                  <SelectTrigger className="h-9 text-sm">
-                    <SelectValue placeholder="Qog'oz razmeri" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="58x40">58×40mm</SelectItem>
-                    <SelectItem value="40x30">40×30mm</SelectItem>
-                    <SelectItem value="30x20">30×20mm</SelectItem>
-                    <SelectItem value="custom">Boshqa (ixtiyoriy o'lcham)</SelectItem>
-                  </SelectContent>
-                </Select>
-                {printSettings.labelPreset === "custom" && (
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-1">
-                      <Label className="text-[11px] text-muted-foreground">Kengligi (mm)</Label>
-                      <Input
-                        value={printSettings.labelWidthMm}
-                        onChange={(e) =>
-                          setPrintSettings((current) => ({
-                            ...current,
-                            labelWidthMm: parseNumberInput(e.target.value) || 0,
-                          }))
-                        }
-                        inputMode="numeric"
-                        className="h-9 text-sm"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-[11px] text-muted-foreground">Balandligi (mm)</Label>
-                      <Input
-                        value={printSettings.labelHeightMm}
-                        onChange={(e) =>
-                          setPrintSettings((current) => ({
-                            ...current,
-                            labelHeightMm: parseNumberInput(e.target.value) || 0,
-                          }))
-                        }
-                        inputMode="numeric"
-                        className="h-9 text-sm"
-                      />
-                    </div>
-                  </div>
-                )}
-                <div className="space-y-1">
-                  <Label className="text-[11px] text-muted-foreground">
-                    Chegara / margin (mm) — kamida {MIN_LABEL_MARGIN_MM}mm
-                  </Label>
-                  <Input
-                    value={printSettings.marginMm}
-                    onChange={(e) =>
-                      setPrintSettings((current) => ({
-                        ...current,
-                        marginMm: parseNumberInput(e.target.value) || 0,
-                      }))
-                    }
-                    onBlur={() =>
-                      setPrintSettings((current) => ({
-                        ...current,
-                        marginMm: clampMarginMm(current.marginMm),
-                      }))
-                    }
-                    inputMode="numeric"
-                    className="h-9 text-sm"
-                  />
-                  <p className="text-[10px] leading-snug text-muted-foreground">
-                    Matn/shtrix-kod bu chegaradan tashqariga chiqmasligi uchun qattiq cheklanadi —{" "}
-                    {MIN_LABEL_MARGIN_MM}mm dan kichik bo'lishi mumkin emas.
-                  </p>
-                </div>
-              </div>
-
-              <Button
-                type="button"
-                variant={printSettings.matchStockQty ? "default" : "outline"}
-                className="h-9 w-full justify-between gap-2 text-xs"
-                onClick={() =>
-                  setPrintSettings((current) => ({
-                    ...current,
-                    matchStockQty: !current.matchStockQty,
-                  }))
-                }
-              >
-                <span className="flex items-center gap-2">
-                  <PackagePlus className="h-4 w-4" /> Miqdorga mos chop etish
-                </span>
-                <span className="text-[11px] font-bold">
-                  {printSettings.matchStockQty ? "Yoqilgan" : "Ixtiyoriy"}
-                </span>
-              </Button>
-
-              <div className="space-y-2 rounded-lg border p-3">
-                <Label className="text-xs">Chop etish usuli</Label>
-                <div className="grid grid-cols-2 gap-2">
-                  <Select
-                    value={printSplitMode}
-                    onValueChange={(value: "all" | "parts" | "batch") => {
-                      setPrintSplitMode(value);
-                      setPrintSplitValue("");
-                    }}
-                  >
-                    <SelectTrigger className="h-9 text-sm">
-                      <SelectValue placeholder="Usul" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Hammasi bir yo'la</SelectItem>
-                      <SelectItem value="parts">Necha qismga bo'lib</SelectItem>
-                      <SelectItem value="batch">Necha tadan</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Input
-                    value={printSplitValue}
-                    onChange={(e) => setPrintSplitValue(formatNumberInput(e.target.value))}
-                    onFocus={(e) => e.currentTarget.select()}
-                    inputMode="numeric"
-                    disabled={printSplitMode === "all"}
-                    placeholder={
-                      printSplitMode === "parts"
-                        ? "Masalan: 2"
-                        : printSplitMode === "batch"
-                          ? "Masalan: 20"
-                          : `Hammasi (${printFlatQueue.length} ta)`
-                    }
-                    className="h-9 text-sm"
-                  />
-                </div>
-                {printSplitMode !== "all" && (
-                  <p className="text-[10px] leading-snug text-muted-foreground">
-                    {printSplitMode === "parts"
-                      ? `${printFlatQueue.length} ta tovar ${printSplitValueNum > 0 ? printSplitValueNum : "?"} qismga bo'linsa, har qismda ${printEffectiveBatch} tadan bo'ladi.`
-                      : `Har safar "Print" bosilganda ${printEffectiveBatch} tadan chop etiladi (jami ${printTotalParts} qism).`}
-                  </p>
-                )}
-                <p className="text-[10px] leading-snug text-muted-foreground">
-                  Qaysi usul tanlansa ham, har safar "Print" bosilganda faqat{" "}
-                  <b>keyingi, hali chop etilmagan</b> qism chop etiladi — avval chop etilganlar
-                  qayta bosilmaydi.
-                </p>
-                {printFlatQueue.length > 0 && (
-                  <div className="flex items-center justify-between gap-2 rounded-md bg-muted/40 px-2 py-1.5 text-[11px]">
-                    <span>
-                      Chop etilgan: <b>{printedCount}</b> / {printFlatQueue.length} ta
-                    </span>
-                    {printedCount > 0 && printedCount < printFlatQueue.length && (
-                      <button
-                        type="button"
-                        className="font-semibold text-primary hover:underline"
-                        onClick={() => setPrintedCount(0)}
-                      >
-                        Boshidan boshlash
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-2 rounded-lg border p-3">
-                <Button
-                  type="button"
-                  variant={printSettings.commentEnabled ? "default" : "outline"}
-                  className="h-9 w-full justify-start gap-2 text-xs"
-                  onClick={() =>
-                    setPrintSettings((current) => ({
-                      ...current,
-                      commentEnabled: !current.commentEnabled,
-                    }))
-                  }
-                >
-                  <MessageSquareText className="h-4 w-4" />
-                  Pastki comment qo'shish
-                </Button>
-                {printSettings.commentEnabled && (
-                  <Input
-                    value={printSettings.comment}
-                    onChange={(event) =>
-                      setPrintSettings((current) => ({
-                        ...current,
-                        comment: event.target.value,
-                      }))
-                    }
-                    placeholder="Masalan: Xaridingiz uchun rahmat"
-                    className="h-9 text-xs"
-                  />
-                )}
-              </div>
-            </div>
-
-            <PrintPreview product={selectedProducts[0]} settings={printSettings} />
-          </div>
-          <DialogFooter className="flex-wrap gap-2 sm:justify-between">
-            <Button
-              type="button"
-              variant="ghost"
-              className="gap-2"
-              onClick={saveLabelPrintDefaults}
-            >
-              <Save className="h-4 w-4" />
-              Standart qilib saqlash
-            </Button>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setPrintOpen(false)}>
-                Bekor
-              </Button>
-              <Button
-                onClick={printSelected}
-                disabled={printNextBatchCount === 0}
-                className="gap-2"
-              >
-                <Printer className="h-4 w-4" />
-                {printedCount > 0
-                  ? `Keyingi qismni chop etish (${printNextBatchCount})`
-                  : `Print (${printNextBatchCount})`}
-              </Button>
-            </div>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {excelModalOpen && (
         <ExcelYuklashModal
           currencies={excelCurrencies}
@@ -2426,6 +2513,7 @@ function PrintPreview({ product, settings }: { product?: Product; settings: Prin
         style={{
           width: labelWidth * previewScale,
           minHeight: labelHeight * previewScale,
+          fontFamily: (LABEL_FONT_OPTIONS[settings.fontFamily] ?? LABEL_FONT_OPTIONS.arial).family,
         }}
       >
         {settings.receiptMode && (
@@ -2433,58 +2521,71 @@ function PrintPreview({ product, settings }: { product?: Product; settings: Prin
             TOVAR CHEKI
           </div>
         )}
-        {settings.includePrice && (
-          <div
-            className="text-center font-black text-slate-950"
-            style={{ fontSize: fieldPx(base.priceSize, "price") }}
-          >
-            {formatSom(previewProduct?.price ?? 0)}
-          </div>
-        )}
-        {settings.includeName && (
-          <div
-            className="mt-1 font-bold leading-tight"
-            style={{ fontSize: fieldPx(base.nameSize, "name") }}
-          >
-            {previewProduct?.name ?? "Mahsulot nomi"}
-          </div>
-        )}
-        {settings.includeBarcode &&
-          (settings.scanCodeSource === "barcode" ? (
-            <BarcodePreview
-              value={previewProduct?.barcode || "8690123456789"}
-              heightPx={fieldPx(base.barcodeSize, "barcode") * 2}
-            />
-          ) : (
-            <div
-              className="mt-2 break-all font-mono tracking-wide"
-              style={{ fontSize: fieldPx(base.barcodeSize, "barcode") }}
-            >
-              {previewProduct?.barcode || "8690123456789"}
+        {(() => {
+          const fieldNodes: Record<OrderableField, React.ReactNode> = {
+            price: settings.includePrice ? (
+              <div
+                className="text-center font-black text-slate-950"
+                style={{ fontSize: fieldPx(base.priceSize, "price") }}
+              >
+                {formatSom(previewProduct?.price ?? 0)}
+              </div>
+            ) : null,
+            name: settings.includeName ? (
+              <div
+                className="font-bold leading-tight"
+                style={{ fontSize: fieldPx(base.nameSize, "name") }}
+              >
+                {previewProduct?.name ?? "Mahsulot nomi"}
+              </div>
+            ) : null,
+            barcode: settings.includeBarcode ? (
+              settings.scanCodeSource === "barcode" ? (
+                <BarcodePreview
+                  value={previewProduct?.barcode || "8690123456789"}
+                  heightPx={fieldPx(base.barcodeSize, "barcode") * 2}
+                />
+              ) : (
+                <div
+                  className="break-all font-mono tracking-wide"
+                  style={{ fontSize: fieldPx(base.barcodeSize, "barcode") }}
+                >
+                  {previewProduct?.barcode || "8690123456789"}
+                </div>
+              )
+            ) : null,
+            code: settings.includeCustomCode ? (
+              settings.scanCodeSource === "customCode" ? (
+                <BarcodePreview
+                  value={previewProduct?.customCode || "KOD-001"}
+                  heightPx={fieldPx(base.barcodeSize, "barcode") * 2}
+                />
+              ) : (
+                <div
+                  className="text-slate-500"
+                  style={{ fontSize: fieldPx(base.codeSize, "code") }}
+                >
+                  {previewProduct?.customCode || "KOD-001"}
+                </div>
+              )
+            ) : null,
+            shelf: settings.includeShelfLocation ? (
+              <div
+                className="text-slate-500"
+                style={{ fontSize: fieldPx(base.shelfSize, "shelf") }}
+              >
+                Polka: {previewProduct?.shelfLocation || "—"}
+              </div>
+            ) : null,
+          };
+          return (
+            <div className="flex flex-col gap-1">
+              {normalizeFieldOrder(settings.fieldOrder).map((field) => (
+                <React.Fragment key={field}>{fieldNodes[field]}</React.Fragment>
+              ))}
             </div>
-          ))}
-        {settings.includeCustomCode &&
-          (settings.scanCodeSource === "customCode" ? (
-            <BarcodePreview
-              value={previewProduct?.customCode || "KOD-001"}
-              heightPx={fieldPx(base.barcodeSize, "barcode") * 2}
-            />
-          ) : (
-            <div
-              className="mt-1 text-slate-500"
-              style={{ fontSize: fieldPx(base.codeSize, "code") }}
-            >
-              {previewProduct?.customCode || "KOD-001"}
-            </div>
-          ))}
-        {settings.includeShelfLocation && (
-          <div
-            className="mt-1 text-slate-500"
-            style={{ fontSize: fieldPx(base.shelfSize, "shelf") }}
-          >
-            Polka: {previewProduct?.shelfLocation || "—"}
-          </div>
-        )}
+          );
+        })()}
         {settings.commentEnabled && settings.comment.trim() && (
           <div className="mt-2 border-t border-dashed border-slate-300 pt-1 text-[11px] text-slate-600">
             {settings.comment.trim()}
@@ -2524,6 +2625,91 @@ function ApplyAllCheckbox({
       <Checkbox checked={checked} onCheckedChange={(value) => onChange(value === true)} />
       Barchasiga qo'llash
     </label>
+  );
+}
+
+/** "Yangi tovar qo'shish" kabi to'liq oynada ochiladigan — yorliqdagi maydonlar tartibini belgilash sahifasi. */
+function FieldOrderPage({
+  order,
+  onMove,
+  onDone,
+}: {
+  order: OrderableField[];
+  onMove: (field: OrderableField, direction: -1 | 1) => void;
+  onDone: () => void;
+}) {
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex flex-shrink-0 flex-wrap items-center gap-3 border-b bg-card p-3">
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="h-10 w-10"
+          onClick={onDone}
+          title="Orqaga"
+          aria-label="Orqaga"
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
+        <div>
+          <div className="text-base font-bold">Maydonlar tartibi (ketma-ketlik)</div>
+          <div className="text-xs text-muted-foreground">
+            Har bir tovar uchun narx, nomi, shtrix kod, artikul va polka qaysi tartibda bosilishini
+            o'zingiz belgilang — masalan narx | shtrix kod | nomi yoki artikul | nomi | narx. Tan
+            narx doim eng pastda qoladi.
+          </div>
+        </div>
+        <div className="ml-auto">
+          <Button onClick={onDone} className="gap-2">
+            <Check className="h-4 w-4" />
+            Tayyor
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex-1 space-y-2 overflow-y-auto p-3">
+        <div className="mx-auto max-w-md space-y-2">
+          {order.map((field, index) => (
+            <div
+              key={field}
+              className="flex items-center justify-between gap-3 rounded-lg border bg-card p-3 shadow-sm"
+            >
+              <span className="flex items-center gap-3 text-sm font-medium">
+                <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-muted px-1.5 text-xs font-bold text-muted-foreground">
+                  {index + 1}
+                </span>
+                {FIELD_LABELS[field]}
+              </span>
+              <div className="flex gap-1.5">
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className="h-8 w-8"
+                  disabled={index === 0}
+                  onClick={() => onMove(field, -1)}
+                  aria-label={`${FIELD_LABELS[field]} — yuqoriga`}
+                >
+                  <ChevronUp className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className="h-8 w-8"
+                  disabled={index === order.length - 1}
+                  onClick={() => onMove(field, 1)}
+                  aria-label={`${FIELD_LABELS[field]} — pastga`}
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 

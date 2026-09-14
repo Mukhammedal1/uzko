@@ -7,6 +7,47 @@ export type PrintField = "name" | "barcode" | "code" | "price" | "cost" | "shelf
 export type ScanCodeSource = "barcode" | "customCode";
 /** Tayyor yorliq o'lchamlari (mm) yoki foydalanuvchi kiritadigan ixtiyoriy o'lcham. */
 export type LabelPreset = "58x40" | "40x30" | "30x20" | "custom";
+/** Foydalanuvchi tartibini o'zgartira oladigan maydonlar — "cost" (tan narx) doim eng pastda qoladi. */
+export type OrderableField = Exclude<PrintField, "cost">;
+
+export const FIELD_LABELS: Record<PrintField, string> = {
+  name: "Mahsulot nomi",
+  barcode: "Shtrix kodi",
+  code: "Artikuli",
+  price: "Sotuv narxi",
+  cost: "Tan narx",
+  shelf: "Polka raqami",
+};
+
+/** Yorliqda maydonlar chiqadigan standart tartib. */
+export const DEFAULT_FIELD_ORDER: OrderableField[] = ["price", "name", "barcode", "code", "shelf"];
+
+/** Saqlangan tartibda xato/yetishmagan maydon bo'lsa ham, doim 5 tasi to'liq va takrorsiz bo'lishini ta'minlaydi. */
+export function normalizeFieldOrder(order?: OrderableField[] | null): OrderableField[] {
+  const seen = new Set<OrderableField>();
+  const result: OrderableField[] = [];
+  (order ?? []).forEach((field) => {
+    if (DEFAULT_FIELD_ORDER.includes(field) && !seen.has(field)) {
+      seen.add(field);
+      result.push(field);
+    }
+  });
+  DEFAULT_FIELD_ORDER.forEach((field) => {
+    if (!seen.has(field)) result.push(field);
+  });
+  return result;
+}
+/** Chop etishda tovar nomi/narxi aniq va oson o'qilishi uchun tanlanadigan shrift. */
+export type LabelFont = "arial" | "verdana" | "tahoma" | "courier" | "georgia" | "impact";
+
+export const LABEL_FONT_OPTIONS: Record<LabelFont, { label: string; family: string }> = {
+  arial: { label: "Arial (standart)", family: "Arial, Helvetica, sans-serif" },
+  verdana: { label: "Verdana (keng, aniq)", family: "Verdana, Geneva, sans-serif" },
+  tahoma: { label: "Tahoma", family: "Tahoma, Geneva, sans-serif" },
+  courier: { label: "Courier New (monospace)", family: "'Courier New', Courier, monospace" },
+  georgia: { label: "Georgia (serif)", family: "Georgia, 'Times New Roman', serif" },
+  impact: { label: "Impact (qalin, yirik)", family: "Impact, 'Arial Narrow', sans-serif" },
+};
 
 export const LABEL_PRESET_SIZES: Record<
   Exclude<LabelPreset, "custom">,
@@ -36,6 +77,10 @@ export type PrintSettings = {
   scanCodeSource: ScanCodeSource;
   size: PrintSize;
   fieldScale: Record<PrintField, number>;
+  /** Maydonlar yorliqda qaysi tartibda chiqishi — foydalanuvchi o'zi belgilaydi. "cost" doim pastda. */
+  fieldOrder: OrderableField[];
+  /** Tovar nomi/narxi aniq o'qilishi uchun chop etishda ishlatiladigan shrift */
+  fontFamily: LabelFont;
   /** Tayyor o'lcham tanlangan bo'lsa shu, "custom" bo'lsa labelWidthMm/labelHeightMm ishlatiladi. */
   labelPreset: LabelPreset;
   labelWidthMm: number;
@@ -58,6 +103,8 @@ export const DEFAULT_PRINT_SETTINGS: PrintSettings = {
   scanCodeSource: "barcode",
   size: "medium",
   fieldScale: { name: 100, barcode: 100, code: 100, price: 100, cost: 100, shelf: 100 },
+  fieldOrder: DEFAULT_FIELD_ORDER,
+  fontFamily: "arial",
   labelPreset: "40x30",
   labelWidthMm: 40,
   labelHeightMm: 30,
@@ -226,6 +273,7 @@ export function printProductLabels(
   };
   const { width: labelWidth, height: labelHeight } = getLabelDimensionsMm(settings);
   const margin = clampMarginMm(settings.marginMm);
+  const fontFamily = (LABEL_FONT_OPTIONS[settings.fontFamily] ?? LABEL_FONT_OPTIONS.arial).family;
   const comment =
     settings.commentEnabled && settings.comment.trim()
       ? `<div class="comment">${escapeHtml(settings.comment.trim())}</div>`
@@ -234,6 +282,10 @@ export function printProductLabels(
   // Skaner chiziqlari faqat bitta manba (Shtrix kod YOKI Artikul) uchun
   // chiqariladi — ikkinchisi (yoqilgan bo'lsa) oddiy matn sifatida ko'rinadi.
   const scanIsBarcode = settings.scanCodeSource === "barcode";
+  // Foydalanuvchi belgilagan tartib — istalgan maydon istalgan ketma-ketlikda
+  // chiqishi mumkin (masalan narx | shtrix kod | nomi yoki artikul | nomi |
+  // narx). Faqat "tan narx" bundan mustasno — u doim yorliqning eng pastida.
+  const fieldOrder = normalizeFieldOrder(settings.fieldOrder);
 
   const labels = flattenPrintQueue(queue)
     .map((product) => {
@@ -262,14 +314,12 @@ export function printProductLabels(
       const receiptHeader = settings.receiptMode
         ? `<div class="receipt-title">TOVAR CHEKI</div>`
         : "";
+      const fieldMarkup: Record<OrderableField, string> = { name, price, barcode, code, shelf };
+      const orderedFields = fieldOrder.map((field) => fieldMarkup[field]).join("");
       return `
         <section class="label${settings.receiptMode ? " receipt" : ""}">
           ${receiptHeader}
-          ${price}
-          ${name}
-          ${barcode}
-          ${code}
-          ${shelf}
+          <div class="fields">${orderedFields}</div>
           ${comment}
           ${cost}
         </section>
@@ -288,7 +338,7 @@ export function printProductLabels(
         <style>
           * { box-sizing: border-box; }
           @page { size: ${labelWidth}mm ${labelHeight}mm; margin: 0; }
-          body { margin: 0; font-family: Arial, sans-serif; color: #111827; }
+          body { margin: 0; font-family: ${fontFamily}; color: #111827; }
           .label {
             width: ${labelWidth}mm;
             height: ${labelHeight}mm;
@@ -309,13 +359,14 @@ export function printProductLabels(
             font-weight: 800;
             letter-spacing: 0.08em;
           }
-          .name { margin-top: 2px; font-size: ${size.nameSize}px; font-weight: 700; line-height: 1.15; overflow-wrap: anywhere; }
-          .barcode { margin-top: 6px; font-family: "Courier New", monospace; font-size: ${size.barcodeSize}px; letter-spacing: 1px; word-break: break-all; }
-          .barcode-symbol { margin-top: 4px; line-height: 0; max-width: 100%; }
+          .fields { display: flex; flex-direction: column; gap: 3px; }
+          .name { font-size: ${size.nameSize}px; font-weight: 700; line-height: 1.15; overflow-wrap: anywhere; }
+          .barcode { font-family: "Courier New", monospace; font-size: ${size.barcodeSize}px; letter-spacing: 1px; word-break: break-all; }
+          .barcode-symbol { line-height: 0; max-width: 100%; }
           .barcode-symbol svg { max-width: 100%; height: auto; }
-          .code { margin-top: 2px; font-size: ${size.codeSize}px; color: #4b5563; }
-          .shelf { margin-top: 2px; font-size: ${size.shelfSize}px; color: #4b5563; }
-          .price { margin-top: 4px; font-size: ${size.priceSize}px; font-weight: 800; text-align: center; }
+          .code { font-size: ${size.codeSize}px; color: #4b5563; }
+          .shelf { font-size: ${size.shelfSize}px; color: #4b5563; }
+          .price { font-size: ${size.priceSize}px; font-weight: 800; text-align: center; }
           .cost { margin-top: auto; padding-top: 4px; font-size: ${size.costSize}px; color: #9ca3af; font-family: "Courier New", monospace; }
           .comment {
             margin-top: 5px;
