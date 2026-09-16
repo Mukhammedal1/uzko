@@ -31,3 +31,24 @@ export function makeUniqueBarcode(used: Iterable<string> = []): string {
   while (usedSet.has(barcode)) barcode = generateBarcode();
   return barcode;
 }
+
+function generateCustomCode(): string {
+  return String(Math.floor(10000 + Math.random() * 90000));
+}
+
+/** Bazadagi barcha mahsulotlar (va variantlar) hamda berilgan qo'shimcha kodlar bilan
+ * to'qnashmaydigan 5 xonali tasodifiy Artikul (customCode) yaratadi. */
+export function makeUniqueCustomCode(used: Iterable<string> = []): string {
+  const usedSet = new Set(
+    [
+      ...MOCK_PRODUCTS.flatMap((product) => [
+        product.customCode,
+        ...(product.variants?.map((v) => v.customCode) ?? []),
+      ]),
+      ...Array.from(used),
+    ].filter((value): value is string => Boolean(value)),
+  );
+  let code = generateCustomCode();
+  while (usedSet.has(code)) code = generateCustomCode();
+  return code;
+}

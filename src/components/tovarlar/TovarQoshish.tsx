@@ -2,6 +2,7 @@ import * as React from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -9,23 +10,51 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Barcode, ImagePlus, Layers, Pencil, Plus, Check, Trash2, X } from "lucide-react";
-import { MOCK_PRODUCTS, MOCK_NEW_PRODUCT_LOG } from "@/lib/mock-data";
+import {
+  Barcode,
+  Hash,
+  ImagePlus,
+  Layers,
+  Pencil,
+  Plus,
+  Check,
+  Percent,
+  Trash2,
+  X,
+} from "lucide-react";
+import {
+  MOCK_PRODUCTS,
+  MOCK_NEW_PRODUCT_LOG,
+  computeMarkupPrice,
+  reverseMarkupPercent,
+} from "@/lib/mock-data";
 import type { Currency, Product, ProductVariant } from "@/lib/mock-data";
 import { toast } from "sonner";
 import { useApp } from "@/lib/app-context";
 import type { ProductCreateMode } from "@/routes/tovarlar";
 import { cn, formatNumberInput, parseNumberInput } from "@/lib/utils";
-import { joinBarcodes, makeUniqueBarcode, splitBarcodes } from "@/lib/barcode-utils";
+import {
+  joinBarcodes,
+  makeUniqueBarcode,
+  makeUniqueCustomCode,
+  splitBarcodes,
+} from "@/lib/barcode-utils";
 
 type NewVariantRow = {
   id: string;
   label: string;
   costCurrency: Currency;
   costPrice: string;
+  wholesaleCurrency: Currency;
   wholesalePrice: string;
+  wholesaleMarkupPercent: string;
+  wholesaleMarkupWarn: boolean;
+  priceCurrency: Currency;
   price: string;
+  priceMarkupPercent: string;
+  priceMarkupWarn: boolean;
   barcode: string;
+  customCode: string;
   image?: string;
 };
 
@@ -37,9 +66,17 @@ type NewProductRow = {
   perBox: string;
   costCurrency: Currency;
   costPrice: string;
+  preventBelowCost: boolean;
+  wholesaleCurrency: Currency;
   wholesalePrice: string;
+  wholesaleMarkupPercent: string;
+  wholesaleMarkupWarn: boolean;
+  priceCurrency: Currency;
   price: string;
+  priceMarkupPercent: string;
+  priceMarkupWarn: boolean;
   barcode: string;
+  customCode: string;
   image?: string;
   variantsOpen: boolean;
   variants: NewVariantRow[];
@@ -50,9 +87,16 @@ const makeNewVariantRow = (): NewVariantRow => ({
   label: "",
   costCurrency: "UZS",
   costPrice: "",
+  wholesaleCurrency: "UZS",
   wholesalePrice: "",
+  wholesaleMarkupPercent: "",
+  wholesaleMarkupWarn: false,
+  priceCurrency: "UZS",
   price: "",
+  priceMarkupPercent: "",
+  priceMarkupWarn: false,
   barcode: "",
+  customCode: "",
 });
 
 const makeNewProductRow = (unit = "dona"): NewProductRow => ({
@@ -62,9 +106,17 @@ const makeNewProductRow = (unit = "dona"): NewProductRow => ({
   perBox: "",
   costCurrency: "UZS",
   costPrice: "",
+  preventBelowCost: true,
+  wholesaleCurrency: "UZS",
   wholesalePrice: "",
+  wholesaleMarkupPercent: "",
+  wholesaleMarkupWarn: false,
+  priceCurrency: "UZS",
   price: "",
+  priceMarkupPercent: "",
+  priceMarkupWarn: false,
   barcode: "",
+  customCode: "",
   variantsOpen: false,
   variants: [],
 });
@@ -74,16 +126,6 @@ function splitUnit(unit: string): { base: string; pack: string | null } {
   if (!unit.includes("|")) return { base: unit.trim(), pack: null };
   const [base, ...rest] = unit.split("|");
   return { base: base.trim() || "dona", pack: rest.join("|").trim() || "karobka" };
-}
-
-function makeProductCode(name: string) {
-  return (
-    name
-      .trim()
-      .slice(0, 4)
-      .toUpperCase()
-      .replace(/[^A-Z0-9]/g, "") + Math.floor(Math.random() * 99)
-  );
 }
 
 /** "Yangi tovar qo'shish" — bazaga yangi mahsulot yozuvini (rasm bilan) yaratadi.
@@ -130,6 +172,65 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
     const usedBarcodes = collectUsedBarcodes();
     const code = makeUniqueBarcode(usedBarcodes);
     updateRow(id, { barcode: code });
+  };
+
+  const collectUsedCustomCodes = () => {
+    const used = new Set<string>();
+    rows.forEach((row) => {
+      if (row.customCode) used.add(row.customCode);
+      row.variants.forEach((v) => v.customCode && used.add(v.customCode));
+    });
+    return used;
+  };
+
+  const assignCustomCode = (id: string) => {
+    const code = makeUniqueCustomCode(collectUsedCustomCodes());
+    updateRow(id, { customCode: code });
+  };
+
+  /** Optom/sotuv narx qo'lda o'zgartirilib, inputdan chiqilganda (blur) — tan
+   * narxdan qancha foiz ustama qo'yilgani orqaga hisoblab, foiz maydoniga
+   * yoziladi, shunda keyinroq tan narx o'zgarsa ham shu marja eslab qolinadi. */
+  const handleWholesalePriceBlur = (id: string) => {
+    const row = rows.find((r) => r.id === id);
+    if (!row) return;
+    const cost = parseNumberInput(row.costPrice);
+    const priceNum = parseNumberInput(row.wholesalePrice);
+    if (!cost) {
+      updateRow(id, { wholesaleMarkupWarn: priceNum > 0 });
+      return;
+    }
+    if (!priceNum) {
+      updateRow(id, { wholesaleMarkupWarn: false });
+      return;
+    }
+    const percent = reverseMarkupPercent(cost, row.costCurrency, priceNum, row.wholesaleCurrency);
+    updateRow(id, {
+      wholesaleMarkupPercent:
+        percent === null ? row.wholesaleMarkupPercent : formatNumberInput(String(percent)),
+      wholesaleMarkupWarn: percent === null,
+    });
+  };
+
+  const handlePriceBlur = (id: string) => {
+    const row = rows.find((r) => r.id === id);
+    if (!row) return;
+    const cost = parseNumberInput(row.costPrice);
+    const priceNum = parseNumberInput(row.price);
+    if (!cost) {
+      updateRow(id, { priceMarkupWarn: priceNum > 0 });
+      return;
+    }
+    if (!priceNum) {
+      updateRow(id, { priceMarkupWarn: false });
+      return;
+    }
+    const percent = reverseMarkupPercent(cost, row.costCurrency, priceNum, row.priceCurrency);
+    updateRow(id, {
+      priceMarkupPercent:
+        percent === null ? row.priceMarkupPercent : formatNumberInput(String(percent)),
+      priceMarkupWarn: percent === null,
+    });
   };
 
   const handleImagePick = (id: string, file: File | undefined) => {
@@ -215,6 +316,63 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
     updateVariant(rowId, variantId, { barcode: code });
   };
 
+  const assignVariantCustomCode = (rowId: string, variantId: string) => {
+    const code = makeUniqueCustomCode(collectUsedCustomCodes());
+    updateVariant(rowId, variantId, { customCode: code });
+  };
+
+  const handleVariantWholesalePriceBlur = (rowId: string, variantId: string) => {
+    const variant = rows.find((r) => r.id === rowId)?.variants.find((v) => v.id === variantId);
+    if (!variant) return;
+    const cost = parseNumberInput(variant.costPrice);
+    const priceNum = parseNumberInput(variant.wholesalePrice);
+    if (!cost) {
+      updateVariant(rowId, variantId, { wholesaleMarkupWarn: priceNum > 0 });
+      return;
+    }
+    if (!priceNum) {
+      updateVariant(rowId, variantId, { wholesaleMarkupWarn: false });
+      return;
+    }
+    const percent = reverseMarkupPercent(
+      cost,
+      variant.costCurrency,
+      priceNum,
+      variant.wholesaleCurrency,
+    );
+    updateVariant(rowId, variantId, {
+      wholesaleMarkupPercent:
+        percent === null ? variant.wholesaleMarkupPercent : formatNumberInput(String(percent)),
+      wholesaleMarkupWarn: percent === null,
+    });
+  };
+
+  const handleVariantPriceBlur = (rowId: string, variantId: string) => {
+    const variant = rows.find((r) => r.id === rowId)?.variants.find((v) => v.id === variantId);
+    if (!variant) return;
+    const cost = parseNumberInput(variant.costPrice);
+    const priceNum = parseNumberInput(variant.price);
+    if (!cost) {
+      updateVariant(rowId, variantId, { priceMarkupWarn: priceNum > 0 });
+      return;
+    }
+    if (!priceNum) {
+      updateVariant(rowId, variantId, { priceMarkupWarn: false });
+      return;
+    }
+    const percent = reverseMarkupPercent(
+      cost,
+      variant.costCurrency,
+      priceNum,
+      variant.priceCurrency,
+    );
+    updateVariant(rowId, variantId, {
+      priceMarkupPercent:
+        percent === null ? variant.priceMarkupPercent : formatNumberInput(String(percent)),
+      priceMarkupWarn: percent === null,
+    });
+  };
+
   const handleVariantImagePick = (rowId: string, variantId: string, file: File | undefined) => {
     if (!file) return;
     const reader = new FileReader();
@@ -232,19 +390,30 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
       const firstVariantCostNumber = firstVariant
         ? Math.max(0, parseNumberInput(firstVariant.costPrice) || 0)
         : 0;
+      const rowWholesaleNumber = Math.max(0, parseNumberInput(row.wholesalePrice) || 0);
+      const firstVariantWholesaleNumber = firstVariant
+        ? Math.max(0, parseNumberInput(firstVariant.wholesalePrice) || 0)
+        : 0;
+      const rowPriceNumber = Math.max(0, parseNumberInput(row.price) || 0);
+      const firstVariantPriceNumber = firstVariant
+        ? Math.max(0, parseNumberInput(firstVariant.price) || 0)
+        : 0;
       return {
         ...row,
         nameValue: row.name.trim(),
         unitValue: row.unit.trim() || settings.units[0]?.name || "dona",
+        customCodeValue: row.customCode.trim(),
         costCurrency:
           rowCostNumber > 0 || !firstVariant ? row.costCurrency : firstVariant.costCurrency,
         costNumber: rowCostNumber || firstVariantCostNumber,
-        wholesaleNumber:
-          Math.max(0, parseNumberInput(row.wholesalePrice) || 0) ||
-          (firstVariant ? Math.max(0, parseNumberInput(firstVariant.wholesalePrice) || 0) : 0),
-        priceNumber:
-          Math.max(0, parseNumberInput(row.price) || 0) ||
-          (firstVariant ? Math.max(0, parseNumberInput(firstVariant.price) || 0) : 0),
+        wholesaleCurrency:
+          rowWholesaleNumber > 0 || !firstVariant
+            ? row.wholesaleCurrency
+            : firstVariant.wholesaleCurrency,
+        wholesaleNumber: rowWholesaleNumber || firstVariantWholesaleNumber,
+        priceCurrency:
+          rowPriceNumber > 0 || !firstVariant ? row.priceCurrency : firstVariant.priceCurrency,
+        priceNumber: rowPriceNumber || firstVariantPriceNumber,
         barcodeValue: joinBarcodes(splitBarcodes(row.barcode)),
         variantsValue,
       };
@@ -284,8 +453,16 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
       return code;
     };
 
+    const usedCustomCodes = collectUsedCustomCodes();
+    const nextCustomCode = (preferred: string) => {
+      const code = preferred || makeUniqueCustomCode(usedCustomCodes);
+      usedCustomCodes.add(code);
+      return code;
+    };
+
     validRows.forEach((row) => {
       const barcode = nextBarcode(row.barcodeValue);
+      const customCode = nextCustomCode(row.customCodeValue);
       const { base: baseUnit, pack: packUnit } = splitUnit(row.unitValue);
       const perBox = packUnit ? Math.max(0, parseNumberInput(row.perBox) || 0) : 0;
 
@@ -298,9 +475,12 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
               id: `v${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
               label: v.label.trim(),
               barcode: nextBarcode(joinBarcodes(splitBarcodes(v.barcode))),
+              customCode: nextCustomCode(v.customCode.trim()),
               image: v.image,
               price: vPrice > 0 ? vPrice : undefined,
+              priceCurrency: vPrice > 0 ? v.priceCurrency : undefined,
               wholesalePrice: vWholesale > 0 ? vWholesale : undefined,
+              wholesaleCurrency: vWholesale > 0 ? v.wholesaleCurrency : undefined,
               costPrice: vCost > 0 ? vCost : undefined,
               costCurrency: vCost > 0 ? v.costCurrency : undefined,
               vitrinaQty: 0,
@@ -314,11 +494,16 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
         name: row.nameValue,
         image: row.image,
         price: row.priceNumber,
+        priceCurrency: row.priceCurrency,
+        priceMarkupPercent: parseNumberInput(row.priceMarkupPercent) || undefined,
         wholesalePrice: row.wholesaleNumber || undefined,
+        wholesaleCurrency: row.wholesaleNumber ? row.wholesaleCurrency : undefined,
+        wholesaleMarkupPercent: parseNumberInput(row.wholesaleMarkupPercent) || undefined,
         costPrice: row.costNumber,
         costCurrency: row.costCurrency,
+        preventBelowCost: row.preventBelowCost,
         barcode,
-        customCode: makeProductCode(row.nameValue),
+        customCode,
         unit: perBox > 1 ? baseUnit : row.unitValue,
         packUnit: perBox > 1 ? (packUnit ?? undefined) : undefined,
         perBox: perBox > 1 ? perBox : undefined,
@@ -414,8 +599,8 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
                             ? "md:grid-cols-3 xl:grid-cols-[minmax(200px,1.5fr)_minmax(90px,0.6fr)_minmax(120px,0.8fr)]"
                             : "md:grid-cols-2 xl:grid-cols-[minmax(200px,1.5fr)_minmax(90px,0.6fr)]"
                           : dualUnit
-                            ? "md:grid-cols-4 xl:grid-cols-[minmax(200px,1.5fr)_minmax(90px,0.6fr)_minmax(120px,0.8fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(150px,0.95fr)_minmax(150px,1fr)]"
-                            : "md:grid-cols-4 xl:grid-cols-[minmax(200px,1.5fr)_minmax(90px,0.6fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(150px,0.95fr)_minmax(150px,1fr)]",
+                            ? "md:grid-cols-4 xl:grid-cols-[minmax(200px,1.5fr)_minmax(90px,0.6fr)_minmax(120px,0.8fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(150px,0.95fr)_minmax(150px,0.95fr)_minmax(150px,1fr)]"
+                            : "md:grid-cols-4 xl:grid-cols-[minmax(200px,1.5fr)_minmax(90px,0.6fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(150px,0.95fr)_minmax(150px,0.95fr)_minmax(150px,1fr)]",
                       )}
                     >
                       <Field label="Mahsulot nomi" required error={nameInvalid}>
@@ -500,34 +685,99 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
                                 updateRow(row.id, { costCurrency: value as Currency })
                               }
                             />
+                            <label className="mt-1.5 flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
+                              <Checkbox
+                                checked={row.preventBelowCost}
+                                onCheckedChange={(checked) =>
+                                  updateRow(row.id, { preventBelowCost: checked === true })
+                                }
+                              />
+                              Tan narxdan past sotilmasin
+                            </label>
                           </Field>
 
                           <Field label="Optom narx">
-                            <Input
+                            <CurrencyField
                               value={row.wholesalePrice}
-                              onChange={(e) =>
-                                updateRow(row.id, {
-                                  wholesalePrice: formatNumberInput(e.target.value),
-                                })
+                              onChange={(value) =>
+                                updateRow(row.id, { wholesalePrice: formatNumberInput(value) })
                               }
+                              onBlur={() => handleWholesalePriceBlur(row.id)}
                               placeholder="0"
-                              className="h-9 text-right text-xs"
-                              inputMode="decimal"
+                              currency={row.wholesaleCurrency}
+                              currencies={settings.currencies}
+                              onCurrencyChange={(value) =>
+                                updateRow(row.id, { wholesaleCurrency: value as Currency })
+                              }
+                            />
+                            <MarkupRow
+                              percent={row.wholesaleMarkupPercent}
+                              warn={row.wholesaleMarkupWarn}
+                              onPercentChange={(value) =>
+                                updateRow(row.id, { wholesaleMarkupPercent: value })
+                              }
+                              onApply={() => {
+                                const cost = parseNumberInput(row.costPrice);
+                                const percent = parseNumberInput(row.wholesaleMarkupPercent);
+                                if (!cost) {
+                                  updateRow(row.id, { wholesaleMarkupWarn: true });
+                                  toast.error("Avval tan narxni kiriting");
+                                  return;
+                                }
+                                const result = computeMarkupPrice(
+                                  cost,
+                                  row.costCurrency,
+                                  row.wholesaleCurrency,
+                                  percent,
+                                );
+                                updateRow(row.id, {
+                                  wholesalePrice: formatNumberInput(String(result)),
+                                  wholesaleMarkupWarn: false,
+                                });
+                              }}
                             />
                           </Field>
 
                           <Field label="Sotuv narx" required error={priceInvalid}>
-                            <Input
+                            <CurrencyField
                               value={row.price}
-                              onChange={(e) =>
-                                updateRow(row.id, { price: formatNumberInput(e.target.value) })
+                              onChange={(value) =>
+                                updateRow(row.id, { price: formatNumberInput(value) })
                               }
+                              onBlur={() => handlePriceBlur(row.id)}
                               placeholder="0"
-                              className={cn(
-                                "h-9 text-right text-xs",
-                                priceInvalid && "border-destructive focus-visible:ring-destructive",
-                              )}
-                              inputMode="decimal"
+                              currency={row.priceCurrency}
+                              currencies={settings.currencies}
+                              onCurrencyChange={(value) =>
+                                updateRow(row.id, { priceCurrency: value as Currency })
+                              }
+                              error={priceInvalid}
+                            />
+                            <MarkupRow
+                              percent={row.priceMarkupPercent}
+                              warn={row.priceMarkupWarn}
+                              onPercentChange={(value) =>
+                                updateRow(row.id, { priceMarkupPercent: value })
+                              }
+                              onApply={() => {
+                                const cost = parseNumberInput(row.costPrice);
+                                const percent = parseNumberInput(row.priceMarkupPercent);
+                                if (!cost) {
+                                  updateRow(row.id, { priceMarkupWarn: true });
+                                  toast.error("Avval tan narxni kiriting");
+                                  return;
+                                }
+                                const result = computeMarkupPrice(
+                                  cost,
+                                  row.costCurrency,
+                                  row.priceCurrency,
+                                  percent,
+                                );
+                                updateRow(row.id, {
+                                  price: formatNumberInput(String(result)),
+                                  priceMarkupWarn: false,
+                                });
+                              }}
                             />
                           </Field>
 
@@ -548,6 +798,27 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
                                 title="Avtomatik shtrix kod"
                               >
                                 <Barcode className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </Field>
+
+                          <Field label="Artikul">
+                            <div className="flex gap-1">
+                              <Input
+                                value={row.customCode}
+                                onChange={(e) => updateRow(row.id, { customCode: e.target.value })}
+                                placeholder="Artikul"
+                                className="h-9 min-w-0 text-xs"
+                              />
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="outline"
+                                className="h-9 w-9 shrink-0"
+                                onClick={() => assignCustomCode(row.id)}
+                                title="Avtomatik artikul"
+                              >
+                                <Hash className="h-3.5 w-3.5" />
                               </Button>
                             </div>
                           </Field>
@@ -588,7 +859,7 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
                               <div className="mb-2 pr-7 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
                                 Variant {vIndex + 1} — {previewName}
                               </div>
-                              <div className="grid grid-cols-1 gap-3 pr-7 md:grid-cols-3 xl:grid-cols-6">
+                              <div className="grid grid-cols-1 gap-3 pr-7 md:grid-cols-3 xl:grid-cols-7">
                                 <Field label="Variant nomi" required error={labelInvalid}>
                                   <Input
                                     value={variant.label}
@@ -624,30 +895,106 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
                                 </Field>
 
                                 <Field label="Optom narx">
-                                  <Input
+                                  <CurrencyField
                                     value={variant.wholesalePrice}
-                                    onChange={(e) =>
+                                    onChange={(value) =>
                                       updateVariant(row.id, variant.id, {
-                                        wholesalePrice: formatNumberInput(e.target.value),
+                                        wholesalePrice: formatNumberInput(value),
                                       })
                                     }
+                                    onBlur={() =>
+                                      handleVariantWholesalePriceBlur(row.id, variant.id)
+                                    }
                                     placeholder="0"
-                                    className="h-9 text-right text-xs"
-                                    inputMode="decimal"
+                                    currency={variant.wholesaleCurrency}
+                                    currencies={settings.currencies}
+                                    onCurrencyChange={(value) =>
+                                      updateVariant(row.id, variant.id, {
+                                        wholesaleCurrency: value as Currency,
+                                      })
+                                    }
+                                  />
+                                  <MarkupRow
+                                    percent={variant.wholesaleMarkupPercent}
+                                    warn={variant.wholesaleMarkupWarn}
+                                    onPercentChange={(value) =>
+                                      updateVariant(row.id, variant.id, {
+                                        wholesaleMarkupPercent: value,
+                                      })
+                                    }
+                                    onApply={() => {
+                                      const cost = parseNumberInput(variant.costPrice);
+                                      const percent = parseNumberInput(
+                                        variant.wholesaleMarkupPercent,
+                                      );
+                                      if (!cost) {
+                                        updateVariant(row.id, variant.id, {
+                                          wholesaleMarkupWarn: true,
+                                        });
+                                        toast.error("Avval tan narxni kiriting");
+                                        return;
+                                      }
+                                      const result = computeMarkupPrice(
+                                        cost,
+                                        variant.costCurrency,
+                                        variant.wholesaleCurrency,
+                                        percent,
+                                      );
+                                      updateVariant(row.id, variant.id, {
+                                        wholesalePrice: formatNumberInput(String(result)),
+                                        wholesaleMarkupWarn: false,
+                                      });
+                                    }}
                                   />
                                 </Field>
 
                                 <Field label="Sotuv narx">
-                                  <Input
+                                  <CurrencyField
                                     value={variant.price}
-                                    onChange={(e) =>
+                                    onChange={(value) =>
                                       updateVariant(row.id, variant.id, {
-                                        price: formatNumberInput(e.target.value),
+                                        price: formatNumberInput(value),
                                       })
                                     }
+                                    onBlur={() => handleVariantPriceBlur(row.id, variant.id)}
                                     placeholder="0"
-                                    className="h-9 text-right text-xs"
-                                    inputMode="decimal"
+                                    currency={variant.priceCurrency}
+                                    currencies={settings.currencies}
+                                    onCurrencyChange={(value) =>
+                                      updateVariant(row.id, variant.id, {
+                                        priceCurrency: value as Currency,
+                                      })
+                                    }
+                                  />
+                                  <MarkupRow
+                                    percent={variant.priceMarkupPercent}
+                                    warn={variant.priceMarkupWarn}
+                                    onPercentChange={(value) =>
+                                      updateVariant(row.id, variant.id, {
+                                        priceMarkupPercent: value,
+                                      })
+                                    }
+                                    onApply={() => {
+                                      const cost = parseNumberInput(variant.costPrice);
+                                      const percent = parseNumberInput(variant.priceMarkupPercent);
+                                      if (!cost) {
+                                        updateVariant(row.id, variant.id, {
+                                          priceMarkupWarn: true,
+                                        });
+                                        toast.error("Avval tan narxni kiriting");
+                                        return;
+                                      }
+                                      const result = computeMarkupPrice(
+                                        cost,
+                                        variant.costCurrency,
+                                        variant.priceCurrency,
+                                        percent,
+                                      );
+                                      updateVariant(row.id, variant.id, {
+                                        price: formatNumberInput(String(result)),
+                                        priceMarkupWarn: false,
+                                      });
+                                    }}
                                   />
                                 </Field>
 
@@ -672,6 +1019,31 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
                                       title="Avtomatik shtrix kod"
                                     >
                                       <Barcode className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </div>
+                                </Field>
+
+                                <Field label="Artikul">
+                                  <div className="flex gap-1">
+                                    <Input
+                                      value={variant.customCode}
+                                      onChange={(e) =>
+                                        updateVariant(row.id, variant.id, {
+                                          customCode: e.target.value,
+                                        })
+                                      }
+                                      placeholder="Artikul"
+                                      className="h-9 min-w-0 text-xs"
+                                    />
+                                    <Button
+                                      type="button"
+                                      size="icon"
+                                      variant="outline"
+                                      className="h-9 w-9 shrink-0"
+                                      onClick={() => assignVariantCustomCode(row.id, variant.id)}
+                                      title="Avtomatik artikul"
+                                    >
+                                      <Hash className="h-3.5 w-3.5" />
                                     </Button>
                                   </div>
                                 </Field>
@@ -782,7 +1154,7 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
   );
 }
 
-function ImageUploadField({
+export function ImageUploadField({
   image,
   onPick,
   onClear,
@@ -872,28 +1244,36 @@ function Field({
   );
 }
 
-function CurrencyField({
+export function CurrencyField({
   value,
   onChange,
+  onBlur,
   placeholder,
   currency,
   currencies,
   onCurrencyChange,
+  error,
 }: {
   value: string;
   onChange: (value: string) => void;
+  onBlur?: () => void;
   placeholder?: string;
   currency: string;
   currencies: string[];
   onCurrencyChange: (value: string) => void;
+  error?: boolean;
 }) {
   return (
     <div className="relative">
       <Input
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onBlur={onBlur}
         placeholder={placeholder}
-        className="h-9 pr-14 text-right text-xs"
+        className={cn(
+          "h-9 pr-14 text-right text-xs",
+          error && "border-destructive focus-visible:ring-destructive",
+        )}
         inputMode="decimal"
       />
       <Select value={currency} onValueChange={onCurrencyChange}>
@@ -908,6 +1288,56 @@ function CurrencyField({
           ))}
         </SelectContent>
       </Select>
+    </div>
+  );
+}
+
+/** Tan narx ustiga foiz qo'yib, natijani narx maydoniga qo'yadigan mini-hisoblagich.
+ * Foiz doim ko'rinib turadi; Enter bosilganda yoki tugma bosilganda hisoblanadi. */
+export function MarkupRow({
+  percent,
+  onPercentChange,
+  onApply,
+  warn,
+}: {
+  percent: string;
+  onPercentChange: (value: string) => void;
+  onApply: () => void;
+  warn?: boolean;
+}) {
+  return (
+    <div className="mt-1 flex items-center justify-between gap-1 text-[10px] text-muted-foreground">
+      <span className={cn("shrink-0", warn && "font-semibold text-destructive")}>
+        {warn ? "Avval tan narxni kiriting" : "Tan narx + %"}
+      </span>
+      <div className="flex items-center gap-1">
+        <Input
+          value={percent}
+          onChange={(e) => onPercentChange(formatNumberInput(e.target.value))}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              onApply();
+            }
+          }}
+          placeholder="0"
+          inputMode="decimal"
+          className={cn(
+            "h-6 w-12 px-1 text-center text-[10px]",
+            warn && "border-destructive focus-visible:ring-destructive",
+          )}
+        />
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="h-6 w-6 shrink-0"
+          onClick={onApply}
+          title="Narxni hisoblash"
+        >
+          <Percent className="h-3 w-3" />
+        </Button>
+      </div>
     </div>
   );
 }

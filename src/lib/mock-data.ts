@@ -8,10 +8,19 @@ export type Product = {
   image?: string;
   shelfLocation?: string;
   minStockAlert?: number;
-  price: number; // sotuv narx (so'mda)
-  wholesalePrice?: number; // optom narx (so'mda)
+  price: number; // sotuv narx — priceCurrency da
+  priceCurrency?: Currency; // sotuv narx valyutasi (yo'q bo'lsa UZS)
+  /** Tan narx ustiga qo'yilgan foiz — saqlansa, tan narx keyinchalik (masalan
+   * prixod qilinganda) o'zgarganda sotuv narx shu foiz asosida qayta hisoblanadi. */
+  priceMarkupPercent?: number;
+  wholesalePrice?: number; // optom narx — wholesaleCurrency da
+  wholesaleCurrency?: Currency; // optom narx valyutasi (yo'q bo'lsa UZS)
+  /** Tan narx ustiga qo'yilgan foiz — optom narx uchun, priceMarkupPercent kabi. */
+  wholesaleMarkupPercent?: number;
   costPrice: number; // tan narx — costCurrency da
   costCurrency: Currency; // tan narx valyutasi
+  /** true bo'lsa — bu tovar tan narxidan past narxda sotilishiga yo'l qo'yilmaydi. */
+  preventBelowCost?: boolean;
   barcode: string;
   customCode: string;
   unit: string;
@@ -24,7 +33,6 @@ export type Product = {
   vitrinaQty: number;
   omborQty: number;
   perBox?: number;
-  preventBelowCost?: boolean;
   /** POS UI'dagi "Tezkor tovarlar" panelida doim ko'rinib turadigan mahsulot */
   quick?: boolean;
   // sotuvlar tarixi (oddiy demo) — kunlik sotilgan miqdor (oxirgi N kun)
@@ -48,7 +56,9 @@ export type ProductVariant = {
   customCode?: string;
   image?: string;
   price?: number;
+  priceCurrency?: Currency;
   wholesalePrice?: number;
+  wholesaleCurrency?: Currency;
   costPrice?: number;
   costCurrency?: Currency;
   vitrinaQty: number;
@@ -2478,6 +2488,7 @@ export type EditedProductHistory = {
     field:
       | "name"
       | "barcode"
+      | "customCode"
       | "price"
       | "costPrice"
       | "wholesalePrice"
@@ -3547,6 +3558,70 @@ export function formatMoney(sumAmount: number, currencyCode: string = "UZS"): st
 
 export function costInSom(p: Pick<Product, "costPrice" | "costCurrency">): number {
   return p.costPrice * (MOCK_RATES[p.costCurrency] ?? 1);
+}
+
+export function priceInSom(p: Pick<Product, "price" | "priceCurrency">): number {
+  return p.price * (MOCK_RATES[p.priceCurrency ?? "UZS"] ?? 1);
+}
+
+export function wholesaleInSom(p: Pick<Product, "wholesalePrice" | "wholesaleCurrency">): number {
+  return (p.wholesalePrice ?? 0) * (MOCK_RATES[p.wholesaleCurrency ?? "UZS"] ?? 1);
+}
+
+/** computeMarkupPrice'ning teskarisi — narx (masalan foydalanuvchi qo'lda
+ * kiritgan optom/sotuv narx) va tan narxdan, qo'yilgan foiz ustamasini topadi.
+ * Tan narx 0/bo'sh bo'lsa (foiz hisoblab bo'lmaydi) `null` qaytaradi. */
+export function reverseMarkupPercent(
+  costPrice: number,
+  costCurrency: Currency,
+  targetPrice: number,
+  targetCurrency: Currency,
+): number | null {
+  if (!costPrice || costPrice <= 0) return null;
+  const costInTarget =
+    (costPrice * (MOCK_RATES[costCurrency] ?? 1)) / (MOCK_RATES[targetCurrency] ?? 1);
+  if (costInTarget <= 0) return null;
+  const percent = (targetPrice / costInTarget - 1) * 100;
+  return Math.round(percent * 100) / 100;
+}
+
+/** Savat (yoki chek) bo'yicha bir butun chegirma qo'llanganda, "tan narxdan past
+ * sotilmasin" belgisi qo'yilgan tovarlarning har biri (chegirma proporsional
+ * taqsimlanganda) o'z tan narxidan pastga tushib ketmasligi uchun ruxsat etilgan
+ * eng katta umumiy chegirma summasini (so'mda) hisoblaydi. */
+export function maxAllowedCartDiscount(
+  lines: { product: Product; quantity: number }[],
+  subtotal: number,
+): number {
+  if (subtotal <= 0) return 0;
+  let maxDiscount = subtotal;
+  for (const line of lines) {
+    if (!line.product.preventBelowCost) continue;
+    const lineSubtotal = priceInSom(line.product) * line.quantity;
+    if (lineSubtotal <= 0) continue;
+    const lineCost = costInSom(line.product) * line.quantity;
+    const lineRoom = Math.max(0, lineSubtotal - lineCost);
+    const allowedTotalDiscount = (lineRoom * subtotal) / lineSubtotal;
+    maxDiscount = Math.min(maxDiscount, allowedTotalDiscount);
+  }
+  return maxDiscount;
+}
+
+/** Tan narxni berilgan valyutaga o'girib, ustiga foiz qo'shib narx hisoblaydi.
+ * Masalan tan narx 1 USD, maqsad valyuta UZS, foiz 5% bo'lsa:
+ * 1 * 12650 = 12650 so'm, + 5% = 13282.5 -> UZS uchun 1000 so'mgacha yaxlitlanadi. */
+export function computeMarkupPrice(
+  costPrice: number,
+  costCurrency: Currency,
+  targetCurrency: Currency,
+  percent: number,
+): number {
+  const costInTarget =
+    (costPrice * (MOCK_RATES[costCurrency] ?? 1)) / (MOCK_RATES[targetCurrency] ?? 1);
+  const withMarkup = costInTarget * (1 + percent / 100);
+  return targetCurrency === "UZS"
+    ? Math.round(withMarkup / 1000) * 1000
+    : Math.round(withMarkup * 100) / 100;
 }
 
 /** Tovar bir nechta variantga (rang/razmer/SKU) egami? */

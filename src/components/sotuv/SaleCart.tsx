@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Button } from "@/components/ui/button";
-import { formatSom, formatMoney } from "@/lib/mock-data";
+import { formatSom, formatMoney, costInSom } from "@/lib/mock-data";
 import { Badge } from "@/components/ui/badge";
 import type {
   CartItem,
@@ -102,6 +102,41 @@ export function SaleCart({
   const currentSaleTotal = Math.max(0, subtotal - discountAmount);
   const returnCredit = pendingReturn?.total ?? 0;
   const total = Math.max(0, currentSaleTotal - returnCredit);
+
+  // "Tan narxdan past sotilmasin" belgilangan tovarlar chegirma tufayli o'z tan
+  // narxidan pastga tushib ketmasligi uchun ruxsat etilgan eng katta umumiy chegirma.
+  const maxDiscountAmount = (() => {
+    let max = subtotal;
+    for (const it of items) {
+      if (!it.product.preventBelowCost) continue;
+      const lineSubtotal = lineTotal(it);
+      if (lineSubtotal <= 0) continue;
+      const lineCost = costInSom(it.product) * safeNumber(it.quantity);
+      const room = Math.max(0, lineSubtotal - lineCost);
+      const allowed = subtotal > 0 ? (room * subtotal) / lineSubtotal : 0;
+      max = Math.min(max, allowed);
+    }
+    return max;
+  })();
+
+  const handleApplyDiscount = (d: Discount) => {
+    const proposedAmount =
+      d.type === "amount"
+        ? Math.min(d.value, subtotal)
+        : d.type === "percent"
+          ? (subtotal * d.value) / 100
+          : 0;
+    if (proposedAmount > maxDiscountAmount + 0.01) {
+      toast.error("Chegirma tan narxdan past sotishga olib keladi", {
+        description: `Ruxsat etilgan eng katta chegirma: ${formatMoney(maxDiscountAmount, currency)}`,
+      });
+      onSetDiscount(
+        maxDiscountAmount > 0 ? { type: "amount", value: maxDiscountAmount } : { type: "none" },
+      );
+      return;
+    }
+    onSetDiscount(d);
+  };
   const handleFinalize = (details: FinalizeSaleDetails) => {
     onFinalize({
       ...details,
@@ -487,7 +522,7 @@ export function SaleCart({
         onOpenChange={setDiscountOpen}
         subtotal={subtotal}
         current={discount}
-        onApply={onSetDiscount}
+        onApply={handleApplyDiscount}
       />
       <FinalizeSaleDialog
         open={finalizeOpen}

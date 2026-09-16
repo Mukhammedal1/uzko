@@ -1,7 +1,7 @@
 import * as React from "react";
 import { toast } from "sonner";
 import { HandCoins, PackagePlus, RotateCcw, Wifi } from "lucide-react";
-import { formatSom } from "@/lib/mock-data";
+import { formatSom, maxAllowedCartDiscount } from "@/lib/mock-data";
 import type { Product, ReceiptItem } from "@/lib/mock-data";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { FinalizeSaleDialog } from "@/components/sotuv/FinalizeSaleDialog";
@@ -223,7 +223,14 @@ export function PosPage({
       const result = cart.setQuantity(keypad.line.product, value);
       if (!result.ok) toast.error(result.reason);
     } else if (keypad?.mode === "discount") {
-      cart.setDiscount(Math.min(Math.max(0, value), subtotal));
+      const maxDiscount = maxAllowedCartDiscount(cart.activeCheck.lines, subtotal);
+      const requested = Math.min(Math.max(0, value), subtotal);
+      if (requested > maxDiscount) {
+        toast.error("Chegirma tan narxdan past sotishga olib keladi", {
+          description: `Ruxsat etilgan eng katta chegirma: ${formatSom(maxDiscount)}`,
+        });
+      }
+      cart.setDiscount(Math.min(requested, maxDiscount));
     }
     setKeypad(null);
   };

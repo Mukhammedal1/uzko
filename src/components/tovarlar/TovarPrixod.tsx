@@ -34,6 +34,8 @@ import {
   MOCK_PRODUCTS,
   MOCK_RATES,
   MOCK_WITHDRAWALS,
+  computeMarkupPrice,
+  reverseMarkupPercent,
   formatMoney,
   getAgentsList,
 } from "@/lib/mock-data";
@@ -60,7 +62,9 @@ type FormState = {
   costCurrency: Currency;
   costPrice: string;
   wholesalePrice: string;
+  wholesaleMarkupPercent: number | undefined;
   price: string;
+  priceMarkupPercent: number | undefined;
   minStockAlert: string;
   agentId: string;
   warehouse: string;
@@ -74,7 +78,9 @@ function makeEmptyForm(): FormState {
     costCurrency: "UZS",
     costPrice: "",
     wholesalePrice: "",
+    wholesaleMarkupPercent: undefined,
     price: "",
+    priceMarkupPercent: undefined,
     minStockAlert: "",
     agentId: "",
     warehouse: "",
@@ -114,7 +120,9 @@ export function TovarPrixod() {
       wholesalePrice: product.wholesalePrice
         ? formatNumberInput(String(product.wholesalePrice))
         : "",
+      wholesaleMarkupPercent: product.wholesaleMarkupPercent,
       price: formatNumberInput(String(product.price)),
+      priceMarkupPercent: product.priceMarkupPercent,
       minStockAlert:
         typeof product.minStockAlert === "number"
           ? formatNumberInput(String(product.minStockAlert))
@@ -122,6 +130,83 @@ export function TovarPrixod() {
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.productId]);
+
+  /** Tan narx (yoki uning valyutasi) o'zgarganda, agar mahsulot uchun oldin
+   * "foiz" asosida narx belgilangan bo'lsa (priceMarkupPercent/wholesaleMarkupPercent),
+   * Optom narx va Sotuv narxni shu foiz asosida yangi tan narxdan qayta hisoblaydi. */
+  const applyAutoMarkup = (
+    nextCostPrice: string,
+    nextCostCurrency: Currency,
+  ): Partial<FormState> => {
+    if (!product) return {};
+    const costNumber = parseNumberInput(nextCostPrice);
+    if (!costNumber) return {};
+    const patch: Partial<FormState> = {};
+    if (typeof product.priceMarkupPercent === "number") {
+      patch.price = formatNumberInput(
+        String(
+          computeMarkupPrice(
+            costNumber,
+            nextCostCurrency,
+            product.priceCurrency ?? "UZS",
+            product.priceMarkupPercent,
+          ),
+        ),
+      );
+    }
+    if (typeof product.wholesaleMarkupPercent === "number") {
+      patch.wholesalePrice = formatNumberInput(
+        String(
+          computeMarkupPrice(
+            costNumber,
+            nextCostCurrency,
+            product.wholesaleCurrency ?? "UZS",
+            product.wholesaleMarkupPercent,
+          ),
+        ),
+      );
+    }
+    return patch;
+  };
+
+  /** Optom/sotuv narx qo'lda o'zgartirilib, inputdan chiqilganda (blur) — tan
+   * narxdan qancha foiz ustama qo'yilgani orqaga hisoblab, shu tovar uchun
+   * eslab qolinadi (keyingi prixodlarda ham shu foiz asosida hisoblanadi). */
+  const handleWholesalePriceBlur = () => {
+    const cost = parseNumberInput(form.costPrice);
+    const priceNum = parseNumberInput(form.wholesalePrice);
+    if (!priceNum) return;
+    if (!cost) {
+      toast.error("Avval tan narxni kiriting — foiz eslab qolinmadi");
+      return;
+    }
+    const percent = reverseMarkupPercent(
+      cost,
+      form.costCurrency,
+      priceNum,
+      product?.wholesaleCurrency ?? "UZS",
+    );
+    if (percent === null) return;
+    setForm((s) => ({ ...s, wholesaleMarkupPercent: percent }));
+  };
+
+  const handlePriceBlur = () => {
+    const cost = parseNumberInput(form.costPrice);
+    const priceNum = parseNumberInput(form.price);
+    if (!priceNum) return;
+    if (!cost) {
+      toast.error("Avval tan narxni kiriting — foiz eslab qolinmadi");
+      return;
+    }
+    const percent = reverseMarkupPercent(
+      cost,
+      form.costCurrency,
+      priceNum,
+      product?.priceCurrency ?? "UZS",
+    );
+    if (percent === null) return;
+    setForm((s) => ({ ...s, priceMarkupPercent: percent }));
+  };
 
   const productInvalid = showValidation && !form.productId;
   const qtyInvalid = showValidation && !(parseNumberInput(form.qty) > 0);
@@ -154,7 +239,9 @@ export function TovarPrixod() {
     product.costPrice = costNumber || product.costPrice;
     product.costCurrency = form.costCurrency;
     product.price = priceNumber;
+    product.priceMarkupPercent = form.priceMarkupPercent;
     if (wholesaleNumber > 0) product.wholesalePrice = wholesaleNumber;
+    product.wholesaleMarkupPercent = form.wholesaleMarkupPercent;
     product.warehouse = form.warehouse || defaultWarehouse;
     product.shelfLocation = form.shelfLocation || undefined;
     product.omborQty = (product.omborQty || 0) + qtyNumber;
@@ -330,16 +417,34 @@ export function TovarPrixod() {
               <Field label="Tan narx">
                 <CurrencyField
                   value={form.costPrice}
-                  onChange={(value) =>
-                    setForm((s) => ({ ...s, costPrice: formatNumberInput(value) }))
-                  }
+                  onChange={(value) => {
+                    const formatted = formatNumberInput(value);
+                    setForm((s) => ({
+                      ...s,
+                      costPrice: formatted,
+                      ...applyAutoMarkup(formatted, s.costCurrency),
+                    }));
+                  }}
                   placeholder="0"
                   currency={form.costCurrency}
                   currencies={settings.currencies}
-                  onCurrencyChange={(value) =>
-                    setForm((s) => ({ ...s, costCurrency: value as Currency }))
-                  }
+                  onCurrencyChange={(value) => {
+                    const currency = value as Currency;
+                    setForm((s) => ({
+                      ...s,
+                      costCurrency: currency,
+                      ...applyAutoMarkup(s.costPrice, currency),
+                    }));
+                  }}
                 />
+                {product &&
+                  (typeof product.priceMarkupPercent === "number" ||
+                    typeof product.wholesaleMarkupPercent === "number") && (
+                    <p className="text-[10px] leading-snug text-muted-foreground">
+                      Bu tovar uchun narx foiz asosida saqlangan — tan narx o'zgarganda Optom/Sotuv
+                      narx avtomatik qayta hisoblanadi.
+                    </p>
+                  )}
               </Field>
 
               <Field label="Optom narx">
@@ -351,6 +456,7 @@ export function TovarPrixod() {
                       wholesalePrice: formatNumberInput(e.target.value),
                     }))
                   }
+                  onBlur={handleWholesalePriceBlur}
                   placeholder="0"
                   className="h-9 text-right text-sm"
                   inputMode="decimal"
@@ -363,6 +469,7 @@ export function TovarPrixod() {
                   onChange={(e) =>
                     setForm((s) => ({ ...s, price: formatNumberInput(e.target.value) }))
                   }
+                  onBlur={handlePriceBlur}
                   placeholder="0"
                   className={cn(
                     "h-9 text-right text-sm",
