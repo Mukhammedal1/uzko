@@ -11,6 +11,7 @@ import {
 import { AppProvider } from "@/lib/app-context";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { UiScaleProvider } from "@/hooks/use-ui-scale";
+import { AdminBotRuntime } from "@/lib/bot/AdminBotRuntime";
 
 import appCss from "../styles.css?url";
 
@@ -125,6 +126,7 @@ function RootShell({ children }: { children: React.ReactNode }) {
 function RootComponent() {
   return (
     <AppProvider>
+      <AdminBotRuntime />
       <UiScaleProvider>
         <AuthProvider>
           <AuthGate>

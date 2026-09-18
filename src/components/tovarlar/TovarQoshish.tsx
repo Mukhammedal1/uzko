@@ -15,6 +15,8 @@ import {
   Hash,
   ImagePlus,
   Layers,
+  Lock,
+  LockOpen,
   Pencil,
   Plus,
   Check,
@@ -136,6 +138,10 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
     makeNewProductRow(settings.units[0]?.name ?? "dona"),
   ]);
   const [showValidation, setShowValidation] = React.useState(false);
+  // Qulflangan foizlar: null bo'lsa qulf o'chiq. Qiymat qulflangan paytdagi
+  // foizga qotib qoladi va shu qiymat yangi qo'shiladigan qatorlarga ko'chadi.
+  const [lockedWholesalePercent, setLockedWholesalePercent] = React.useState<string | null>(null);
+  const [lockedPricePercent, setLockedPricePercent] = React.useState<string | null>(null);
 
   const updateRow = (id: string, patch: Partial<NewProductRow>) => {
     setRows((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)));
@@ -146,7 +152,64 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
       toast.error("Avval boshlangan variantlarni yakunlang");
       return;
     }
-    setRows((current) => [...current, makeNewProductRow(settings.units[0]?.name ?? "dona")]);
+    setRows((current) => [
+      ...current,
+      {
+        ...makeNewProductRow(settings.units[0]?.name ?? "dona"),
+        wholesaleMarkupPercent: lockedWholesalePercent ?? "",
+        priceMarkupPercent: lockedPricePercent ?? "",
+      },
+    ]);
+  };
+
+  const toggleWholesaleLock = (rowId: string) => {
+    setLockedWholesalePercent((prev) => {
+      if (prev !== null) return null;
+      const row = rows.find((r) => r.id === rowId);
+      return row?.wholesaleMarkupPercent || "0";
+    });
+  };
+
+  const togglePriceLock = (rowId: string) => {
+    setLockedPricePercent((prev) => {
+      if (prev !== null) return null;
+      const row = rows.find((r) => r.id === rowId);
+      return row?.priceMarkupPercent || "0";
+    });
+  };
+
+  /** Tan narx real vaqtda (har bir tugma bosilganda) o'zgarganda — agar foiz
+   * maydoni to'ldirilgan bo'lsa (qulflangan yoki qo'lda kiritilgan), optom/sotuv
+   * narx shu foiz asosida darhol qayta hisoblanadi. */
+  const handleCostPriceChange = (id: string, rawValue: string) => {
+    const costPrice = formatNumberInput(rawValue);
+    setRows((current) =>
+      current.map((row) => {
+        if (row.id !== id) return row;
+        const patch: Partial<NewProductRow> = { costPrice };
+        const cost = parseNumberInput(costPrice);
+        if (cost > 0) {
+          const wPercent = parseNumberInput(row.wholesaleMarkupPercent);
+          if (wPercent > 0) {
+            const result = computeMarkupPrice(
+              cost,
+              row.costCurrency,
+              row.wholesaleCurrency,
+              wPercent,
+            );
+            patch.wholesalePrice = formatNumberInput(String(result));
+            patch.wholesaleMarkupWarn = false;
+          }
+          const pPercent = parseNumberInput(row.priceMarkupPercent);
+          if (pPercent > 0) {
+            const result = computeMarkupPrice(cost, row.costCurrency, row.priceCurrency, pPercent);
+            patch.price = formatNumberInput(String(result));
+            patch.priceMarkupWarn = false;
+          }
+        }
+        return { ...row, ...patch };
+      }),
+    );
   };
 
   const removeRow = (id: string) => {
@@ -675,9 +738,7 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
                           <Field label="Tan narx">
                             <CurrencyField
                               value={row.costPrice}
-                              onChange={(value) =>
-                                updateRow(row.id, { costPrice: formatNumberInput(value) })
-                              }
+                              onChange={(value) => handleCostPriceChange(row.id, value)}
                               placeholder="0"
                               currency={row.costCurrency}
                               currencies={settings.currencies}
@@ -713,6 +774,8 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
                             <MarkupRow
                               percent={row.wholesaleMarkupPercent}
                               warn={row.wholesaleMarkupWarn}
+                              locked={lockedWholesalePercent !== null}
+                              onToggleLock={() => toggleWholesaleLock(row.id)}
                               onPercentChange={(value) =>
                                 updateRow(row.id, { wholesaleMarkupPercent: value })
                               }
@@ -756,6 +819,8 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
                             <MarkupRow
                               percent={row.priceMarkupPercent}
                               warn={row.priceMarkupWarn}
+                              locked={lockedPricePercent !== null}
+                              onToggleLock={() => togglePriceLock(row.id)}
                               onPercentChange={(value) =>
                                 updateRow(row.id, { priceMarkupPercent: value })
                               }
@@ -1299,11 +1364,17 @@ export function MarkupRow({
   onPercentChange,
   onApply,
   warn,
+  locked,
+  onToggleLock,
 }: {
   percent: string;
   onPercentChange: (value: string) => void;
   onApply: () => void;
   warn?: boolean;
+  /** true bo'lsa — bu foiz keyingi yangi qatorlarga avtomatik ko'chadi. */
+  locked?: boolean;
+  /** Ko'rsatilsa — qulf tugmasi chizilib, foizni keyingi qatorlarga "qotirish" imkonini beradi. */
+  onToggleLock?: () => void;
 }) {
   return (
     <div className="mt-1 flex items-center justify-between gap-1 text-[10px] text-muted-foreground">
@@ -1311,6 +1382,22 @@ export function MarkupRow({
         {warn ? "Avval tan narxni kiriting" : "Tan narx + %"}
       </span>
       <div className="flex items-center gap-1">
+        {onToggleLock && (
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className={cn("h-6 w-6 shrink-0", locked && "text-primary")}
+            onClick={onToggleLock}
+            title={
+              locked
+                ? "Qulflangan — foiz keyingi qatorlarga ko'chmoqda"
+                : "Foizni keyingi qatorlarga qulflash"
+            }
+          >
+            {locked ? <Lock className="h-3 w-3" /> : <LockOpen className="h-3 w-3" />}
+          </Button>
+        )}
         <Input
           value={percent}
           onChange={(e) => onPercentChange(formatNumberInput(e.target.value))}

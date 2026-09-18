@@ -463,6 +463,20 @@ export type ReceiptSettings = {
   fontSize: ReceiptFontSize;
 };
 
+export type TelegramBotSettings = {
+  adminEnabled: boolean;
+  adminToken: string;
+  /** Admin telefon raqami — chat ID shu raqam orqali avtomatik aniqlanadi ("Ulash" tugmasi). */
+  adminPhone: string;
+  /** Telegramdan avtomatik aniqlangan chat ID — real xabar yuborish shu orqali ishlaydi. */
+  adminChatId: string;
+  /** Chat ID aniqlangan admin ismi (Telegramdan) — faqat ko'rsatish uchun. */
+  adminChatName?: string;
+  customerEnabled: boolean;
+  customerToken: string;
+  customerWelcomeMessage: string;
+};
+
 export type AccessNotification = {
   id: string;
   title: string;
@@ -492,7 +506,10 @@ export type AppSettings = {
   shelfLocations: ShelfLocationEntry[];
   quickAddToCart: boolean;
   labelPrintSettings?: PrintSettings;
+  telegramBot: TelegramBotSettings;
 };
+
+export const APP_SETTINGS_STORAGE_KEY = "uzko_settings";
 
 const DEFAULT_SETTINGS: AppSettings = {
   username: "Admin",
@@ -553,6 +570,16 @@ const DEFAULT_SETTINGS: AppSettings = {
     { id: "sl-4", name: "B-004", warehouse: "Vitrina ombor" },
     { id: "sl-5", name: "B-005", warehouse: "Sovutgich" },
   ],
+  telegramBot: {
+    adminEnabled: false,
+    adminToken: "",
+    adminPhone: "",
+    adminChatId: "",
+    adminChatName: "",
+    customerEnabled: false,
+    customerToken: "",
+    customerWelcomeMessage: "Assalomu alaykum! Siz UZKO botiga ulandingiz.",
+  },
   devices: [
     {
       id: "main",
@@ -774,7 +801,8 @@ const AppContext = React.createContext<AppCtx | null>(null);
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = React.useState<AppSettings>(() => {
     try {
-      const stored = typeof localStorage !== "undefined" && localStorage.getItem("uzko_settings");
+      const stored =
+        typeof localStorage !== "undefined" && localStorage.getItem(APP_SETTINGS_STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
         // Eski format (string[]) saqlangan bo'lsa, o'sha maydon uchun standart qiymatga qaytariladi.
@@ -790,6 +818,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             ...(parsed.receiptSettings ?? {}),
           },
           accessNotifications: parsed.accessNotifications ?? DEFAULT_SETTINGS.accessNotifications,
+          telegramBot: {
+            ...DEFAULT_SETTINGS.telegramBot,
+            ...(parsed.telegramBot ?? {}),
+          },
           warehouses: migrateEntries(parsed.warehouses, DEFAULT_SETTINGS.warehouses),
           expenseCategories: migrateEntries(
             parsed.expenseCategories,
@@ -827,7 +859,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setSettings((prev) => {
       const next = { ...prev, ...patch };
       try {
-        localStorage.setItem("uzko_settings", JSON.stringify(next));
+        localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify(next));
       } catch {}
       return next;
     });

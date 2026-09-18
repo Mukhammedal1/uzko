@@ -33,6 +33,7 @@ import {
   type StockCountScope,
   type SupplierReport,
 } from "@/lib/mock-data";
+import { notifyAdminNewSale } from "@/lib/telegram";
 
 export type DebtPaymentInput = {
   customer: CreditCustomer;
@@ -167,6 +168,7 @@ export function addSaleReceipt(input: AddSaleReceiptInput) {
   };
 
   MOCK_RECEIPTS.unshift(receipt);
+  void notifyAdminNewSale(receipt).catch(() => {});
 
   const oneTimeItems = input.items.filter((item) => item.source === "one-time");
   if (oneTimeItems.length > 0) {

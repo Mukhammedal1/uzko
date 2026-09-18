@@ -1,14 +1,16 @@
 import * as React from "react";
-import { Monitor, ReceiptText, Box } from "lucide-react";
+import { Monitor, ReceiptText, Box, Plug } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ReceiptSettings } from "./ReceiptSettings";
 import { GeneralEditing } from "./GeneralEditing";
 import { DevicePermissions } from "./DevicePermissions";
+import { Integrations } from "./Integrations";
 
 const SECTIONS = [
   { id: "receipt", icon: ReceiptText, label: "Chek ko'rinishi" },
   { id: "general", icon: Box, label: "Umumiy tahrirlash" },
   { id: "devices", icon: Monitor, label: "Qurilmalar" },
+  { id: "integrations", icon: Plug, label: "Integratsiya" },
 ] as const;
 
 type Section = (typeof SECTIONS)[number]["id"];
@@ -57,6 +59,7 @@ export function BoshqaruvPage() {
         {section === "receipt" && <ReceiptSettings />}
         {section === "general" && <GeneralEditing />}
         {section === "devices" && <DevicePermissions />}
+        {section === "integrations" && <Integrations />}
       </main>
     </div>
   );
