@@ -1,6 +1,7 @@
 import { APP_SETTINGS_STORAGE_KEY, type TelegramBotSettings } from "@/lib/app-context";
 import type { Receipt } from "@/lib/mock-data";
 import { formatSom } from "@/lib/bot/format";
+import { buildReceiptPdf } from "@/lib/bot/pdf";
 
 const TELEGRAM_API = "https://api.telegram.org";
 
@@ -26,6 +27,7 @@ export type TelegramUpdate = {
     chat: TelegramChat;
     text?: string;
     contact?: { phone_number: string; first_name?: string };
+    voice?: { file_id: string; duration: number; mime_type?: string };
   };
   callback_query?: {
     id: string;
@@ -54,6 +56,29 @@ async function callTelegramApi<T>(
 
 export function getBotInfo(token: string) {
   return callTelegramApi<{ id: number; username: string; first_name: string }>(token, "getMe");
+}
+
+/** Ovozli xabar (yoki boshqa fayl)ning yuklab olish yo'lini (`file_path`) topadi. */
+export function getTelegramFile(token: string, fileId: string) {
+  return callTelegramApi<{ file_id: string; file_path?: string }>(token, "getFile", { file_id: fileId });
+}
+
+/** `getTelegramFile`dan kelgan `file_path` bo'yicha faylning xom baytlarini yuklaydi. */
+export async function downloadTelegramFile(token: string, filePath: string): Promise<ArrayBuffer> {
+  const res = await fetch(`${TELEGRAM_API}/file/bot${token}/${filePath}`);
+  if (!res.ok) throw new Error(`Faylni yuklab bo'lmadi (${res.status})`);
+  return res.arrayBuffer();
+}
+
+/** Gemini'ga audio yuborish uchun `ArrayBuffer`ni base64 matnga o'giradi. */
+export function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
 }
 
 /**
@@ -195,7 +220,7 @@ export async function findAdminChatByPhone(
   };
 }
 
-function readStoredTelegramBotSettings(): TelegramBotSettings | null {
+export function readStoredTelegramBotSettings(): TelegramBotSettings | null {
   try {
     if (typeof localStorage === "undefined") return null;
     const raw = localStorage.getItem(APP_SETTINGS_STORAGE_KEY);
@@ -240,11 +265,18 @@ export function formatReceiptForTelegram(receipt: Receipt): string {
 }
 
 /**
- * Sotuv yakunlanganda admin Telegram botiga real vaqtda elektron chek yuboradi.
+ * Sotuv yakunlanganda admin Telegram botiga real vaqtda elektron chek yuboradi
+ * (matn + PDF ko'rinishida, oddiy va nasiya savdolar uchun bir xil).
  * Bot ulanmagan/yoqilmagan bo'lsa — jim o'tkazib yuboriladi (xatolik chiqarilmaydi).
  */
 export async function notifyAdminNewSale(receipt: Receipt): Promise<void> {
   const bot = readStoredTelegramBotSettings();
   if (!bot?.adminEnabled || !bot.adminToken || !bot.adminChatId) return;
   await sendTelegramMessage(bot.adminToken, bot.adminChatId, formatReceiptForTelegram(receipt));
+  try {
+    const { blob, filename } = buildReceiptPdf(receipt);
+    await sendTelegramDocument(bot.adminToken, bot.adminChatId, blob, filename);
+  } catch {
+    // Chek PDF yuborilmasa ham, matnli xabar allaqachon yuborilgan — jim o'tkazamiz.
+  }
 }

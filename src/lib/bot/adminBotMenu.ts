@@ -6,13 +6,17 @@
  */
 import {
   answerTelegramCallback,
+  arrayBufferToBase64,
+  downloadTelegramFile,
   editTelegramMessageText,
+  getTelegramFile,
   sendTelegramChatAction,
   sendTelegramDocument,
   sendTelegramMessage,
   type ReplyMarkup,
   type TelegramUpdate,
 } from "@/lib/telegram";
+import { escapeHtml, runAiChat, runAiChatFromVoice, type ChatMessage, type ToolCallRecord } from "./ai/agent";
 import { formatSom } from "./format";
 import {
   formatDateUz,
@@ -34,7 +38,7 @@ import {
   type SaleType,
   type StockFilter,
 } from "./reports";
-import { buildCashPdf, buildCustomerActPdf, buildDebtsPdf, buildSalesPdf, buildStockPdf } from "./pdf";
+import { buildAiChatPdf, buildCashPdf, buildCustomerActPdf, buildDebtsPdf, buildSalesPdf, buildStockPdf } from "./pdf";
 
 export const ADMIN_MENU_KEYBOARD: ReplyMarkup = {
   keyboard: [
@@ -55,6 +59,8 @@ export type ChatState = {
   stockFilter: StockFilter;
   stockDeadDays: 7 | 30;
   awaiting?: "customDate" | "customerSearch";
+  /** AI chat konteksti — oxirgi 6 ta xabar (runAiChat shu ro'yxatni kesib ishlatadi). */
+  aiHistory: ChatMessage[];
 };
 
 export function defaultChatState(): ChatState {
@@ -65,7 +71,25 @@ export function defaultChatState(): ChatState {
     debtStatus: "all",
     stockFilter: "low",
     stockDeadDays: 7,
+    aiHistory: [],
   };
+}
+
+// ─── AI chat javobi ostidagi "📄 PDF" tugmasi uchun tool-chaqiruvlar keshi ────
+
+type AiToolCacheEntry = { question: string; tools: ToolCallRecord[]; expiresAt: number };
+
+const AI_TOOL_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const aiToolCache = new Map<string, AiToolCacheEntry>();
+
+function cacheAiTools(question: string, tools: ToolCallRecord[]): string {
+  const now = Date.now();
+  for (const [key, entry] of aiToolCache) {
+    if (entry.expiresAt <= now) aiToolCache.delete(key);
+  }
+  const id = Math.random().toString(36).slice(2, 10);
+  aiToolCache.set(id, { question, tools, expiresAt: now + AI_TOOL_CACHE_TTL_MS });
+  return id;
 }
 
 const PERIOD_LABELS: Record<PeriodKind, string> = {
@@ -314,6 +338,11 @@ export async function handleAdminBotUpdate(
 
   const msg = update.message;
   if (!msg || String(msg.chat.id) !== chatId) return next;
+
+  if (msg.voice) {
+    return handleAiVoiceMessage(msg.voice, token, chatId, next);
+  }
+
   const text = msg.text?.trim();
   if (!text) return next;
 
@@ -372,13 +401,91 @@ export async function handleAdminBotUpdate(
     return next;
   }
 
-  await sendTelegramMessage(
-    token,
-    chatId,
-    "Iltimos, quyidagi tugmalardan birini tanlang. Erkin savol-javob (AI chat) keyingi bosqichda qo'shiladi.",
-    ADMIN_MENU_KEYBOARD,
+  return handleAiChatMessage(text, token, chatId, next);
+}
+
+/** Tugma bo'lmagan har qanday erkin matn shu yerga — Gemini bilan AI chat (spec 6-bo'lim). */
+async function handleAiChatMessage(
+  question: string,
+  token: string,
+  chatId: string,
+  state: ChatState,
+): Promise<ChatState> {
+  await sendTelegramChatAction(token, chatId, "typing");
+  const result = await runAiChat(question, state.aiHistory);
+  if (!result.ok) {
+    await sendTelegramMessage(token, chatId, "Hozir javob bera olmadim, tugmalardan foydalaning.");
+    return state;
+  }
+  return deliverAiReply(question, result.replyHtml, result.usedTools, token, chatId, state);
+}
+
+/**
+ * 🎤 Ovozli xabar (spec 5.7): `.ogg` fayl Telegramdan yuklab olinadi va
+ * to'g'ridan-to'g'ri Gemini'ga audio sifatida beriladi (alohida STT
+ * xizmati yo'q). Maksimum uzunlik — 60 soniya.
+ */
+async function handleAiVoiceMessage(
+  voice: { file_id: string; duration: number; mime_type?: string },
+  token: string,
+  chatId: string,
+  state: ChatState,
+): Promise<ChatState> {
+  if (voice.duration > 60) {
+    await sendTelegramMessage(token, chatId, "Ovozli xabar juda uzun (maksimum 60 soniya).");
+    return state;
+  }
+
+  await sendTelegramChatAction(token, chatId, "typing");
+  const fileInfo = await getTelegramFile(token, voice.file_id);
+  if (!fileInfo.ok || !fileInfo.result?.file_path) {
+    await sendTelegramMessage(token, chatId, "Ovozli xabarni yuklab bo'lmadi.");
+    return state;
+  }
+
+  let audioBuffer: ArrayBuffer;
+  try {
+    audioBuffer = await downloadTelegramFile(token, fileInfo.result.file_path);
+  } catch {
+    await sendTelegramMessage(token, chatId, "Ovozli xabarni yuklab bo'lmadi.");
+    return state;
+  }
+
+  const result = await runAiChatFromVoice(
+    { base64: arrayBufferToBase64(audioBuffer), mimeType: voice.mime_type ?? "audio/ogg" },
+    state.aiHistory,
   );
-  return next;
+  if (!result.ok) {
+    await sendTelegramMessage(token, chatId, "Hozir javob bera olmadim, tugmalardan foydalaning.");
+    return state;
+  }
+
+  const question = result.transcript ?? "(ovozli xabar)";
+  const prefix = `<i>🎤 «${escapeHtml(question)}»</i>\n\n`;
+  return deliverAiReply(question, result.replyHtml, result.usedTools, token, chatId, state, prefix);
+}
+
+/** AI chat/ovozli javobni yuboradi, kerak bo'lsa PDF tugmasini qo'shadi va suhbat tarixini yangilaydi. */
+async function deliverAiReply(
+  question: string,
+  replyHtml: string,
+  usedTools: ToolCallRecord[],
+  token: string,
+  chatId: string,
+  state: ChatState,
+  prefixHtml = "",
+): Promise<ChatState> {
+  const keyboard: ReplyMarkup | undefined =
+    usedTools.length > 0
+      ? { inline_keyboard: [[{ text: "📄 PDF", callback_data: `ai:pdf:${cacheAiTools(question, usedTools)}` }]] }
+      : undefined;
+  await sendTelegramMessage(token, chatId, `${prefixHtml}${replyHtml}`, keyboard);
+
+  const newTurns: ChatMessage[] = [
+    { role: "user", text: question },
+    { role: "model", text: replyHtml },
+  ];
+  return { ...state, aiHistory: [...state.aiHistory, ...newTurns].slice(-12) };
 }
 
 async function handleCallback(
@@ -390,6 +497,16 @@ async function handleCallback(
 ): Promise<ChatState> {
   const [ns, action, ...rest] = data.split(":");
   const next = { ...state };
+
+  if (ns === "ai" && action === "pdf") {
+    const entry = aiToolCache.get(rest.join(":"));
+    if (!entry || entry.expiresAt <= Date.now()) {
+      await sendTelegramMessage(token, chatId, "Bu javobning muddati o'tgan, savolni qayta yuboring.");
+      return next;
+    }
+    await sendPdf(token, chatId, buildAiChatPdf(entry.question, entry.tools));
+    return next;
+  }
 
   if ((ns === "sales" || ns === "cash") && action === "pdf") {
     const range = resolvePeriod(next.period, new Date(), next.customRange);

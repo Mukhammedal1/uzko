@@ -8,6 +8,8 @@
  */
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { type ToolCallRecord } from "./ai/agent";
+import { callTool } from "./ai/tools";
 import { formatSom } from "./format";
 import { formatDateUz, tashkentDateKey, type PeriodRange } from "./period";
 import {
@@ -21,8 +23,22 @@ import {
   type SaleType,
   type StockFilter,
 } from "./reports";
+import type { Receipt } from "@/lib/mock-data";
 
 export type GeneratedPdf = { blob: Blob; filename: string };
+
+/** Har bir sahifaga "1 / N" sahifa raqamini qo'yib, doc'ni Blob'ga aylantiradi. */
+function finalizePdf(doc: jsPDF): Blob {
+  const pageCount = doc.getNumberOfPages();
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  for (let i = 1; i <= pageCount; i += 1) {
+    doc.setPage(i);
+    doc.setFontSize(8);
+    doc.text(`${i} / ${pageCount}`, pageWidth - 20, pageHeight - 8);
+  }
+  return doc.output("blob");
+}
 
 type Column = { header: string; key: string; align?: "left" | "right" };
 
@@ -64,16 +80,7 @@ function renderReportPdf(opts: {
     },
   });
 
-  const pageCount = doc.getNumberOfPages();
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const pageHeight = doc.internal.pageSize.getHeight();
-  for (let i = 1; i <= pageCount; i += 1) {
-    doc.setPage(i);
-    doc.setFontSize(8);
-    doc.text(`${i} / ${pageCount}`, pageWidth - 20, pageHeight - 8);
-  }
-
-  return doc.output("blob");
+  return finalizePdf(doc);
 }
 
 const SALE_TYPE_FILE_LABEL: Record<SaleType, string> = {
@@ -265,5 +272,190 @@ export function buildStockPdf(
       orientation: "landscape",
     }),
     filename: `zaxira_${STOCK_FILTER_FILE_LABEL[filter]}_${tashkentDateKey(now)}.pdf`,
+  };
+}
+
+const AI_TOOL_TITLE: Record<string, string> = {
+  get_sales_summary: "Savdo xulosasi",
+  get_sales_list: "Cheklar ro'yxati",
+  get_top_products: "Top tovarlar",
+  get_cash_summary: "Kassa",
+  get_debts: "Qarzdorlar",
+  find_customer: "Mijoz qidiruvi",
+  get_customer_debt: "Mijoz qarzi",
+  get_stock: "Zaxira",
+  find_product: "Tovar qidiruvi",
+};
+
+/** Ro'yxat (array) bo'lmagan maydonlarni "Maydon / Qiymat" jadvali uchun tekislaydi. */
+function flattenScalarFields(obj: Record<string, unknown>): [string, string][] {
+  return Object.entries(obj)
+    .filter(([, v]) => v !== undefined && !Array.isArray(v) && typeof v !== "object")
+    .map(([key, value]) => [key, String(value)]);
+}
+
+/**
+ * AI chat javobi ostidagi "📄 PDF" tugmasi bosilganda chaqiriladi: javobda
+ * ishlatilgan tool'lar xuddi shu parametrlar bilan, lekin limit 5000
+ * qatorgacha ko'tarilib, qayta chaqiriladi (spec 7-bo'lim). LLM matni PDF'ga
+ * kirmaydi — faqat bazadagi (reports.ts orqali kelgan) raqamlar.
+ */
+export function buildAiChatPdf(question: string, tools: ToolCallRecord[], now = new Date()): GeneratedPdf {
+  const doc = new jsPDF();
+
+  doc.setFontSize(13);
+  doc.text("UZKO SAVDO", 14, 15);
+  doc.setFontSize(11);
+  doc.text("AI javobi — ma'lumotlar", 14, 22);
+  doc.setFontSize(9);
+  const questionLines = doc.splitTextToSize(`Savol: ${question}`, 180) as string[];
+  doc.text(questionLines, 14, 28);
+  let y = 28 + questionLines.length * 5 + 3;
+  doc.text(`Yaratildi: ${now.toLocaleString("uz-UZ")}`, 14, y);
+  y += 8;
+
+  for (const call of tools) {
+    const result = callTool(call.name, { ...call.args, limit: 5000 }) as Record<string, unknown>;
+
+    if (y > 260) {
+      doc.addPage();
+      y = 15;
+    }
+    doc.setFontSize(10);
+    doc.text(AI_TOOL_TITLE[call.name] ?? call.name, 14, y);
+    y += 4;
+
+    const scalarRows = flattenScalarFields(result);
+    if (scalarRows.length > 0) {
+      autoTable(doc, {
+        startY: y,
+        head: [["Maydon", "Qiymat"]],
+        body: scalarRows,
+        styles: { font: "helvetica", fontSize: 8 },
+        headStyles: { fillColor: [34, 44, 59] },
+      });
+      // @ts-expect-error - jspdf-autotable extends doc with lastAutoTable at runtime
+      y = (doc.lastAutoTable?.finalY ?? y) + 4;
+    }
+
+    const rowsEntry = Object.entries(result).find(
+      (entry): entry is [string, Record<string, unknown>[]] =>
+        Array.isArray(entry[1]) && entry[1].length > 0 && typeof entry[1][0] === "object",
+    );
+    if (rowsEntry) {
+      const [, rows] = rowsEntry;
+      const columns = Object.keys(rows[0]);
+      autoTable(doc, {
+        startY: y,
+        head: [columns],
+        body: rows.map((row) => columns.map((c) => String(row[c] ?? ""))),
+        styles: { font: "helvetica", fontSize: 7 },
+        headStyles: { fillColor: [34, 44, 59] },
+      });
+      // @ts-expect-error - jspdf-autotable extends doc with lastAutoTable at runtime
+      y = (doc.lastAutoTable?.finalY ?? y) + 8;
+    }
+  }
+
+  return { blob: finalizePdf(doc), filename: `ai_javob_${tashkentDateKey(now)}_${Date.now()}.pdf` };
+}
+
+const CUSTOMER_TYPE_TITLE: Record<Receipt["customerType"], string> = {
+  oddiy: "Oddiy",
+  nasiya: "Nasiya",
+};
+
+/** Bitta sotuv (oddiy yoki nasiya) cheki — savdo yakunlanganda avtomatik yuboriladi. */
+export function buildReceiptPdf(receipt: Receipt): GeneratedPdf {
+  const pageWidth = 80;
+  const doc = new jsPDF({ unit: "mm", format: [pageWidth, 200] });
+
+  let y = 8;
+  doc.setFontSize(12);
+  doc.text("UZKO SAVDO", pageWidth / 2, y, { align: "center" });
+  y += 6;
+  doc.setFontSize(9);
+  doc.text(`Chek № ${receipt.id}`, pageWidth / 2, y, { align: "center" });
+  y += 5;
+  doc.text(new Date(receipt.date).toLocaleString("uz-UZ"), pageWidth / 2, y, { align: "center" });
+  y += 6;
+
+  doc.setFontSize(8);
+  doc.text(`Kassir: ${receipt.cashier}`, 5, y);
+  y += 4;
+  doc.text(
+    `Mijoz: ${CUSTOMER_TYPE_TITLE[receipt.customerType]}${receipt.customerName ? ` — ${receipt.customerName}` : ""}`,
+    5,
+    y,
+  );
+  y += 3;
+
+  autoTable(doc, {
+    startY: y,
+    margin: { left: 5, right: 5 },
+    head: [["Tovar", "Soni", "Narx", "Summa"]],
+    body: receipt.items.map((item) => [
+      item.name,
+      `${item.qty} ${item.unit}`,
+      formatSom(item.price),
+      formatSom(item.qty * item.price),
+    ]),
+    styles: { font: "helvetica", fontSize: 7, cellPadding: 1 },
+    headStyles: { fillColor: [34, 44, 59] },
+    columnStyles: {
+      0: { cellWidth: 30 },
+      1: { halign: "right", cellWidth: 14 },
+      2: { halign: "right", cellWidth: 15 },
+      3: { halign: "right", cellWidth: 16 },
+    },
+  });
+
+  // @ts-expect-error - jspdf-autotable extends doc with lastAutoTable at runtime
+  y = (doc.lastAutoTable?.finalY ?? y) + 5;
+
+  doc.setFontSize(8);
+  doc.text(`Oraliq summa: ${formatSom(receipt.subtotal)}`, 5, y);
+  y += 4;
+  if (receipt.discount > 0) {
+    doc.text(`Skidka: -${formatSom(receipt.discount)}`, 5, y);
+    y += 4;
+  }
+  doc.setFontSize(10);
+  doc.text(`Jami: ${formatSom(receipt.total)}`, 5, y);
+  y += 5;
+  doc.setFontSize(8);
+
+  if (receipt.customerType === "nasiya") {
+    if (receipt.paidAmount) {
+      doc.text(`To'langan: ${formatSom(receipt.paidAmount)}`, 5, y);
+      y += 4;
+    }
+    if (receipt.debtAmount) {
+      doc.text(`Qarzga yozildi: ${formatSom(receipt.debtAmount)}`, 5, y);
+      y += 4;
+    }
+  } else if (receipt.paymentBreakdown) {
+    const pb = receipt.paymentBreakdown;
+    if (pb.cash > 0) {
+      doc.text(`Naqd: ${formatSom(pb.cash)}`, 5, y);
+      y += 4;
+    }
+    if (pb.card > 0) {
+      doc.text(`Karta: ${formatSom(pb.card)}`, 5, y);
+      y += 4;
+    }
+    if (pb.transfer) {
+      doc.text(`O'tkazma: ${formatSom(pb.transfer)}`, 5, y);
+      y += 4;
+    }
+    if (pb.wallet) {
+      doc.text(`Hamyon: ${formatSom(pb.wallet)}`, 5, y);
+      y += 4;
+    }
+  }
+
+  return {
+    blob: doc.output("blob"),
+    filename: `chek_${receipt.id}.pdf`,
   };
 }

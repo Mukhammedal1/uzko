@@ -16,6 +16,9 @@ import {
   Link2,
   Loader2,
   AlertTriangle,
+  Sparkles,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { useApp } from "@/lib/app-context";
 import { toast } from "sonner";
@@ -134,6 +137,7 @@ function TelegramBotIntegration({ onBack }: { onBack: () => void }) {
   const [draft, setDraft] = React.useState(settings.telegramBot);
   const [connecting, setConnecting] = React.useState(false);
   const [connectError, setConnectError] = React.useState<string | null>(null);
+  const [showGeminiKey, setShowGeminiKey] = React.useState(false);
 
   React.useEffect(() => {
     setDraft(settings.telegramBot);
@@ -287,6 +291,39 @@ function TelegramBotIntegration({ onBack }: { onBack: () => void }) {
               <span>{connectError}</span>
             </div>
           ) : null}
+
+          <div className="space-y-3 rounded-lg border bg-muted/10 p-3">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary" />
+              <div className="text-sm font-medium">AI chat (erkin savol-javob)</div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Admin tugmalardan tashqari erkin savol yozsa (masalan "bugun qancha nasiya bo'ldi"),
+              bot shu Gemini kaliti orqali bazadagi ma'lumot asosida javob beradi. Kalitni Google AI
+              Studio'dan (aistudio.google.com/apikey) bepul olish mumkin.
+            </p>
+            <div>
+              <Label className="mb-1.5 block text-xs text-muted-foreground">Gemini API kaliti</Label>
+              <div className="flex gap-2">
+                <Input
+                  type={showGeminiKey ? "text" : "password"}
+                  value={draft.geminiApiKey ?? ""}
+                  onChange={(e) => patch({ geminiApiKey: e.target.value })}
+                  placeholder="AIzaSy..."
+                  className="flex-1"
+                  autoComplete="off"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowGeminiKey((v) => !v)}
+                >
+                  {showGeminiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+          </div>
 
           <div className="space-y-1.5 rounded-lg bg-muted/30 p-3 text-xs text-muted-foreground">
             <div className="font-medium text-foreground">Ulash tartibi:</div>

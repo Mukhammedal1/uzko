@@ -472,6 +472,8 @@ export type TelegramBotSettings = {
   adminChatId: string;
   /** Chat ID aniqlangan admin ismi (Telegramdan) — faqat ko'rsatish uchun. */
   adminChatName?: string;
+  /** AI chat (erkin savol-javob) uchun Google Gemini API kaliti — https://aistudio.google.com/apikey */
+  geminiApiKey?: string;
   customerEnabled: boolean;
   customerToken: string;
   customerWelcomeMessage: string;

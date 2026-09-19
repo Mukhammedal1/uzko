@@ -264,6 +264,25 @@ function readHiddenColumns(): Set<OptionalColumn> {
   }
 }
 
+const PRODUCT_IMPORT_TEMPLATE_COLUMNS = [
+  "MAHSULOT NOMI",
+  "TAN NARX",
+  "TAN NARX VALYUTASI",
+  "SOTUV NARX",
+  "SHTRIX KOD",
+  "ARTIKUL",
+];
+
+/** "Exceldan yuklash" oynasiga mos, bo'sh (faqat sarlavhali) shablon fayl yuklab beradi. */
+function downloadProductImportTemplate() {
+  const worksheet = XLSX.utils.aoa_to_sheet([PRODUCT_IMPORT_TEMPLATE_COLUMNS]);
+  worksheet["!cols"] = PRODUCT_IMPORT_TEMPLATE_COLUMNS.map(() => ({ wch: 20 }));
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Shablon");
+  XLSX.writeFile(workbook, "tovar-qoshish-shabloni.xlsx");
+}
+
 export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
   const { settings, updateSettings, t } = useApp();
   const [query, setQuery] = React.useState("");
@@ -1984,6 +2003,10 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
             <DropdownMenuItem onSelect={() => setExcelModalOpen(true)}>
               <FileSpreadsheet className="mr-2 h-4 w-4" />
               Exceldan yuklash
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={downloadProductImportTemplate}>
+              <Download className="mr-2 h-4 w-4" />
+              Excel shablonini yuklab olish
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
