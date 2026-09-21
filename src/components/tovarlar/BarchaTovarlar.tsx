@@ -38,6 +38,7 @@ import {
   ArrowLeft,
   Barcode,
   Check,
+  ChevronRight,
   ChevronDown,
   ChevronUp,
   Columns3,
@@ -75,6 +76,8 @@ import {
   computeMarkupPrice,
   reverseMarkupPercent,
   isProductAtLimit,
+  productHasVariants,
+  variantTotalQty,
   getAgentsList,
   type AgentSummary,
   type Product,
@@ -132,6 +135,25 @@ type EditVariantDraft = {
   customCode: string;
   image?: string;
 };
+
+/** Variantni jadvalning o'zida tahrirlash uchun qoralama. Bo'sh narx maydoni —
+ * qiymat ota-tovardan olinishini bildiradi. */
+type VariantEditDraft = EditVariantDraft & { vitrinaQty: string; minStockAlert: string };
+
+/** Variant jadvalda ko'rinadigan qiymatlari (ko'rsatilmaganlari ota-tovardan). */
+function variantView(p: Product, v: ProductVariant) {
+  return {
+    costPrice: v.costPrice ?? p.costPrice,
+    costCurrency: v.costCurrency ?? p.costCurrency,
+    wholesalePrice: v.wholesalePrice ?? p.wholesalePrice,
+    wholesaleCurrency: v.wholesalePrice ? v.wholesaleCurrency : p.wholesaleCurrency,
+    price: v.price ?? p.price,
+    priceCurrency: v.price ? v.priceCurrency : p.priceCurrency,
+    barcode: v.barcode ?? p.barcode,
+    customCode: v.customCode ?? p.customCode,
+    minStockAlert: v.minStockAlert ?? p.minStockAlert,
+  };
+}
 
 type EditDraft = {
   name: string;
@@ -420,7 +442,149 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
     setSelectedIds(new Set());
   };
 
+  // Variantli tovar (katalog) — "Tahrirlash" faqat katalog nomini o'zgartiradi;
+  // variantlar o'z qatorlarida alohida tahrirlanadi.
+  // Katalog qatori bosilganda variantlari ochiladi/yopiladi.
+  const [expandedIds, setExpandedIds] = React.useState<Set<string>>(() => new Set());
+  const toggleExpanded = (id: string) =>
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const [renamingId, setRenamingId] = React.useState<string | null>(null);
+  const [renameValue, setRenameValue] = React.useState("");
+  const [variantEdit, setVariantEdit] = React.useState<{
+    productId: string;
+    draft: VariantEditDraft;
+  } | null>(null);
+
+  const startRename = (product: Product) => {
+    setEditingId(null);
+    setVariantEdit(null);
+    setRenamingId(product.id);
+    setRenameValue(product.name);
+  };
+
+  const saveRename = (productId: string) => {
+    const p = MOCK_PRODUCTS.find((item) => item.id === productId);
+    const newName = renameValue.trim();
+    if (!p) return;
+    if (!newName) {
+      toast.error("Katalog nomini kiriting");
+      return;
+    }
+    if (newName !== p.name) {
+      MOCK_EDIT_HISTORY.unshift({
+        id: `eh${Date.now()}`,
+        date: new Date().toISOString(),
+        editedBy: settings.username,
+        productName: newName,
+        oldQty: p.vitrinaQty,
+        newQty: p.vitrinaQty,
+        unit: p.unit,
+        action: "edit",
+        changes: [{ field: "name", label: "Nomi", oldValue: p.name, newValue: newName }],
+      });
+      p.name = newName;
+    }
+    setRenamingId(null);
+    setVersion((v) => v + 1);
+  };
+
+  const startVariantEdit = (product: Product, variant: ProductVariant) => {
+    setEditingId(null);
+    setRenamingId(null);
+    setVariantEdit({
+      productId: product.id,
+      draft: {
+        ...makeEditVariantDraft(variant),
+        vitrinaQty: String(variant.vitrinaQty),
+        minStockAlert:
+          typeof variant.minStockAlert === "number" ? String(variant.minStockAlert) : "",
+      },
+    });
+  };
+
+  const updateVariantDraft = (patch: Partial<VariantEditDraft>) => {
+    setVariantEdit((current) =>
+      current ? { ...current, draft: { ...current.draft, ...patch } } : current,
+    );
+  };
+
+  const saveVariantEdit = () => {
+    if (!variantEdit) return;
+    const p = MOCK_PRODUCTS.find((item) => item.id === variantEdit.productId);
+    const v = p?.variants?.find((item) => item.id === variantEdit.draft.id);
+    const d = variantEdit.draft;
+    if (!p || !v) return;
+    const label = d.label.trim();
+    if (!label) {
+      toast.error("Variant nomini kiriting");
+      return;
+    }
+    const cost = Math.max(0, Number(d.costPrice) || 0);
+    const wholesale = Math.max(0, Number(d.wholesalePrice) || 0);
+    const price = Math.max(0, Number(d.price) || 0);
+    const newQty = Math.max(0, Number(d.vitrinaQty) || 0);
+    const oldQty = v.vitrinaQty;
+    const oldPrice = variantView(p, v).price;
+    const oldLabel = v.label;
+
+    const otherBarcodes = new Set<string>(
+      (p.variants ?? [])
+        .filter((x) => x.id !== v.id)
+        .flatMap((x) => splitBarcodes(x.barcode ?? "")),
+    );
+    const barcodes = splitBarcodes(d.barcode);
+    v.label = label;
+    v.barcode = joinBarcodes(barcodes.length > 0 ? barcodes : [makeUniqueBarcode(otherBarcodes)]);
+    v.customCode = d.customCode.trim() || makeUniqueCustomCode();
+    v.image = d.image;
+    v.costPrice = cost > 0 ? cost : undefined;
+    v.costCurrency = cost > 0 ? d.costCurrency : undefined;
+    v.wholesalePrice = wholesale > 0 ? wholesale : undefined;
+    v.wholesaleCurrency = wholesale > 0 ? d.wholesaleCurrency : undefined;
+    v.price = price > 0 ? price : undefined;
+    v.priceCurrency = price > 0 ? d.priceCurrency : undefined;
+    v.vitrinaQty = newQty;
+    v.minStockAlert =
+      d.minStockAlert.trim() === "" ? undefined : Math.max(0, Number(d.minStockAlert) || 0);
+
+    const newPrice = variantView(p, v).price;
+    MOCK_EDIT_HISTORY.unshift({
+      id: `eh${Date.now()}`,
+      date: new Date().toISOString(),
+      editedBy: settings.username,
+      productName: `${p.name} — ${label}`,
+      oldQty,
+      newQty,
+      unit: p.unit,
+      action: "edit",
+      changes: [
+        oldLabel !== label
+          ? { field: "name" as const, label: "Variant nomi", oldValue: oldLabel, newValue: label }
+          : null,
+        oldPrice !== newPrice
+          ? { field: "price" as const, label: "Sotuv narx", oldValue: oldPrice, newValue: newPrice }
+          : null,
+        oldQty !== newQty
+          ? { field: "qty" as const, label: "Miqdor", oldValue: oldQty, newValue: newQty }
+          : null,
+      ].filter((item): item is NonNullable<typeof item> => item !== null),
+    });
+    setVariantEdit(null);
+    setVersion((n) => n + 1);
+  };
+
   const startEdit = (product: Product) => {
+    if (productHasVariants(product)) {
+      startRename(product);
+      return;
+    }
+    setRenamingId(null);
+    setVariantEdit(null);
     setEditingId(product.id);
     setDraft({
       name: product.name,
@@ -2126,7 +2290,8 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                 {editingId !== p.id && (
                   <tr
                     className="cursor-pointer border-b hover:bg-muted/40"
-                    onDoubleClick={() => startEdit(p)}
+                    onClick={() => productHasVariants(p) && toggleExpanded(p.id)}
+                    onDoubleClick={() => !productHasVariants(p) && startEdit(p)}
                   >
                     <td className="px-4 py-2.5">
                       <Checkbox
@@ -2137,86 +2302,162 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                       />
                     </td>
                     <td className="px-4 py-2.5">
-                      <div className="flex items-center gap-2">
-                        <div className="font-medium">{p.name}</div>
-                        {isProductAtLimit(p) && (
-                          <span
-                            className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700"
-                            title={`Limit: ${p.minStockAlert} ${p.unit}`}
+                      {renamingId === p.id ? (
+                        <div
+                          className="flex items-center gap-1"
+                          onClick={(e) => e.stopPropagation()}
+                          onDoubleClick={(e) => e.stopPropagation()}
+                        >
+                          <Input
+                            autoFocus
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") saveRename(p.id);
+                              if (e.key === "Escape") setRenamingId(null);
+                            }}
+                            placeholder="Katalog nomi"
+                            className="h-8 text-xs"
+                          />
+                          <Button
+                            type="button"
+                            size="icon"
+                            className="h-8 w-8 shrink-0"
+                            onClick={() => saveRename(p.id)}
+                            title={t("save")}
                           >
-                            <AlertTriangle className="h-3 w-3" />
-                            Limit
-                          </span>
-                        )}
+                            <Check className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="outline"
+                            className="h-8 w-8 shrink-0"
+                            onClick={() => setRenamingId(null)}
+                            title="Bekor qilish"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          {productHasVariants(p) && (
+                            <ChevronRight
+                              className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${expandedIds.has(p.id) ? "rotate-90" : ""}`}
+                            />
+                          )}
+                          <div className="font-medium">{p.name}</div>
+                          {!productHasVariants(p) && isProductAtLimit(p) && (
+                            <span
+                              className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700"
+                              title={`Limit: ${p.minStockAlert} ${p.unit}`}
+                            >
+                              <AlertTriangle className="h-3 w-3" />
+                              Limit
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      <div className="text-xs text-muted-foreground">
+                        {productHasVariants(p) ? `${p.variants.length} ta variant` : p.barcode}
                       </div>
-                      <div className="text-xs text-muted-foreground">{p.barcode}</div>
                     </td>
-                    {!hiddenColumns.has("limit") && (
-                      <td className="px-4 py-2.5 text-center">
-                        {typeof p.minStockAlert === "number" ? (
+                    {productHasVariants(p) ? (
+                      <>
+                        {!hiddenColumns.has("limit") && (
+                          <td className="px-4 py-2.5 text-center text-muted-foreground">—</td>
+                        )}
+                        <td className="px-4 py-2.5 text-right text-muted-foreground">—</td>
+                        {!hiddenColumns.has("wholesale") && (
+                          <td className="px-4 py-2.5 text-right text-muted-foreground">—</td>
+                        )}
+                        <td className="px-4 py-2.5 text-right text-muted-foreground">—</td>
+                        {!hiddenColumns.has("customCode") && (
+                          <td className="px-4 py-2.5 text-muted-foreground">—</td>
+                        )}
+                        <td className="px-4 py-2.5 text-right text-muted-foreground">—</td>
+                        {!hiddenColumns.has("unit") && (
+                          <td className="px-4 py-2.5 text-muted-foreground">—</td>
+                        )}
+                        {!hiddenColumns.has("shelf") && (
+                          <td className="px-4 py-2.5 text-muted-foreground">—</td>
+                        )}
+                        <td className="px-4 py-2.5 text-muted-foreground">—</td>
+                      </>
+                    ) : (
+                      <>
+                        {!hiddenColumns.has("limit") && (
+                          <td className="px-4 py-2.5 text-center">
+                            {typeof p.minStockAlert === "number" ? (
+                              <span
+                                className={`inline-flex rounded-md px-2 py-1 text-xs font-bold ${
+                                  isProductAtLimit(p)
+                                    ? "bg-amber-100 text-amber-700"
+                                    : "bg-muted text-muted-foreground"
+                                }`}
+                              >
+                                {p.minStockAlert} {p.unit}
+                              </span>
+                            ) : (
+                              <span className="text-xs italic text-muted-foreground">yo'q</span>
+                            )}
+                          </td>
+                        )}
+                        <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">
+                          {`${p.costPrice} ${p.costCurrency}`}
+                        </td>
+                        {!hiddenColumns.has("wholesale") && (
+                          <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">
+                            {p.wholesalePrice ? (
+                              p.wholesaleCurrency && p.wholesaleCurrency !== "UZS" ? (
+                                `${p.wholesalePrice} ${p.wholesaleCurrency}`
+                              ) : (
+                                formatSom(p.wholesalePrice)
+                              )
+                            ) : (
+                              <span className="text-xs italic text-muted-foreground">—</span>
+                            )}
+                          </td>
+                        )}
+                        <td className="px-4 py-2.5 text-right font-medium tabular-nums">
+                          {p.priceCurrency && p.priceCurrency !== "UZS"
+                            ? `${p.price} ${p.priceCurrency}`
+                            : formatSom(p.price)}
+                        </td>
+                        {!hiddenColumns.has("customCode") && (
+                          <td className="px-4 py-2.5">
+                            <span className="text-xs text-muted-foreground">{p.customCode}</span>
+                          </td>
+                        )}
+                        <td className="px-4 py-2.5 text-right tabular-nums">
                           <span
-                            className={`inline-flex rounded-md px-2 py-1 text-xs font-bold ${
-                              isProductAtLimit(p)
-                                ? "bg-amber-100 text-amber-700"
-                                : "bg-muted text-muted-foreground"
-                            }`}
+                            className={
+                              variantTotalQty(p) < 10 ? "font-semibold text-destructive" : ""
+                            }
                           >
-                            {p.minStockAlert} {p.unit}
+                            {variantTotalQty(p)}
                           </span>
-                        ) : (
-                          <span className="text-xs italic text-muted-foreground">yo'q</span>
+                        </td>
+                        {!hiddenColumns.has("unit") && (
+                          <td className="px-4 py-2.5 text-muted-foreground">{p.unit}</td>
                         )}
-                      </td>
-                    )}
-                    <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">
-                      {`${p.costPrice} ${p.costCurrency}`}
-                    </td>
-                    {!hiddenColumns.has("wholesale") && (
-                      <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">
-                        {p.wholesalePrice ? (
-                          p.wholesaleCurrency && p.wholesaleCurrency !== "UZS" ? (
-                            `${p.wholesalePrice} ${p.wholesaleCurrency}`
-                          ) : (
-                            formatSom(p.wholesalePrice)
-                          )
-                        ) : (
-                          <span className="text-xs italic text-muted-foreground">—</span>
+                        {!hiddenColumns.has("shelf") && (
+                          <td className="px-4 py-2.5 text-muted-foreground">
+                            {p.shelfLocation ? (
+                              <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-1 text-xs font-bold text-primary ring-1 ring-inset ring-primary/20">
+                                {p.shelfLocation}
+                              </span>
+                            ) : (
+                              <span className="text-xs italic text-muted-foreground">
+                                belgilanmagan
+                              </span>
+                            )}
+                          </td>
                         )}
-                      </td>
+                        <td className="px-4 py-2.5 text-muted-foreground">{p.warehouse}</td>
+                      </>
                     )}
-                    <td className="px-4 py-2.5 text-right font-medium tabular-nums">
-                      {p.priceCurrency && p.priceCurrency !== "UZS"
-                        ? `${p.price} ${p.priceCurrency}`
-                        : formatSom(p.price)}
-                    </td>
-                    {!hiddenColumns.has("customCode") && (
-                      <td className="px-4 py-2.5">
-                        <span className="text-xs text-muted-foreground">{p.customCode}</span>
-                      </td>
-                    )}
-                    <td className="px-4 py-2.5 text-right tabular-nums">
-                      <span className={p.vitrinaQty < 10 ? "font-semibold text-destructive" : ""}>
-                        {p.vitrinaQty}
-                      </span>
-                    </td>
-                    {!hiddenColumns.has("unit") && (
-                      <td className="px-4 py-2.5 text-muted-foreground">{p.unit}</td>
-                    )}
-                    {!hiddenColumns.has("shelf") && (
-                      <td className="px-4 py-2.5 text-muted-foreground">
-                        {p.shelfLocation ? (
-                          <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-1 text-xs font-bold text-primary ring-1 ring-inset ring-primary/20">
-                            {p.shelfLocation}
-                          </span>
-                        ) : (
-                          <span className="text-xs italic text-muted-foreground">
-                            belgilanmagan
-                          </span>
-                        )}
-                      </td>
-                    )}
-                    <td className="px-4 py-2.5 text-muted-foreground">{p.warehouse}</td>
-                    <td className="px-4 py-2.5 text-right">
+                    <td className="px-4 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-1">
                         <Button
                           size="icon"
@@ -2241,6 +2482,272 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                     <td className="px-2 py-2.5"></td>
                   </tr>
                 )}
+                {editingId !== p.id &&
+                  productHasVariants(p) &&
+                  expandedIds.has(p.id) &&
+                  p.variants.map((v) => {
+                    const view = variantView(p, v);
+                    const isEditing =
+                      variantEdit?.productId === p.id && variantEdit.draft.id === v.id;
+                    if (isEditing && variantEdit) {
+                      const d = variantEdit.draft;
+                      return (
+                        <tr key={v.id} className="border-b bg-muted/20">
+                          <td colSpan={13 - hiddenColumns.size} className="p-3 pl-10">
+                            <div
+                              className="rounded-lg border bg-card p-4 shadow-sm"
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                                {p.name} — variant
+                              </div>
+                              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-9">
+                                <Field label="Variant nomi">
+                                  <Input
+                                    value={d.label}
+                                    onChange={(e) => updateVariantDraft({ label: e.target.value })}
+                                    placeholder='Masalan: "Oq"'
+                                    className="h-9 text-xs"
+                                  />
+                                </Field>
+                                <Field label="Tan narx">
+                                  <CurrencyField
+                                    value={d.costPrice}
+                                    onChange={(value) => updateVariantDraft({ costPrice: value })}
+                                    placeholder={String(p.costPrice)}
+                                    currency={d.costCurrency}
+                                    currencies={settings.currencies}
+                                    onCurrencyChange={(value) =>
+                                      updateVariantDraft({ costCurrency: value })
+                                    }
+                                  />
+                                </Field>
+                                <Field label="Optom narx">
+                                  <CurrencyField
+                                    value={d.wholesalePrice}
+                                    onChange={(value) =>
+                                      updateVariantDraft({ wholesalePrice: value })
+                                    }
+                                    placeholder={p.wholesalePrice ? String(p.wholesalePrice) : "0"}
+                                    currency={d.wholesaleCurrency}
+                                    currencies={settings.currencies}
+                                    onCurrencyChange={(value) =>
+                                      updateVariantDraft({ wholesaleCurrency: value })
+                                    }
+                                  />
+                                </Field>
+                                <Field label="Sotuv narx">
+                                  <CurrencyField
+                                    value={d.price}
+                                    onChange={(value) => updateVariantDraft({ price: value })}
+                                    placeholder={String(p.price)}
+                                    currency={d.priceCurrency}
+                                    currencies={settings.currencies}
+                                    onCurrencyChange={(value) =>
+                                      updateVariantDraft({ priceCurrency: value })
+                                    }
+                                  />
+                                </Field>
+                                <Field label="Miqdor">
+                                  <Input
+                                    value={d.vitrinaQty}
+                                    onChange={(e) =>
+                                      updateVariantDraft({ vitrinaQty: e.target.value })
+                                    }
+                                    inputMode="decimal"
+                                    className="h-9 text-right text-xs"
+                                  />
+                                </Field>
+                                <Field label="Limit">
+                                  <Input
+                                    value={d.minStockAlert}
+                                    onChange={(e) =>
+                                      updateVariantDraft({ minStockAlert: e.target.value })
+                                    }
+                                    placeholder={
+                                      typeof p.minStockAlert === "number"
+                                        ? String(p.minStockAlert)
+                                        : "—"
+                                    }
+                                    inputMode="decimal"
+                                    className="h-9 text-right text-xs"
+                                  />
+                                </Field>
+                                <Field label="Shtrix kod">
+                                  <div className="flex gap-1">
+                                    <Input
+                                      value={d.barcode}
+                                      onChange={(e) =>
+                                        updateVariantDraft({ barcode: e.target.value })
+                                      }
+                                      placeholder="Shtrix kod"
+                                      className="h-9 min-w-0 text-xs"
+                                    />
+                                    <Button
+                                      type="button"
+                                      size="icon"
+                                      variant="outline"
+                                      className="h-9 w-9 shrink-0"
+                                      onClick={() =>
+                                        updateVariantDraft({
+                                          barcode: makeUniqueBarcode(),
+                                        })
+                                      }
+                                      title="Avtomatik shtrix kod"
+                                    >
+                                      <Barcode className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </div>
+                                </Field>
+                                <Field label="Artikul">
+                                  <div className="flex gap-1">
+                                    <Input
+                                      value={d.customCode}
+                                      onChange={(e) =>
+                                        updateVariantDraft({ customCode: e.target.value })
+                                      }
+                                      placeholder="Artikul"
+                                      className="h-9 min-w-0 text-xs"
+                                    />
+                                    <Button
+                                      type="button"
+                                      size="icon"
+                                      variant="outline"
+                                      className="h-9 w-9 shrink-0"
+                                      onClick={() =>
+                                        updateVariantDraft({ customCode: makeUniqueCustomCode() })
+                                      }
+                                      title="Avtomatik artikul"
+                                    >
+                                      <Hash className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </div>
+                                </Field>
+                                <Field label="Rasm">
+                                  <ImageUploadField
+                                    image={d.image}
+                                    onPick={(file) => {
+                                      if (!file) return;
+                                      const reader = new FileReader();
+                                      reader.onload = () =>
+                                        updateVariantDraft({ image: String(reader.result) });
+                                      reader.readAsDataURL(file);
+                                    }}
+                                    onClear={() => updateVariantDraft({ image: undefined })}
+                                  />
+                                </Field>
+                              </div>
+                              <div className="mt-3 flex justify-end gap-1.5">
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="outline"
+                                  className="h-8 w-8"
+                                  onClick={() => setVariantEdit(null)}
+                                  title="Bekor qilish"
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={saveVariantEdit}
+                                  title={t("save")}
+                                >
+                                  <Check className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }
+                    return (
+                      <tr
+                        key={v.id}
+                        className="cursor-pointer border-b bg-muted/10 hover:bg-muted/40"
+                        onDoubleClick={() => startVariantEdit(p, v)}
+                      >
+                        <td className="px-4 py-2 text-right text-muted-foreground">└</td>
+                        <td className="px-4 py-2 pl-8">
+                          <div className="text-sm font-medium">{v.label}</div>
+                          <div className="text-xs text-muted-foreground">{view.barcode}</div>
+                        </td>
+                        {!hiddenColumns.has("limit") && (
+                          <td className="px-4 py-2 text-center">
+                            {typeof view.minStockAlert === "number" ? (
+                              <span className="inline-flex rounded-md bg-muted px-2 py-1 text-xs font-bold text-muted-foreground">
+                                {view.minStockAlert} {p.unit}
+                              </span>
+                            ) : (
+                              <span className="text-xs italic text-muted-foreground">yo'q</span>
+                            )}
+                          </td>
+                        )}
+                        <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">
+                          {`${view.costPrice} ${view.costCurrency}`}
+                        </td>
+                        {!hiddenColumns.has("wholesale") && (
+                          <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">
+                            {view.wholesalePrice ? (
+                              view.wholesaleCurrency && view.wholesaleCurrency !== "UZS" ? (
+                                `${view.wholesalePrice} ${view.wholesaleCurrency}`
+                              ) : (
+                                formatSom(view.wholesalePrice)
+                              )
+                            ) : (
+                              <span className="text-xs italic text-muted-foreground">—</span>
+                            )}
+                          </td>
+                        )}
+                        <td className="px-4 py-2 text-right font-medium tabular-nums">
+                          {view.priceCurrency && view.priceCurrency !== "UZS"
+                            ? `${view.price} ${view.priceCurrency}`
+                            : formatSom(view.price)}
+                        </td>
+                        {!hiddenColumns.has("customCode") && (
+                          <td className="px-4 py-2">
+                            <span className="text-xs text-muted-foreground">{view.customCode}</span>
+                          </td>
+                        )}
+                        <td className="px-4 py-2 text-right tabular-nums">
+                          <span
+                            className={v.vitrinaQty < 10 ? "font-semibold text-destructive" : ""}
+                          >
+                            {v.vitrinaQty}
+                          </span>
+                        </td>
+                        {!hiddenColumns.has("unit") && (
+                          <td className="px-4 py-2 text-muted-foreground">{p.unit}</td>
+                        )}
+                        {!hiddenColumns.has("shelf") && (
+                          <td className="px-4 py-2 text-muted-foreground">
+                            {p.shelfLocation || (
+                              <span className="text-xs italic text-muted-foreground">
+                                belgilanmagan
+                              </span>
+                            )}
+                          </td>
+                        )}
+                        <td className="px-4 py-2 text-muted-foreground">{p.warehouse}</td>
+                        <td className="px-4 py-2 text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              size="icon"
+                              variant="outline"
+                              className="h-8 w-8"
+                              onClick={() => startVariantEdit(p, v)}
+                              title={t("edit")}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </td>
+                        <td className="px-2 py-2"></td>
+                      </tr>
+                    );
+                  })}
                 {editingId === p.id && (
                   <tr className="border-b bg-muted/20">
                     <td colSpan={13 - hiddenColumns.size} className="p-3">
