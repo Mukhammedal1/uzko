@@ -357,7 +357,7 @@ export const TOOL_DECLARATIONS = [
       type: "OBJECT",
       properties: {
         filter: { type: "STRING", enum: ["low", "out", "dead", "all"] },
-        dead_days: { type: "NUMBER", enum: [7, 14, 30], description: "Sotilmayotgan hisoblanadigan kunlar soni" },
+        dead_days: { type: "NUMBER", description: "Sotilmayotgan hisoblanadigan kunlar soni: 7, 14 yoki 30" },
         category: { type: "STRING" },
         limit: { type: "NUMBER", description: "Default 50, max 50" },
       },

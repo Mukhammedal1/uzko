@@ -16,6 +16,13 @@ function sleep(ms: number) {
  * Bu komponent butun ilova bo'ylab bir marta, `__root.tsx`da (AppProvider
  * ichida) render qilinadi — shuning uchun sahifadan sahifaga o'tganda ham
  * bot ishlashda davom etadi.
+ *
+ * BIR NECHTA TAB MUAMMOSI: agar shu sayt bir nechta tab/oynada ochiq bo'lsa,
+ * har biri bir xil bot token bilan `getUpdates` so'rasa, Telegram 409
+ * Conflict qaytaradi va javoblar takrorlanadi/aralashadi. Buning oldini olish
+ * uchun Web Locks API orqali "faqat bitta tab navbatchi bo'lsin" qulfi
+ * ishlatiladi — qulfni ushlagan tab yopilishi bilan navbatdagi tab avtomatik
+ * uni oladi. API mavjud bo'lmagan brauzerlarda (juda eski) qulfsiz ishlaydi.
  */
 export function AdminBotRuntime() {
   const { settings } = useApp();
@@ -27,7 +34,7 @@ export function AdminBotRuntime() {
     let stopped = false;
     const state: { current: ChatState } = { current: defaultChatState() };
 
-    (async () => {
+    async function runPollingLoop() {
       // Ilova qayta ochilganda eski (allaqachon ko'rilgan) xabarlarni qayta
       // ishlamaslik uchun avval navbatdagi eng oxirgi update_id'ni topamiz.
       let offset: number | undefined;
@@ -52,7 +59,18 @@ export function AdminBotRuntime() {
           }
         }
       }
-    })();
+    }
+
+    // Qulf nomi tokenga bog'liq — shunda faqat bir xil bot uchun navbat hosil bo'ladi.
+    const lockName = `uzko-admin-bot-poll:${adminToken}`;
+    if (typeof navigator !== "undefined" && "locks" in navigator) {
+      navigator.locks.request(lockName, { mode: "exclusive" }, () => {
+        if (stopped) return Promise.resolve();
+        return runPollingLoop();
+      });
+    } else {
+      void runPollingLoop();
+    }
 
     return () => {
       stopped = true;

@@ -414,6 +414,7 @@ async function handleAiChatMessage(
   await sendTelegramChatAction(token, chatId, "typing");
   const result = await runAiChat(question, state.aiHistory);
   if (!result.ok) {
+    console.error("[AI chat] runAiChat xatosi:", result.error);
     await sendTelegramMessage(token, chatId, "Hozir javob bera olmadim, tugmalardan foydalaning.");
     return state;
   }
@@ -456,6 +457,7 @@ async function handleAiVoiceMessage(
     state.aiHistory,
   );
   if (!result.ok) {
+    console.error("[AI chat] runAiChatFromVoice xatosi:", result.error);
     await sendTelegramMessage(token, chatId, "Hozir javob bera olmadim, tugmalardan foydalaning.");
     return state;
   }

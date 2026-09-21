@@ -12,7 +12,10 @@ import { tashkentDateKey } from "../period";
 import { callTool, TOOL_DECLARATIONS } from "./tools";
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
-const DEFAULT_MODEL = "gemini-2.0-flash";
+// gemini-2.5-flash yangi userlar uchun 404 qaytara boshladi (Google e'loni:
+// "no longer available to new users, use models/gemini-3.6-flash"). Bepul
+// model yana o'zgarsa, shu qatorni yangilang.
+const DEFAULT_MODEL = "gemini-3.6-flash";
 /** Spec 6-bo'lim: "Bitta savolga ko'pi bilan 4 ta tool chaqiruvi". */
 const MAX_TOOL_CALLS = 4;
 /** Spec 6-bo'lim: "Timeout 30 soniya". */
@@ -34,16 +37,19 @@ type GeminiContent = { role: "user" | "model"; parts: GeminiPart[] };
 
 // ─── System prompt ────────────────────────────────────────────────────────────
 
-function buildSystemPrompt(opts: { companyName: string; now: Date; lang: string }): string {
+function buildSystemPrompt(opts: { companyName: string; now: Date; lang?: string }): string {
   const today = tashkentDateKey(opts.now);
   const weekday = new Intl.DateTimeFormat("uz-UZ", { timeZone: "Asia/Tashkent", weekday: "long" }).format(
     opts.now,
   );
+  const langLine = opts.lang
+    ? `Javoblarni ${opts.lang} tilida yoz.`
+    : "Foydalanuvchi savolni qaysi tilda yozgan/aytgan bo'lsa (o'zbek, rus yoki ingliz), javobni ham aynan o'sha tilda yoz. Til aniq bo'lmasa, o'zbek tilida javob ber.";
 
   return [
     `Sen "${opts.companyName}" do'koni uchun Telegram bot ichidagi AI yordamchisan.`,
     `Bugungi sana: ${today} (${weekday}), vaqt mintaqasi doim Asia/Tashkent.`,
-    `Javoblarni ${opts.lang} tilida yoz.`,
+    langLine,
     "",
     "QOIDALAR:",
     '- Faqat senga berilgan tool\'lar qaytargan ma\'lumotga tayan. Hech qachon raqam yoki faktni o\'ylab topma.',
@@ -137,7 +143,7 @@ export async function runAiChat(
   const systemPrompt = buildSystemPrompt({
     companyName: opts.companyName?.trim() || "UZKO",
     now,
-    lang: opts.lang?.trim() || "o'zbek",
+    lang: opts.lang?.trim() || undefined,
   });
 
   const contents: GeminiContent[] = [
