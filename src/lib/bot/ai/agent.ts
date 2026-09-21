@@ -161,9 +161,12 @@ export async function runAiChat(
     // +1: oxirgi round faqat model to'plangan tool natijalari asosida yakuniy matn yozishi uchun.
     for (let round = 0; round <= MAX_TOOL_CALLS; round++) {
       const parts = await callGemini(apiKey, DEFAULT_MODEL, systemPrompt, contents, controller.signal);
-      const functionCalls = parts
-        .map((p) => p.functionCall)
-        .filter((fc): fc is GeminiFunctionCall => Boolean(fc));
+      // `p.functionCall` mavjud qismlarni o'zgartirmasdan olamiz — Gemini har
+      // bir qismga qo'shadigan `thoughtSignature` maydonini shu yerda
+      // yo'qotib qo'ysak, keyingi so'rovda "missing thought_signature" (400)
+      // xatosi chiqadi, chunki model o'z fikrlash zanjirini kuzata olmay qoladi.
+      const functionCallParts = parts.filter((p) => p.functionCall);
+      const functionCalls = functionCallParts.map((p) => p.functionCall as GeminiFunctionCall);
 
       if (functionCalls.length === 0) {
         const text = parts
@@ -174,7 +177,7 @@ export async function runAiChat(
         return { ok: true, replyHtml: sanitizeAgentHtml(text), usedTools };
       }
 
-      contents.push({ role: "model", parts: functionCalls.map((fc) => ({ functionCall: fc })) });
+      contents.push({ role: "model", parts: functionCallParts });
 
       const responseParts: GeminiPart[] = functionCalls.map((fc) => {
         if (usedTools.length >= MAX_TOOL_CALLS) {
