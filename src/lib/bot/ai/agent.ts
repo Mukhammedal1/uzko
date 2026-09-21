@@ -66,6 +66,14 @@ function buildSystemPrompt(opts: { companyName: string; now: Date; lang?: string
 
 // ─── Gemini REST chaqiruvi ────────────────────────────────────────────────────
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Google tomonida vaqtincha yuklama bo'lganda qaytadigan status kodlari — qayta urinishga arziydi. */
+const RETRYABLE_STATUS = new Set([429, 500, 503]);
+const MAX_RETRIES = 2;
+
 async function callGemini(
   apiKey: string,
   model: string,
@@ -73,25 +81,36 @@ async function callGemini(
   contents: GeminiContent[],
   signal: AbortSignal,
 ): Promise<GeminiPart[]> {
-  const res = await fetch(`${GEMINI_API_BASE}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    signal,
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: systemPrompt }] },
-      contents,
-      tools: [{ functionDeclarations: TOOL_DECLARATIONS }],
-      generationConfig: { temperature: 0.2 },
-    }),
-  });
+  let lastError: Error | null = null;
 
-  if (!res.ok) {
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) await sleep(1000 * attempt);
+
+    const res = await fetch(`${GEMINI_API_BASE}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal,
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents,
+        tools: [{ functionDeclarations: TOOL_DECLARATIONS }],
+        generationConfig: { temperature: 0.2 },
+      }),
+    });
+
+    if (res.ok) return extractParts(await res.json());
+
     const body = await res.text().catch(() => "");
-    throw new Error(`Gemini xatosi (${res.status}): ${body.slice(0, 200)}`);
+    lastError = new Error(`Gemini xatosi (${res.status}): ${body.slice(0, 200)}`);
+    if (!RETRYABLE_STATUS.has(res.status) || attempt === MAX_RETRIES) throw lastError;
   }
 
-  const data = await res.json();
-  const parts: GeminiPart[] | undefined = data?.candidates?.[0]?.content?.parts;
+  throw lastError ?? new Error("Gemini xatosi: noma'lum");
+}
+
+function extractParts(data: unknown): GeminiPart[] {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const parts: GeminiPart[] | undefined = (data as any)?.candidates?.[0]?.content?.parts;
   return parts ?? [];
 }
 
