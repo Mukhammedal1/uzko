@@ -12,10 +12,12 @@ import { tashkentDateKey } from "../period";
 import { callTool, TOOL_DECLARATIONS } from "./tools";
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
-// gemini-2.5-flash yangi userlar uchun 404 qaytara boshladi (Google e'loni:
-// "no longer available to new users, use models/gemini-3.6-flash"). Bepul
-// model yana o'zgarsa, shu qatorni yangilang.
-const DEFAULT_MODEL = "gemini-3.6-flash";
+// Aniq versiya raqami (masalan "gemini-2.5-flash") Google tomonidan vaqti-vaqti
+// bilan eskirtirilib, 404/400 xatoga olib kelardi. "gemini-flash-latest" —
+// Google'ning o'zi taqdim etadigan alias, har doim joriy tavsiya etilgan
+// flash modelga ishora qiladi — shu bilan model eskirishi umuman muammo
+// bo'lmay qoladi.
+const DEFAULT_MODEL = "gemini-flash-latest";
 /** Spec 6-bo'lim: "Bitta savolga ko'pi bilan 4 ta tool chaqiruvi". */
 const MAX_TOOL_CALLS = 4;
 /** Spec 6-bo'lim: "Timeout 30 soniya". */
