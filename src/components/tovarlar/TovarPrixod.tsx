@@ -21,12 +21,15 @@ import {
   Building2,
   CalendarDays,
   Check,
+  ChevronRight,
   CreditCard,
   HandCoins,
   History,
   Landmark,
   PackageCheck,
   PackagePlus,
+  Plus,
+  Trash2,
   Wallet,
 } from "lucide-react";
 import {
@@ -38,9 +41,12 @@ import {
   reverseMarkupPercent,
   formatMoney,
   getAgentsList,
+  productHasVariants,
+  resolveVariant,
 } from "@/lib/mock-data";
 import type { Currency, PaymentKind, PaymentMethod, Product } from "@/lib/mock-data";
 import { recordProductAddition } from "@/lib/data-actions";
+import { MarkupRow } from "@/components/tovarlar/TovarQoshish";
 import { toast } from "sonner";
 import { useApp } from "@/lib/app-context";
 import { cn, formatNumberInput, parseNumberInput } from "@/lib/utils";
@@ -56,47 +62,65 @@ const PAYMENT_KIND_ICON: Record<PaymentKind, typeof Wallet> = {
 
 const PRIXOD_PAYMENT_METHODS = [...MOCK_PAYMENT_METHODS].sort((a, b) => a.sortOrder - b.sortOrder);
 
-type FormState = {
+type PrixodRow = {
+  id: string;
   productId: string;
+  variantId: string;
   qty: string;
   costCurrency: Currency;
   costPrice: string;
   wholesalePrice: string;
-  wholesaleMarkupPercent: number | undefined;
+  wholesaleMarkupPercent: string;
+  wholesaleMarkupWarn: boolean;
   price: string;
-  priceMarkupPercent: number | undefined;
+  priceMarkupPercent: string;
+  priceMarkupWarn: boolean;
   minStockAlert: string;
-  agentId: string;
   warehouse: string;
   shelfLocation: string;
 };
 
-function makeEmptyForm(): FormState {
+let prixodRowSeq = 0;
+
+function makeEmptyRow(): PrixodRow {
+  prixodRowSeq += 1;
   return {
+    id: `pr-${Date.now()}-${prixodRowSeq}`,
     productId: "",
+    variantId: "",
     qty: "",
     costCurrency: "UZS",
     costPrice: "",
     wholesalePrice: "",
-    wholesaleMarkupPercent: undefined,
+    wholesaleMarkupPercent: "",
+    wholesaleMarkupWarn: false,
     price: "",
-    priceMarkupPercent: undefined,
+    priceMarkupPercent: "",
+    priceMarkupWarn: false,
     minStockAlert: "",
-    agentId: "",
     warehouse: "",
     shelfLocation: "",
   };
 }
 
-/** "Tovar prixod qilish" — bazadagi mavjud mahsulotga narx, taminotchi, ombor
- * va polka joyini belgilaydi (tovar qabul qilinganda). */
+/** Qatordagi tanlovni ota-tovar, variant va ular birlashgan ishchi nusxaga ochadi. */
+function resolveRowProduct(row: Pick<PrixodRow, "productId" | "variantId">) {
+  const parent = MOCK_PRODUCTS.find((p) => p.id === row.productId);
+  const variant = parent?.variants?.find((v) => v.id === row.variantId);
+  const product = parent && variant ? resolveVariant(parent, variant) : parent;
+  return { parent, variant, product };
+}
+
+/** "Tovar prixod qilish" — bazadagi mavjud mahsulotlarga narx, taminotchi, ombor
+ * va polka joyini belgilaydi (tovar qabul qilinganda). Bir nechta tovar bir vaqtda kiritiladi. */
 export function TovarPrixod() {
   const { settings } = useApp();
   const defaultWarehouse = settings.warehouses[0]?.name ?? "Asosiy ombor";
   const agents = getAgentsList();
   const [tab, setTab] = React.useState<"bugun" | "tahrir">("bugun");
   const [formOpen, setFormOpen] = React.useState(false);
-  const [form, setForm] = React.useState<FormState>(() => makeEmptyForm());
+  const [rows, setRows] = React.useState<PrixodRow[]>(() => [makeEmptyRow()]);
+  const [agentId, setAgentId] = React.useState("");
   const [showValidation, setShowValidation] = React.useState(false);
   const [paymentOpen, setPaymentOpen] = React.useState(false);
   const [paymentPaidAmount, setPaymentPaidAmount] = React.useState("");
@@ -106,117 +130,179 @@ export function TovarPrixod() {
   );
   const [paymentNote, setPaymentNote] = React.useState("");
 
-  const product = MOCK_PRODUCTS.find((p) => p.id === form.productId);
-  const agent = agents.find((a) => a.id === form.agentId);
+  const agent = agents.find((a) => a.id === agentId);
+
+  const updateRow = (id: string, patch: Partial<PrixodRow>) => {
+    setRows((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)));
+  };
+
+  // Qulflangan foizlar: null bo'lsa qulf o'chiq. Qiymat qulflangan paytdagi
+  // foizga qotib qoladi va shu qiymat yangi qo'shiladigan qatorlarga ko'chadi.
+  const [lockedWholesalePercent, setLockedWholesalePercent] = React.useState<string | null>(null);
+  const [lockedPricePercent, setLockedPricePercent] = React.useState<string | null>(null);
+
+  const addRow = () =>
+    setRows((current) => [
+      ...current,
+      {
+        ...makeEmptyRow(),
+        wholesaleMarkupPercent: lockedWholesalePercent ?? "",
+        priceMarkupPercent: lockedPricePercent ?? "",
+      },
+    ]);
+
+  const toggleWholesaleLock = (row: PrixodRow) =>
+    setLockedWholesalePercent((prev) => (prev !== null ? null : row.wholesaleMarkupPercent || "0"));
+
+  const togglePriceLock = (row: PrixodRow) =>
+    setLockedPricePercent((prev) => (prev !== null ? null : row.priceMarkupPercent || "0"));
+
+  const removeRow = (id: string) => {
+    setRows((current) => (current.length > 1 ? current.filter((row) => row.id !== id) : current));
+  };
 
   // Mahsulot tanlanganda joriy narxlari maydonlarga (tahrirlanadigan holda)
   // avtomatik to'ldiriladi — narxlar o'zgargan bo'lishi mumkin, shu yerdan yangilanadi.
-  React.useEffect(() => {
-    if (!product) return;
-    setForm((s) => ({
-      ...s,
+  const selectProduct = (rowId: string, productId: string, variantId: string) => {
+    const { product } = resolveRowProduct({ productId, variantId });
+    if (!product) {
+      updateRow(rowId, { productId, variantId });
+      return;
+    }
+    updateRow(rowId, {
+      productId,
+      variantId,
       costCurrency: product.costCurrency,
       costPrice: formatNumberInput(String(product.costPrice)),
       wholesalePrice: product.wholesalePrice
         ? formatNumberInput(String(product.wholesalePrice))
         : "",
-      wholesaleMarkupPercent: product.wholesaleMarkupPercent,
+      wholesaleMarkupPercent:
+        typeof product.wholesaleMarkupPercent === "number"
+          ? formatNumberInput(String(product.wholesaleMarkupPercent))
+          : "",
+      wholesaleMarkupWarn: false,
       price: formatNumberInput(String(product.price)),
-      priceMarkupPercent: product.priceMarkupPercent,
+      priceMarkupPercent:
+        typeof product.priceMarkupPercent === "number"
+          ? formatNumberInput(String(product.priceMarkupPercent))
+          : "",
+      priceMarkupWarn: false,
       minStockAlert:
         typeof product.minStockAlert === "number"
           ? formatNumberInput(String(product.minStockAlert))
           : "",
-    }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.productId]);
+    });
+  };
 
-  /** Tan narx (yoki uning valyutasi) o'zgarganda, agar mahsulot uchun oldin
-   * "foiz" asosida narx belgilangan bo'lsa (priceMarkupPercent/wholesaleMarkupPercent),
-   * Optom narx va Sotuv narxni shu foiz asosida yangi tan narxdan qayta hisoblaydi. */
+  const wholesaleCurrencyOf = (row: PrixodRow): Currency =>
+    resolveRowProduct(row).product?.wholesaleCurrency ?? "UZS";
+  const priceCurrencyOf = (row: PrixodRow): Currency =>
+    resolveRowProduct(row).product?.priceCurrency ?? "UZS";
+
+  /** Tan narx (yoki uning valyutasi) o'zgarganda — foiz maydoni to'ldirilgan
+   * bo'lsa, Optom narx va Sotuv narx shu foiz asosida darhol qayta hisoblanadi. */
   const applyAutoMarkup = (
+    row: PrixodRow,
     nextCostPrice: string,
     nextCostCurrency: Currency,
-  ): Partial<FormState> => {
-    if (!product) return {};
-    const costNumber = parseNumberInput(nextCostPrice);
-    if (!costNumber) return {};
-    const patch: Partial<FormState> = {};
-    if (typeof product.priceMarkupPercent === "number") {
-      patch.price = formatNumberInput(
-        String(
-          computeMarkupPrice(
-            costNumber,
-            nextCostCurrency,
-            product.priceCurrency ?? "UZS",
-            product.priceMarkupPercent,
-          ),
-        ),
-      );
-    }
-    if (typeof product.wholesaleMarkupPercent === "number") {
+  ): Partial<PrixodRow> => {
+    const cost = parseNumberInput(nextCostPrice);
+    if (!(cost > 0)) return {};
+    const patch: Partial<PrixodRow> = {};
+    const wPercent = parseNumberInput(row.wholesaleMarkupPercent);
+    if (wPercent > 0) {
       patch.wholesalePrice = formatNumberInput(
-        String(
-          computeMarkupPrice(
-            costNumber,
-            nextCostCurrency,
-            product.wholesaleCurrency ?? "UZS",
-            product.wholesaleMarkupPercent,
-          ),
-        ),
+        String(computeMarkupPrice(cost, nextCostCurrency, wholesaleCurrencyOf(row), wPercent)),
       );
+      patch.wholesaleMarkupWarn = false;
+    }
+    const pPercent = parseNumberInput(row.priceMarkupPercent);
+    if (pPercent > 0) {
+      patch.price = formatNumberInput(
+        String(computeMarkupPrice(cost, nextCostCurrency, priceCurrencyOf(row), pPercent)),
+      );
+      patch.priceMarkupWarn = false;
     }
     return patch;
   };
 
+  /** Foiz maydonidagi (yoki Enter/tugma bosilgandagi) foiz asosida narxni hisoblaydi. */
+  const applyMarkup = (row: PrixodRow, kind: "wholesale" | "price") => {
+    const cost = parseNumberInput(row.costPrice);
+    const warnKey = kind === "wholesale" ? "wholesaleMarkupWarn" : "priceMarkupWarn";
+    if (!cost) {
+      updateRow(row.id, { [warnKey]: true });
+      toast.error("Avval tan narxni kiriting");
+      return;
+    }
+    const percent = parseNumberInput(
+      kind === "wholesale" ? row.wholesaleMarkupPercent : row.priceMarkupPercent,
+    );
+    const result = computeMarkupPrice(
+      cost,
+      row.costCurrency,
+      kind === "wholesale" ? wholesaleCurrencyOf(row) : priceCurrencyOf(row),
+      percent,
+    );
+    updateRow(row.id, {
+      [kind === "wholesale" ? "wholesalePrice" : "price"]: formatNumberInput(String(result)),
+      [warnKey]: false,
+    });
+  };
+
   /** Optom/sotuv narx qo'lda o'zgartirilib, inputdan chiqilganda (blur) — tan
-   * narxdan qancha foiz ustama qo'yilgani orqaga hisoblab, shu tovar uchun
-   * eslab qolinadi (keyingi prixodlarda ham shu foiz asosida hisoblanadi). */
-  const handleWholesalePriceBlur = () => {
-    const cost = parseNumberInput(form.costPrice);
-    const priceNum = parseNumberInput(form.wholesalePrice);
-    if (!priceNum) return;
+   * narxdan qancha foiz ustama qo'yilgani orqaga hisoblanib, foiz maydoniga yoziladi. */
+  const handleMarkupBlur = (row: PrixodRow, kind: "wholesale" | "price") => {
+    const cost = parseNumberInput(row.costPrice);
+    const priceNum = parseNumberInput(kind === "wholesale" ? row.wholesalePrice : row.price);
+    const warnKey = kind === "wholesale" ? "wholesaleMarkupWarn" : "priceMarkupWarn";
     if (!cost) {
-      toast.error("Avval tan narxni kiriting — foiz eslab qolinmadi");
+      updateRow(row.id, { [warnKey]: priceNum > 0 });
+      return;
+    }
+    if (!priceNum) {
+      updateRow(row.id, { [warnKey]: false });
       return;
     }
     const percent = reverseMarkupPercent(
       cost,
-      form.costCurrency,
+      row.costCurrency,
       priceNum,
-      product?.wholesaleCurrency ?? "UZS",
+      kind === "wholesale" ? wholesaleCurrencyOf(row) : priceCurrencyOf(row),
     );
-    if (percent === null) return;
-    setForm((s) => ({ ...s, wholesaleMarkupPercent: percent }));
+    const percentKey = kind === "wholesale" ? "wholesaleMarkupPercent" : "priceMarkupPercent";
+    updateRow(row.id, {
+      [percentKey]: percent === null ? row[percentKey] : formatNumberInput(String(percent)),
+      [warnKey]: percent === null,
+    });
   };
 
-  const handlePriceBlur = () => {
-    const cost = parseNumberInput(form.costPrice);
-    const priceNum = parseNumberInput(form.price);
-    if (!priceNum) return;
-    if (!cost) {
-      toast.error("Avval tan narxni kiriting — foiz eslab qolinmadi");
-      return;
-    }
-    const percent = reverseMarkupPercent(
-      cost,
-      form.costCurrency,
-      priceNum,
-      product?.priceCurrency ?? "UZS",
-    );
-    if (percent === null) return;
-    setForm((s) => ({ ...s, priceMarkupPercent: percent }));
-  };
-
-  const productInvalid = showValidation && !form.productId;
-  const qtyInvalid = showValidation && !(parseNumberInput(form.qty) > 0);
-  const priceInvalid = showValidation && !(parseNumberInput(form.price) > 0);
   const agentInvalid = showValidation && !agent;
 
-  const qtyForDialog = Math.max(0, parseNumberInput(form.qty) || 0);
-  const totalCostForDialog = product
-    ? qtyForDialog * (Math.max(0, parseNumberInput(form.costPrice) || 0) || product.costPrice)
-    : 0;
+  const rowQty = (row: PrixodRow) => Math.max(0, parseNumberInput(row.qty) || 0);
+  const rowUnitCost = (row: PrixodRow, fallback: number) =>
+    Math.max(0, parseNumberInput(row.costPrice) || 0) || fallback;
+  const rate = (code: string) => MOCK_RATES[code] ?? 1;
+
+  const filledRows = rows
+    .map((row) => ({ row, ...resolveRowProduct(row) }))
+    .filter((item): item is typeof item & { product: Product } => Boolean(item.product));
+
+  // Qatorlar turli valyutada bo'lishi mumkin — to'lov bitta valyutada: hammasi
+  // bir xil bo'lsa o'sha, aks holda UZS ekvivalentida.
+  const paymentCurrency: Currency = filledRows.every(
+    (item) => item.row.costCurrency === filledRows[0]?.row.costCurrency,
+  )
+    ? (filledRows[0]?.row.costCurrency ?? "UZS")
+    : "UZS";
+  const totalCostForDialog = filledRows.reduce(
+    (sum, { row, product }) =>
+      sum +
+      (rowQty(row) * rowUnitCost(row, product.costPrice) * rate(row.costCurrency)) /
+        rate(paymentCurrency),
+    0,
+  );
 
   const paymentPaidNumber = Math.max(0, parseNumberInput(paymentPaidAmount) || 0);
   const paymentRemaining = Math.max(0, totalCostForDialog - paymentPaidNumber);
@@ -230,107 +316,148 @@ export function TovarPrixod() {
   const finalizeProductAddition = (
     payment: { method: PaymentMethod; paidAmount: number; fromKassa: boolean } | null,
   ) => {
-    if (!product) return;
-    const qtyNumber = Math.max(0, parseNumberInput(form.qty) || 0);
-    const priceNumber = Math.max(0, parseNumberInput(form.price) || 0);
-    const costNumber = Math.max(0, parseNumberInput(form.costPrice) || 0);
-    const wholesaleNumber = Math.max(0, parseNumberInput(form.wholesalePrice) || 0);
+    // To'langan summa qatorlar bo'ylab ketma-ket taqsimlanadi (to'lov valyutasida).
+    let paidLeft = payment ? Math.min(totalCostForDialog, payment.paidAmount) : 0;
+    let paidTotal = 0;
+    const invoiceNumbers: string[] = [];
+    const debtParts: number[] = [];
 
-    product.costPrice = costNumber || product.costPrice;
-    product.costCurrency = form.costCurrency;
-    product.price = priceNumber;
-    product.priceMarkupPercent = form.priceMarkupPercent;
-    if (wholesaleNumber > 0) product.wholesalePrice = wholesaleNumber;
-    product.wholesaleMarkupPercent = form.wholesaleMarkupPercent;
-    product.warehouse = form.warehouse || defaultWarehouse;
-    product.shelfLocation = form.shelfLocation || undefined;
-    product.omborQty = (product.omborQty || 0) + qtyNumber;
-    product.minStockAlert = form.minStockAlert.trim()
-      ? Math.max(0, parseNumberInput(form.minStockAlert) || 0)
-      : undefined;
+    for (const item of rows) {
+      const { parent, variant, product } = resolveRowProduct(item);
+      if (!product) continue;
+      const qtyNumber = rowQty(item);
+      const priceNumber = Math.max(0, parseNumberInput(item.price) || 0);
+      const costNumber = Math.max(0, parseNumberInput(item.costPrice) || 0);
+      const wholesaleNumber = Math.max(0, parseNumberInput(item.wholesalePrice) || 0);
 
-    const totalCost = qtyNumber * product.costPrice;
-    const paidAmount = payment ? Math.max(0, Math.min(totalCost, payment.paidAmount)) : 0;
+      product.costPrice = costNumber || product.costPrice;
+      product.costCurrency = item.costCurrency;
+      product.price = priceNumber;
+      product.priceMarkupPercent = parseNumberInput(item.priceMarkupPercent) || undefined;
+      if (wholesaleNumber > 0) product.wholesalePrice = wholesaleNumber;
+      product.wholesaleMarkupPercent = parseNumberInput(item.wholesaleMarkupPercent) || undefined;
+      product.warehouse = item.warehouse || defaultWarehouse;
+      product.shelfLocation = item.shelfLocation || undefined;
+      product.omborQty = (product.omborQty || 0) + qtyNumber;
+      product.minStockAlert = item.minStockAlert.trim()
+        ? Math.max(0, parseNumberInput(item.minStockAlert) || 0)
+        : undefined;
 
-    const { invoiceNumber } = recordProductAddition({
-      productName: product.name,
-      qty: qtyNumber,
-      unit: product.unit,
-      price: product.price,
-      costPrice: product.costPrice,
-      warehouse: product.warehouse,
-      shelfLocation: product.shelfLocation,
-      addedBy: settings.username,
-      source: agent
-        ? {
-            enabled: true,
-            agentId: agent.id,
-            agentName: agent.name,
-            agentPhone: agent.phone,
-            paidAmount: String(paidAmount),
-            note: payment
-              ? `${payment.method.name} orqali to'landi (${payment.method.kind === "transfer" ? "o'tkazma" : payment.fromKassa ? "kassadan" : "boshqa manbadan"})${paymentNote.trim() ? ` · ${paymentNote.trim()}` : ""}`
-              : paymentNote.trim(),
-            sendBotUpdate: false,
-          }
-        : undefined,
-    });
+      if (parent && variant) {
+        Object.assign(variant, {
+          costPrice: product.costPrice,
+          costCurrency: product.costCurrency,
+          price: product.price,
+          wholesalePrice: product.wholesalePrice,
+          omborQty: product.omborQty,
+          minStockAlert: product.minStockAlert,
+        });
+        parent.warehouse = product.warehouse;
+        parent.shelfLocation = product.shelfLocation;
+      }
+
+      const totalCost = qtyNumber * product.costPrice;
+      const totalInPayCurrency = (totalCost * rate(item.costCurrency)) / rate(paymentCurrency);
+      const allocated = Math.min(paidLeft, totalInPayCurrency);
+      paidLeft -= allocated;
+      paidTotal += allocated;
+      const paidAmount = (allocated * rate(paymentCurrency)) / rate(item.costCurrency);
+      debtParts.push(((totalCost - paidAmount) * rate(item.costCurrency)) / rate(paymentCurrency));
+
+      const { invoiceNumber } = recordProductAddition({
+        productName: product.name,
+        qty: qtyNumber,
+        unit: product.unit,
+        price: product.price,
+        costPrice: product.costPrice,
+        warehouse: product.warehouse,
+        shelfLocation: product.shelfLocation,
+        addedBy: settings.username,
+        source: agent
+          ? {
+              enabled: true,
+              agentId: agent.id,
+              agentName: agent.name,
+              agentPhone: agent.phone,
+              paidAmount: String(paidAmount),
+              note: payment
+                ? `${payment.method.name} orqali to'landi (${payment.method.kind === "transfer" ? "o'tkazma" : payment.fromKassa ? "kassadan" : "boshqa manbadan"})${paymentNote.trim() ? ` · ${paymentNote.trim()}` : ""}`
+                : paymentNote.trim(),
+              sendBotUpdate: false,
+            }
+          : undefined,
+      });
+      invoiceNumbers.push(invoiceNumber);
+    }
 
     // Kassadan chiqim faqat foydalanuvchi "Kassadan" deb tanlaganda yoziladi
     // (o'tkazmadan boshqa har bir usulda shu savol so'raladi — bekor qilinsa
     // yoki "Boshqa manbadan" tanlansa, kassaga tegilmaydi).
-    if (agent && payment && paidAmount > 0 && payment.fromKassa) {
-      const rate = MOCK_RATES[product.costCurrency] ?? 1;
+    if (agent && payment && paidTotal > 0 && payment.fromKassa) {
       const kind = payment.method.kind;
       MOCK_WITHDRAWALS.push({
         id: `CH-prixod-${Date.now()}`,
         date: new Date().toISOString(),
         cashier: settings.username,
         category: "Agentlarga to'lov",
-        cash: kind === "cash" ? Math.round(paidAmount * rate) : 0,
-        cardAmount: kind === "card" ? Math.round(paidAmount * rate) : 0,
-        currencies: kind === "currency" ? [{ code: product.costCurrency, amount: paidAmount }] : [],
-        note: `Tovar prixodi uchun to'lov (${payment.method.name}) · ${product.name}`,
+        cash: kind === "cash" ? Math.round(paidTotal * rate(paymentCurrency)) : 0,
+        cardAmount: kind === "card" ? Math.round(paidTotal * rate(paymentCurrency)) : 0,
+        currencies: kind === "currency" ? [{ code: paymentCurrency, amount: paidTotal }] : [],
+        note: `Tovar prixodi uchun to'lov (${payment.method.name}) · ${filledRows.map((i) => i.product.name).join(", ")}`,
         agentId: agent.id,
       });
     }
 
-    const remaining = Math.max(0, totalCost - paidAmount);
-    toast.success(`Tovar prixod qilindi · ${invoiceNumber}`, {
+    const remaining = Math.max(
+      0,
+      debtParts.reduce((a, b) => a + b, 0),
+    );
+    const title =
+      filledRows.length === 1 ? filledRows[0].product.name : `${filledRows.length} ta tovar`;
+    const invoiceLabel =
+      invoiceNumbers.length > 1
+        ? `${invoiceNumbers[0]} — ${invoiceNumbers[invoiceNumbers.length - 1]}`
+        : invoiceNumbers[0];
+    toast.success(`Tovar prixod qilindi · ${invoiceLabel}`, {
       description: agent
         ? remaining > 0
-          ? `${product.name} · ${agent.name} · qarz: ${formatMoney(remaining, product.costCurrency)}`
-          : `${product.name} · ${agent.name} · to'liq to'landi`
-        : product.name,
+          ? `${title} · ${agent.name} · qarz: ${formatMoney(remaining, paymentCurrency)}`
+          : `${title} · ${agent.name} · to'liq to'landi`
+        : title,
     });
 
-    setForm(makeEmptyForm());
+    setRows([makeEmptyRow()]);
+    setAgentId("");
     setShowValidation(false);
     setPaymentOpen(false);
     setFormOpen(false);
   };
 
   const openForm = () => {
-    setForm(makeEmptyForm());
+    setRows([makeEmptyRow()]);
+    setAgentId("");
+    setLockedWholesalePercent(null);
+    setLockedPricePercent(null);
     setShowValidation(false);
     setFormOpen(true);
   };
 
   const handleSubmit = () => {
     setShowValidation(true);
-    if (!product) {
-      toast.error("Mahsulotni tanlang");
-      return;
-    }
-    const qtyNumber = Math.max(0, parseNumberInput(form.qty) || 0);
-    if (qtyNumber <= 0) {
-      toast.error("Miqdorni kiriting");
-      return;
-    }
-    const priceNumber = Math.max(0, parseNumberInput(form.price) || 0);
-    if (priceNumber <= 0) {
-      toast.error("Sotuv narxini kiriting");
-      return;
+    for (const [index, row] of rows.entries()) {
+      const label = rows.length > 1 ? ` (${index + 1}-qator)` : "";
+      if (!resolveRowProduct(row).product) {
+        toast.error(`Mahsulotni tanlang${label}`);
+        return;
+      }
+      if (rowQty(row) <= 0) {
+        toast.error(`Miqdorni kiriting${label}`);
+        return;
+      }
+      if (!(parseNumberInput(row.price) > 0)) {
+        toast.error(`Sotuv narxini kiriting${label}`);
+        return;
+      }
     }
     if (!agent) {
       toast.error("Taminotchini tanlang");
@@ -388,185 +515,241 @@ export function TovarPrixod() {
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-auto p-4">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-4 xl:grid-cols-[minmax(200px,1.6fr)_minmax(100px,0.6fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(110px,0.7fr)_minmax(160px,1fr)_minmax(140px,0.9fr)_minmax(110px,0.8fr)]">
-              <Field label="Mahsulot nomi" required error={productInvalid}>
-                <ProductCombobox
-                  products={MOCK_PRODUCTS}
-                  value={form.productId}
-                  onChange={(id) => setForm((s) => ({ ...s, productId: id }))}
-                  invalid={productInvalid}
-                />
-              </Field>
+          <div className="min-h-0 flex-1 overflow-auto p-3">
+            <div className="space-y-5">
+              {rows.map((row, index) => {
+                const { product } = resolveRowProduct(row);
+                const productInvalid = showValidation && !product;
+                const qtyInvalid = showValidation && !(parseNumberInput(row.qty) > 0);
+                const priceInvalid = showValidation && !(parseNumberInput(row.price) > 0);
+                return (
+                  <div key={row.id} className="relative">
+                    <div className="relative rounded-lg border bg-card p-3 shadow-sm transition-colors focus-within:border-primary/40">
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="absolute right-2 top-2 h-6 w-6 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => removeRow(row.id)}
+                        disabled={rows.length <= 1}
+                        title="Qatorni o'chirish"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
 
-              <Field label="Soni" required error={qtyInvalid}>
-                <Input
-                  value={form.qty}
-                  onChange={(e) =>
-                    setForm((s) => ({ ...s, qty: formatNumberInput(e.target.value) }))
-                  }
-                  placeholder="0"
-                  className={cn(
-                    "h-9 text-right text-sm",
-                    qtyInvalid && "border-destructive focus-visible:ring-destructive",
-                  )}
-                  inputMode="decimal"
-                />
-              </Field>
+                      <div className="mb-2.5 flex items-center gap-2 pr-8">
+                        <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1.5 text-[10px] font-bold text-muted-foreground">
+                          {index + 1}
+                        </span>
+                      </div>
 
-              <Field label="Tan narx">
-                <CurrencyField
-                  value={form.costPrice}
-                  onChange={(value) => {
-                    const formatted = formatNumberInput(value);
-                    setForm((s) => ({
-                      ...s,
-                      costPrice: formatted,
-                      ...applyAutoMarkup(formatted, s.costCurrency),
-                    }));
-                  }}
-                  placeholder="0"
-                  currency={form.costCurrency}
-                  currencies={settings.currencies}
-                  onCurrencyChange={(value) => {
-                    const currency = value as Currency;
-                    setForm((s) => ({
-                      ...s,
-                      costCurrency: currency,
-                      ...applyAutoMarkup(s.costPrice, currency),
-                    }));
-                  }}
-                />
-                {product &&
-                  (typeof product.priceMarkupPercent === "number" ||
-                    typeof product.wholesaleMarkupPercent === "number") && (
-                    <p className="text-[10px] leading-snug text-muted-foreground">
-                      Bu tovar uchun narx foiz asosida saqlangan — tan narx o'zgarganda Optom/Sotuv
-                      narx avtomatik qayta hisoblanadi.
-                    </p>
-                  )}
-              </Field>
+                      <div className="grid grid-cols-1 gap-4 pr-8 md:grid-cols-4 xl:grid-cols-[minmax(200px,1.6fr)_minmax(100px,0.6fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(110px,0.7fr)_minmax(160px,1fr)_minmax(140px,0.9fr)_minmax(110px,0.8fr)]">
+                        <Field label="Mahsulot nomi" required error={productInvalid}>
+                          <ProductCombobox
+                            products={MOCK_PRODUCTS}
+                            value={row.productId}
+                            variantId={row.variantId}
+                            onChange={(id, variantId = "") => selectProduct(row.id, id, variantId)}
+                            invalid={productInvalid}
+                          />
+                        </Field>
 
-              <Field label="Optom narx">
-                <Input
-                  value={form.wholesalePrice}
-                  onChange={(e) =>
-                    setForm((s) => ({
-                      ...s,
-                      wholesalePrice: formatNumberInput(e.target.value),
-                    }))
-                  }
-                  onBlur={handleWholesalePriceBlur}
-                  placeholder="0"
-                  className="h-9 text-right text-sm"
-                  inputMode="decimal"
-                />
-              </Field>
+                        <Field label="Soni" required error={qtyInvalid}>
+                          <Input
+                            value={row.qty}
+                            onChange={(e) =>
+                              updateRow(row.id, { qty: formatNumberInput(e.target.value) })
+                            }
+                            placeholder="0"
+                            className={cn(
+                              "h-9 text-right text-sm",
+                              qtyInvalid && "border-destructive focus-visible:ring-destructive",
+                            )}
+                            inputMode="decimal"
+                          />
+                        </Field>
 
-              <Field label="Sotuv narx" required error={priceInvalid}>
-                <Input
-                  value={form.price}
-                  onChange={(e) =>
-                    setForm((s) => ({ ...s, price: formatNumberInput(e.target.value) }))
-                  }
-                  onBlur={handlePriceBlur}
-                  placeholder="0"
-                  className={cn(
-                    "h-9 text-right text-sm",
-                    priceInvalid && "border-destructive focus-visible:ring-destructive",
-                  )}
-                  inputMode="decimal"
-                />
-              </Field>
+                        <Field label="Tan narx">
+                          <CurrencyField
+                            value={row.costPrice}
+                            onChange={(value) => {
+                              const formatted = formatNumberInput(value);
+                              updateRow(row.id, {
+                                costPrice: formatted,
+                                ...applyAutoMarkup(row, formatted, row.costCurrency),
+                              });
+                            }}
+                            placeholder="0"
+                            currency={row.costCurrency}
+                            currencies={settings.currencies}
+                            onCurrencyChange={(value) => {
+                              const currency = value as Currency;
+                              updateRow(row.id, {
+                                costCurrency: currency,
+                                ...applyAutoMarkup(row, row.costPrice, currency),
+                              });
+                            }}
+                          />
+                        </Field>
 
-              <Field label="Limit">
-                <Input
-                  value={form.minStockAlert}
-                  onChange={(e) =>
-                    setForm((s) => ({
-                      ...s,
-                      minStockAlert: formatNumberInput(e.target.value),
-                    }))
-                  }
-                  placeholder="—"
-                  title="Shu miqdordan kamaysa, ogohlantiriladi"
-                  className="h-9 text-right text-sm"
-                  inputMode="decimal"
-                />
-              </Field>
+                        <Field label="Optom narx">
+                          <Input
+                            value={row.wholesalePrice}
+                            onChange={(e) =>
+                              updateRow(row.id, {
+                                wholesalePrice: formatNumberInput(e.target.value),
+                              })
+                            }
+                            onBlur={() => handleMarkupBlur(row, "wholesale")}
+                            placeholder="0"
+                            className="h-9 text-right text-sm"
+                            inputMode="decimal"
+                          />
+                          <MarkupRow
+                            percent={row.wholesaleMarkupPercent}
+                            warn={row.wholesaleMarkupWarn}
+                            locked={lockedWholesalePercent !== null}
+                            onToggleLock={() => toggleWholesaleLock(row)}
+                            onPercentChange={(value) =>
+                              updateRow(row.id, { wholesaleMarkupPercent: value })
+                            }
+                            onApply={() => applyMarkup(row, "wholesale")}
+                          />
+                        </Field>
 
-              <Field label="Taminotchi" required error={agentInvalid}>
-                <Select
-                  value={form.agentId || "__none__"}
-                  onValueChange={(value) =>
-                    setForm((s) => ({ ...s, agentId: value === "__none__" ? "" : value }))
-                  }
-                >
-                  <SelectTrigger
-                    className={cn(
-                      "h-9 text-sm",
-                      agentInvalid && "border-destructive focus-visible:ring-destructive",
+                        <Field label="Sotuv narx" required error={priceInvalid}>
+                          <Input
+                            value={row.price}
+                            onChange={(e) =>
+                              updateRow(row.id, { price: formatNumberInput(e.target.value) })
+                            }
+                            onBlur={() => handleMarkupBlur(row, "price")}
+                            placeholder="0"
+                            className={cn(
+                              "h-9 text-right text-sm",
+                              priceInvalid && "border-destructive focus-visible:ring-destructive",
+                            )}
+                            inputMode="decimal"
+                          />
+                          <MarkupRow
+                            percent={row.priceMarkupPercent}
+                            warn={row.priceMarkupWarn}
+                            locked={lockedPricePercent !== null}
+                            onToggleLock={() => togglePriceLock(row)}
+                            onPercentChange={(value) =>
+                              updateRow(row.id, { priceMarkupPercent: value })
+                            }
+                            onApply={() => applyMarkup(row, "price")}
+                          />
+                        </Field>
+
+                        <Field label="Limit">
+                          <Input
+                            value={row.minStockAlert}
+                            onChange={(e) =>
+                              updateRow(row.id, {
+                                minStockAlert: formatNumberInput(e.target.value),
+                              })
+                            }
+                            placeholder="—"
+                            title="Shu miqdordan kamaysa, ogohlantiriladi"
+                            className="h-9 text-right text-sm"
+                            inputMode="decimal"
+                          />
+                        </Field>
+
+                        <Field label="Taminotchi" required error={agentInvalid}>
+                          <Select
+                            value={agentId || "__none__"}
+                            disabled={index > 0}
+                            onValueChange={(value) => setAgentId(value === "__none__" ? "" : value)}
+                          >
+                            <SelectTrigger
+                              className={cn(
+                                "h-9 text-sm",
+                                agentInvalid && "border-destructive focus-visible:ring-destructive",
+                              )}
+                              title={
+                                index > 0
+                                  ? "Birinchi qatordagi taminotchi avtomatik qo'llanadi"
+                                  : undefined
+                              }
+                            >
+                              <SelectValue placeholder="Taminotchini tanlang" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__" disabled>
+                                Taminotchini tanlang
+                              </SelectItem>
+                              {agents.map((a) => (
+                                <SelectItem key={a.id} value={a.id}>
+                                  {a.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </Field>
+
+                        <Field label="Ombor">
+                          <Select
+                            value={row.warehouse || "__none__"}
+                            onValueChange={(value) =>
+                              updateRow(row.id, { warehouse: value === "__none__" ? "" : value })
+                            }
+                          >
+                            <SelectTrigger className="h-9 text-sm">
+                              <SelectValue placeholder="Tanlanmagan" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__">Tanlanmagan</SelectItem>
+                              {settings.warehouses.map((w) => (
+                                <SelectItem key={w.id} value={w.name}>
+                                  {w.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </Field>
+
+                        <Field label="Polka raqami">
+                          <Select
+                            value={row.shelfLocation || "__empty__"}
+                            onValueChange={(value) =>
+                              updateRow(row.id, {
+                                shelfLocation: value === "__empty__" ? "" : value,
+                              })
+                            }
+                          >
+                            <SelectTrigger className="h-9 text-sm">
+                              <SelectValue placeholder="Tanlang" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__empty__">Tanlanmagan</SelectItem>
+                              {settings.shelfLocations.map((loc) => (
+                                <SelectItem key={loc.id} value={loc.name}>
+                                  {loc.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                      </div>
+                    </div>
+
+                    {index === rows.length - 1 && (
+                      <Button
+                        type="button"
+                        size="icon"
+                        className="absolute -bottom-3 -right-3 h-6 w-6 rounded-full bg-blue-800 text-white shadow-md hover:bg-blue-900"
+                        onClick={addRow}
+                        title="Qator qo'shish"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                      </Button>
                     )}
-                  >
-                    <SelectValue placeholder="Taminotchini tanlang" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__" disabled>
-                      Taminotchini tanlang
-                    </SelectItem>
-                    {agents.map((a) => (
-                      <SelectItem key={a.id} value={a.id}>
-                        {a.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-
-              <Field label="Ombor">
-                <Select
-                  value={form.warehouse || "__none__"}
-                  onValueChange={(value) =>
-                    setForm((s) => ({ ...s, warehouse: value === "__none__" ? "" : value }))
-                  }
-                >
-                  <SelectTrigger className="h-9 text-sm">
-                    <SelectValue placeholder="Tanlanmagan" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">Tanlanmagan</SelectItem>
-                    {settings.warehouses.map((w) => (
-                      <SelectItem key={w.id} value={w.name}>
-                        {w.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-
-              <Field label="Polka raqami">
-                <Select
-                  value={form.shelfLocation || "__empty__"}
-                  onValueChange={(value) =>
-                    setForm((s) => ({
-                      ...s,
-                      shelfLocation: value === "__empty__" ? "" : value,
-                    }))
-                  }
-                >
-                  <SelectTrigger className="h-9 text-sm">
-                    <SelectValue placeholder="Tanlang" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__empty__">Tanlanmagan</SelectItem>
-                    {settings.shelfLocations.map((loc) => (
-                      <SelectItem key={loc.id} value={loc.name}>
-                        {loc.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </section>
@@ -580,10 +763,15 @@ export function TovarPrixod() {
             <div className="flex items-end justify-between gap-4 border-b bg-muted/30 px-5 py-3">
               <div>
                 <div className="text-xs text-muted-foreground">Qo'shilayotgan tovar</div>
-                <div className="text-sm font-semibold">{product?.name}</div>
-                <div className="text-xs text-muted-foreground">
-                  {qtyForDialog} {product?.unit}
-                </div>
+                {filledRows.map(({ row, product }) => (
+                  <div key={row.id} className="text-sm">
+                    <span className="font-semibold">{product.name}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {" "}
+                      · {rowQty(row)} {product.unit}
+                    </span>
+                  </div>
+                ))}
               </div>
               <div className="text-right">
                 <div className="text-xs text-muted-foreground">Tan narxda jami</div>
@@ -591,7 +779,7 @@ export function TovarPrixod() {
                   data-no-translate
                   className="text-2xl font-bold leading-none tabular-nums text-primary"
                 >
-                  {formatMoney(totalCostForDialog, form.costCurrency)}
+                  {formatMoney(totalCostForDialog, paymentCurrency)}
                 </div>
               </div>
             </div>
@@ -603,7 +791,7 @@ export function TovarPrixod() {
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-sm font-medium">Berilgan summa ({form.costCurrency})</Label>
+                <Label className="text-sm font-medium">Berilgan summa ({paymentCurrency})</Label>
                 <Input
                   value={paymentPaidAmount}
                   onChange={(e) => setPaymentPaidAmount(formatNumberInput(e.target.value))}
@@ -703,7 +891,7 @@ export function TovarPrixod() {
                   data-no-translate
                   className="font-bold tabular-nums text-amber-700 dark:text-amber-500"
                 >
-                  {formatMoney(paymentRemaining, form.costCurrency)}
+                  {formatMoney(paymentRemaining, paymentCurrency)}
                 </span>
               </div>
 
@@ -783,18 +971,26 @@ export function TovarPrixod() {
 function ProductCombobox({
   products,
   value,
+  variantId,
   onChange,
   invalid,
 }: {
   products: Product[];
   value: string;
-  onChange: (id: string) => void;
+  variantId?: string;
+  onChange: (id: string, variantId?: string) => void;
   invalid?: boolean;
 }) {
   const [query, setQuery] = React.useState("");
   const [open, setOpen] = React.useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const selected = products.find((p) => p.id === value);
+  const selectedVariant = selected?.variants?.find((v) => v.id === variantId);
+  // Variantli tovar ustiga borilganda o'ng tomonda variantlar paneli ochiladi.
+  const [hovered, setHovered] = React.useState<{ id: string; top: number } | null>(null);
+  // Bosib qo'yilgan panel sichqoncha chiqib ketganda yopilmaydi (sensorli ekran uchun).
+  const [pinned, setPinned] = React.useState(false);
+  const hoveredProduct = hovered ? products.find((p) => p.id === hovered.id) : undefined;
 
   // Ro'yxatdan tashqariga bosilganda yopiladi.
   React.useEffect(() => {
@@ -802,6 +998,8 @@ function ProductCombobox({
     const handleClick = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false);
+        setHovered(null);
+        setPinned(false);
       }
     };
     document.addEventListener("mousedown", handleClick);
@@ -819,7 +1017,13 @@ function ProductCombobox({
     );
   }, [products, query]);
 
-  const displayValue = open ? query : (selected?.name ?? query);
+  const displayValue = open
+    ? query
+    : selected
+      ? selectedVariant
+        ? `${selected.name} — ${selectedVariant.label}`
+        : selected.name
+      : query;
 
   return (
     <div ref={containerRef} className="relative">
@@ -833,6 +1037,8 @@ function ProductCombobox({
         onFocus={() => {
           setQuery("");
           setOpen(true);
+          setHovered(null);
+          setPinned(false);
         }}
         placeholder="Mahsulot nomini yozing..."
         className={cn(
@@ -842,31 +1048,110 @@ function ProductCombobox({
         autoComplete="off"
       />
       {open && (
-        <div className="absolute z-50 mt-1 max-h-64 w-full overflow-auto rounded-md border bg-popover p-1 text-sm shadow-md">
-          {filtered.length === 0 ? (
-            <div className="px-2 py-3 text-center text-xs text-muted-foreground">
-              Mahsulot topilmadi
+        <div
+          className="absolute z-50 mt-1 w-full"
+          onMouseLeave={() => {
+            if (!pinned) setHovered(null);
+          }}
+        >
+          <div className="max-h-64 overflow-auto rounded-md border bg-popover p-1 text-sm shadow-md">
+            {filtered.length === 0 ? (
+              <div className="px-2 py-3 text-center text-xs text-muted-foreground">
+                Mahsulot topilmadi
+              </div>
+            ) : (
+              filtered.map((p) => {
+                const hasVariants = productHasVariants(p);
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onMouseEnter={(e) =>
+                      !pinned &&
+                      setHovered(
+                        hasVariants
+                          ? {
+                              id: p.id,
+                              top:
+                                e.currentTarget.getBoundingClientRect().top -
+                                (containerRef.current?.getBoundingClientRect().bottom ?? 0),
+                            }
+                          : null,
+                      )
+                    }
+                    onClick={(e) => {
+                      if (hasVariants) {
+                        setPinned(true);
+                        setHovered({
+                          id: p.id,
+                          top:
+                            e.currentTarget.getBoundingClientRect().top -
+                            (containerRef.current?.getBoundingClientRect().bottom ?? 0),
+                        });
+                        return;
+                      }
+                      onChange(p.id);
+                      setQuery("");
+                      setOpen(false);
+                      setHovered(null);
+                      setPinned(false);
+                    }}
+                    className={cn(
+                      "flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground",
+                      (p.id === value || hovered?.id === p.id) && "bg-accent/60",
+                    )}
+                  >
+                    <span className="flex min-w-0 flex-col items-start">
+                      <span className="truncate text-xs font-medium">{p.name}</span>
+                      <span className="truncate text-[11px] text-muted-foreground">
+                        {p.customCode}
+                      </span>
+                    </span>
+                    {hasVariants && (
+                      <span className="flex shrink-0 items-center gap-0.5 text-[10px] text-muted-foreground">
+                        {p.variants!.length} variant
+                        <ChevronRight className="h-3 w-3" />
+                      </span>
+                    )}
+                  </button>
+                );
+              })
+            )}
+          </div>
+
+          {hoveredProduct && productHasVariants(hoveredProduct) && hovered && (
+            <div
+              className="absolute left-full z-50 ml-1 max-h-64 w-56 overflow-auto rounded-md border bg-popover p-1 text-sm shadow-md"
+              style={{ top: Math.max(0, hovered.top) }}
+            >
+              <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Variantni tanlang
+              </div>
+              {hoveredProduct.variants.map((v) => (
+                <button
+                  key={v.id}
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    onChange(hoveredProduct.id, v.id);
+                    setQuery("");
+                    setOpen(false);
+                    setHovered(null);
+                    setPinned(false);
+                  }}
+                  className={cn(
+                    "flex w-full flex-col items-start rounded-sm px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground",
+                    hoveredProduct.id === value && v.id === variantId && "bg-accent/60",
+                  )}
+                >
+                  <span className="truncate text-xs font-medium">{v.label}</span>
+                  <span className="truncate text-[11px] text-muted-foreground">
+                    {v.customCode ?? v.barcode ?? `Qoldiq: ${v.omborQty ?? 0}`}
+                  </span>
+                </button>
+              ))}
             </div>
-          ) : (
-            filtered.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  onChange(p.id);
-                  setQuery("");
-                  setOpen(false);
-                }}
-                className={cn(
-                  "flex w-full flex-col items-start rounded-sm px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground",
-                  p.id === value && "bg-accent/60",
-                )}
-              >
-                <span className="truncate text-xs font-medium">{p.name}</span>
-                <span className="truncate text-[11px] text-muted-foreground">{p.customCode}</span>
-              </button>
-            ))
           )}
         </div>
       )}
