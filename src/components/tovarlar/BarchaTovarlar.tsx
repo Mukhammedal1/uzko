@@ -38,6 +38,7 @@ import {
   ArrowLeft,
   Barcode,
   Check,
+  ChevronLeft,
   ChevronRight,
   ChevronDown,
   ChevronUp,
@@ -364,6 +365,8 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
   }));
   const [stockFilter, setStockFilter] = React.useState<"all" | "limited">("all");
   const [supplierFilter, setSupplierFilter] = React.useState<string>("ALL");
+  const [page, setPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState(20);
   const [draft, setDraft] = React.useState<EditDraft>({
     name: "",
     costPrice: "",
@@ -402,6 +405,33 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
       );
     });
   }, [query, stockFilter, warehouse, supplierFilter, version]);
+
+  React.useEffect(() => {
+    setPage(1);
+  }, [query, stockFilter, warehouse, supplierFilter, pageSize]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pageStart = filtered.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const pageEnd = Math.min(filtered.length, currentPage * pageSize);
+  const paginated = React.useMemo(
+    () => filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [filtered, currentPage, pageSize],
+  );
+
+  const [pageJumpValue, setPageJumpValue] = React.useState("1");
+  React.useEffect(() => {
+    setPageJumpValue(String(currentPage));
+  }, [currentPage]);
+
+  const jumpToPage = () => {
+    const n = Math.round(Number(pageJumpValue));
+    if (Number.isFinite(n) && n >= 1) {
+      setPage(Math.min(totalPages, Math.max(1, n)));
+    } else {
+      setPageJumpValue(String(currentPage));
+    }
+  };
 
   const totalCount = filtered.reduce((s, p) => s + p.vitrinaQty, 0);
   const totalCost = filtered.reduce((s, p) => s + costInSom(p) * p.vitrinaQty, 0);
@@ -2232,6 +2262,23 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                     </Button>
                   )}
                   <span>{t("product")}</span>
+                  <div className="flex items-center gap-2 normal-case tracking-normal">
+                    <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+                      <SelectTrigger className="h-6 w-[58px] text-[10px] font-normal">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="20">20</SelectItem>
+                        <SelectItem value="50">50</SelectItem>
+                        <SelectItem value="100">100</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <span className="whitespace-nowrap text-[10px] font-normal text-muted-foreground">
+                      {filtered.length === 0
+                        ? "0 ta"
+                        : `${filtered.length} tadan ${pageStart}-${pageEnd}`}
+                    </span>
+                  </div>
                 </div>
               </th>
               {!hiddenColumns.has("limit") && (
@@ -2285,7 +2332,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((p) => (
+            {paginated.map((p) => (
               <React.Fragment key={p.id}>
                 {editingId !== p.id && (
                   <tr
@@ -2457,7 +2504,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                         <td className="px-4 py-2.5 text-muted-foreground">{p.warehouse}</td>
                       </>
                     )}
-                    <td className="px-4 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
+                    <td className="px-4 py-2.5 pr-6 text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-1">
                         <Button
                           size="icon"
@@ -2731,7 +2778,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                           </td>
                         )}
                         <td className="px-4 py-2 text-muted-foreground">{p.warehouse}</td>
-                        <td className="px-4 py-2 text-right">
+                        <td className="px-4 py-2 pr-6 text-right">
                           <div className="flex justify-end gap-1">
                             <Button
                               size="icon"
@@ -3128,6 +3175,49 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
             )}
           </tbody>
         </table>
+      </div>
+
+      <div className="grid shrink-0 grid-cols-3 items-center border-t px-4 py-2">
+        <div />
+        <div className="flex items-center justify-center gap-2">
+          <Input
+            type="number"
+            min={1}
+            max={totalPages}
+            value={pageJumpValue}
+            onChange={(e) => setPageJumpValue(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && jumpToPage()}
+            onBlur={jumpToPage}
+            className="h-7 w-14 text-center text-xs [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+            aria-label="Sahifa raqamiga o'tish"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-7 w-7"
+            disabled={currentPage <= 1}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            aria-label="Oldingi sahifa"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </Button>
+          <span className="min-w-[52px] text-center text-xs tabular-nums text-muted-foreground">
+            {currentPage} / {totalPages}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-7 w-7"
+            disabled={currentPage >= totalPages}
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            aria-label="Keyingi sahifa"
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+        <div />
       </div>
 
       {selectedIds.size > 0 &&
