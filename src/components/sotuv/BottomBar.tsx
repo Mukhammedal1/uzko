@@ -7,15 +7,11 @@ import {
   DollarSign,
   Maximize,
   Minimize,
-  Minus,
-  Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { Slider } from "@/components/ui/slider";
 import { useFullscreen } from "@/hooks/use-fullscreen";
-import { MAX_MANUAL, MIN_MANUAL, MANUAL_STEP, useUiScale } from "@/hooks/use-ui-scale";
 
 type Props = {
   /** Kalkulator va valyuta orasiga joylashadigan slot (Sotuv tablari) */
@@ -27,9 +23,6 @@ export function BottomBar({ middleSlot, afterCalculatorSlot }: Props) {
   const [date, setDate] = React.useState<Date | undefined>(undefined);
   const [dateStr, setDateStr] = React.useState("Sana");
   const { isFullscreen, toggle: toggleFullscreen } = useFullscreen();
-  const { manualPct, setManualPct, bump } = useUiScale();
-  const canZoomIn = manualPct < MAX_MANUAL;
-  const canZoomOut = manualPct > MIN_MANUAL;
 
   React.useEffect(() => {
     const today = new Date();
@@ -81,40 +74,6 @@ export function BottomBar({ middleSlot, afterCalculatorSlot }: Props) {
             <Maximize className="h-5 w-5 text-primary" />
           )}
         </Button>
-
-        <div className="flex h-11 items-center gap-2 rounded-md border bg-background px-2.5">
-          <button
-            type="button"
-            onClick={() => bump(-MANUAL_STEP)}
-            disabled={!canZoomOut}
-            title="Kichiklashtirish"
-            aria-label="Ekranni kichiklashtirish"
-            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
-          >
-            <Minus className="h-4 w-4" />
-          </button>
-          <Slider
-            value={[manualPct]}
-            min={MIN_MANUAL}
-            max={MAX_MANUAL}
-            step={MANUAL_STEP}
-            onValueChange={([value]) => setManualPct(value)}
-            className="w-24"
-          />
-          <button
-            type="button"
-            onClick={() => bump(MANUAL_STEP)}
-            disabled={!canZoomIn}
-            title="Kattalashtirish"
-            aria-label="Ekranni kattalashtirish"
-            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
-          >
-            <Plus className="h-4 w-4" />
-          </button>
-          <span className="w-10 select-none text-right text-sm font-semibold tabular-nums text-muted-foreground">
-            {manualPct}%
-          </span>
-        </div>
 
         <Popover>
           <PopoverTrigger asChild>

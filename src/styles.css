@@ -19,6 +19,11 @@
  */
 
 @theme inline {
+  /* O'qilishi uchun matn o'lchamlari biroz kattalashtirilgan (text-xs 12→13px, text-sm 14→15px). */
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: 1.2rem;
+  --text-sm: 0.9375rem;
+  --text-sm--line-height: 1.4rem;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -78,13 +83,13 @@
   --secondary: oklch(0.968 0.007 247.896);
   --secondary-foreground: oklch(0.208 0.042 265.755);
   --muted: oklch(0.968 0.007 247.896);
-  --muted-foreground: oklch(0.554 0.046 257.417);
+  --muted-foreground: oklch(0.42 0.04 257);
   --accent: oklch(0.968 0.007 247.896);
   --accent-foreground: oklch(0.208 0.042 265.755);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.984 0.003 247.858);
-  --border: oklch(0.929 0.013 255.508);
-  --input: oklch(0.929 0.013 255.508);
+  --border: oklch(0.86 0.02 256);
+  --input: oklch(0.82 0.022 256);
   --ring: oklch(0.704 0.04 256.788);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
@@ -97,7 +102,7 @@
   --sidebar-primary-foreground: oklch(0.984 0.003 247.858);
   --sidebar-accent: oklch(0.968 0.007 247.896);
   --sidebar-accent-foreground: oklch(0.208 0.042 265.755);
-  --sidebar-border: oklch(0.929 0.013 255.508);
+  --sidebar-border: oklch(0.86 0.02 256);
   --sidebar-ring: oklch(0.704 0.04 256.788);
 }
 
@@ -267,7 +272,7 @@
 
   .uzko-main-nav a {
     padding: 0.45rem 0.75rem !important;
-    font-size: 0.78rem !important;
+    font-size: 0.875rem !important;
   }
 
   .responsive-main {
@@ -437,7 +442,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 0.68rem !important;
+    font-size: 0.75rem !important;
   }
 
   .uzko-actions {
@@ -475,7 +480,7 @@
     padding: 0.55rem 0.8rem !important;
     border-radius: 999px !important;
     white-space: nowrap !important;
-    font-size: 0.78rem !important;
+    font-size: 0.875rem !important;
     line-height: 1 !important;
     scroll-snap-align: start;
   }
@@ -508,7 +513,7 @@
     padding: 0 0.8rem !important;
     border-radius: 999px !important;
     white-space: nowrap !important;
-    font-size: 0.76rem !important;
+    font-size: 0.82rem !important;
   }
 
   .responsive-card {
@@ -529,7 +534,7 @@
   .responsive-card th,
   .responsive-card td {
     padding: 0.55rem !important;
-    font-size: 0.78rem !important;
+    font-size: 0.875rem !important;
   }
 
   .responsive-card input,
@@ -642,7 +647,7 @@
 
   .uzko-main-nav a,
   .responsive-tabs button {
-    font-size: 0.72rem !important;
+    font-size: 0.8rem !important;
     padding-left: 0.68rem !important;
     padding-right: 0.68rem !important;
   }
@@ -783,7 +788,7 @@
     min-width: 8.5rem !important;
     min-height: 2.75rem !important;
     padding: 0.55rem 0.65rem !important;
-    font-size: 0.78rem !important;
+    font-size: 0.875rem !important;
     word-break: normal !important;
     overflow-wrap: normal !important;
     white-space: nowrap !important;
@@ -1069,13 +1074,13 @@
   }
 
   .uzko-main-nav a {
-    font-size: 0.72rem !important;
+    font-size: 0.8rem !important;
     padding: 0.42rem 0.7rem !important;
   }
 
   .responsive-tabs button {
     min-height: 2.15rem;
-    font-size: 0.72rem !important;
+    font-size: 0.8rem !important;
   }
 
   .responsive-card table {
@@ -1150,7 +1155,7 @@
     min-width: max-content;
     padding: 0.58rem 0.9rem !important;
     border-radius: 999px !important;
-    font-size: 0.78rem !important;
+    font-size: 0.875rem !important;
     line-height: 1 !important;
   }
 
@@ -1193,7 +1198,7 @@
     min-height: 2.35rem !important;
     border-radius: 999px !important;
     padding: 0 0.9rem !important;
-    font-size: 0.78rem !important;
+    font-size: 0.875rem !important;
     white-space: nowrap;
   }
 
@@ -1308,7 +1313,7 @@
 
   .nasiya-savdolar-page table {
     min-width: 860px;
-    font-size: 0.78rem;
+    font-size: 0.875rem;
   }
 
   .nasiya-savdolar-page th,
@@ -1345,4 +1350,20 @@
 .uzko-rates svg {
   height: 1rem !important;
   width: 1rem !important;
+}
+
+/* --- O'qilishni yaxshilash: bir xil rang va border, mayda matnlarni kattalashtirish ---
+   Tailwind arbitrary o'lchamlari (text-[10px]/[11px]) va qattiq yozilgan HEX ranglar
+   umumiy tokenlarga bog'lanadi, shunda hamma sahifada bir xil ko'rinadi. */
+.text-\[10px\] {
+  font-size: 0.75rem;
+}
+.text-\[11px\] {
+  font-size: 0.8125rem;
+}
+.border-\[\#E2E7F0\] {
+  border-color: var(--border);
+}
+.text-\[\#737D91\] {
+  color: var(--muted-foreground);
 }

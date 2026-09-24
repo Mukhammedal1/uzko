@@ -218,7 +218,7 @@ type Props = {
   selectionSlot?: HTMLElement | null;
 };
 
-type OptionalColumn = "limit" | "unit" | "shelf" | "wholesale" | "customCode";
+type OptionalColumn = "limit" | "unit" | "shelf" | "wholesale" | "customCode" | "margin";
 
 const OPTIONAL_COLUMNS: { key: OptionalColumn; label: string }[] = [
   { key: "limit", label: "Limit" },
@@ -226,7 +226,31 @@ const OPTIONAL_COLUMNS: { key: OptionalColumn; label: string }[] = [
   { key: "shelf", label: "Polka raqami" },
   { key: "wholesale", label: "Optom narx" },
   { key: "customCode", label: "Artikul" },
+  { key: "margin", label: "Marja %" },
 ];
+
+/** Tan narxga nisbatan qo'yilgan marjani foizda qaytaradi (tan narx bo'lmasa null). */
+function computeMarginPercent(price?: number, costPrice?: number): number | null {
+  if (!price || !costPrice || costPrice <= 0) return null;
+  return ((price - costPrice) / costPrice) * 100;
+}
+
+/** Narx katakchasi ostida ko'rinadigan kichik, minimalistik marja % yorlig'i. */
+function MarginTag({ price, costPrice }: { price?: number; costPrice?: number }) {
+  const pct = computeMarginPercent(price, costPrice);
+  if (pct === null) return null;
+  const rounded = Math.round(pct);
+  return (
+    <span
+      className={`mt-0.5 block text-xs font-semibold leading-tight ${
+        rounded >= 0 ? "text-emerald-600" : "text-red-600"
+      }`}
+    >
+      {rounded >= 0 ? "+" : ""}
+      {rounded}%
+    </span>
+  );
+}
 
 const HIDDEN_COLUMNS_STORAGE_KEY = "uzko-tovarlar-hidden-columns";
 
@@ -262,6 +286,114 @@ function readExportColumns(): Set<ExportColumnKey> {
 }
 
 /** Mahsulot nomi bo'yicha eng so'nggi prixod yozuvidan taminotchi (agent) nomini topadi. */
+function FilterSelect({
+  label,
+  value,
+  onChange,
+  children,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex w-[200px] items-center gap-2">
+      <span className="w-14 flex-shrink-0 text-xs text-muted-foreground">{label}</span>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger className="h-8 min-w-0 flex-1 text-xs">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>{children}</SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+function SupplierFilter({
+  value,
+  onChange,
+  agents,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  agents: { id: string; name: string; phone: string }[];
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [search, setSearch] = React.useState("");
+  const q = search.trim().toLowerCase();
+  const list = q
+    ? agents.filter((a) => `${a.name} ${a.phone} ${a.id}`.toLowerCase().includes(q))
+    : agents;
+  const pick = (next: string) => {
+    onChange(next);
+    setOpen(false);
+    setSearch("");
+  };
+  return (
+    <div className="flex w-[220px] items-center gap-2">
+      <span className="w-14 flex-shrink-0 text-xs text-muted-foreground">Taminotchi</span>
+      <Popover
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) setSearch("");
+        }}
+      >
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="flex h-8 min-w-0 flex-1 items-center justify-between gap-2 rounded-md border border-input bg-background px-3 text-xs"
+          >
+            <span className="truncate">{value === "ALL" ? "Barchasi" : value}</span>
+            <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 opacity-50" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-[260px] p-2">
+          <Input
+            autoFocus
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Ism, raqam yoki ID..."
+            className="mb-2 h-8 text-xs"
+          />
+          <div className="max-h-48 space-y-0.5 overflow-y-auto">
+            {!q && (
+              <button
+                type="button"
+                onClick={() => pick("ALL")}
+                className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-muted"
+              >
+                Barchasi
+              </button>
+            )}
+            {list.map((agent) => (
+              <button
+                key={agent.id}
+                type="button"
+                onClick={() => pick(agent.name)}
+                className={`w-full rounded px-2 py-1.5 text-left text-xs hover:bg-muted ${
+                  value === agent.name ? "bg-primary/5 font-medium text-primary" : ""
+                }`}
+              >
+                <div className="truncate">{agent.name}</div>
+                {agent.phone && (
+                  <div className="truncate text-[11px] text-muted-foreground">{agent.phone}</div>
+                )}
+              </button>
+            ))}
+            {list.length === 0 && (
+              <div className="px-2 py-3 text-center text-xs text-muted-foreground">
+                Topilmadi
+              </div>
+            )}
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
 function getSupplierForProduct(productName: string): string {
   let latest: (typeof MOCK_PRODUCT_HISTORY)[number] | undefined;
   for (const entry of MOCK_PRODUCT_HISTORY) {
@@ -363,8 +495,10 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
       ...settings.labelPrintSettings?.fieldScale,
     },
   }));
-  const [stockFilter, setStockFilter] = React.useState<"all" | "limited">("all");
+  const [stockFilter, setStockFilter] = React.useState<"all" | "limited" | "normal">("all");
   const [supplierFilter, setSupplierFilter] = React.useState<string>("ALL");
+  const [unitFilter, setUnitFilter] = React.useState<string>("ALL");
+  const [barcodeFilter, setBarcodeFilter] = React.useState<"all" | "has" | "none">("all");
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(20);
   const [draft, setDraft] = React.useState<EditDraft>({
@@ -394,6 +528,10 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
     return MOCK_PRODUCTS.filter((p) => {
       if (warehouse !== "ALL" && p.warehouse !== warehouse) return false;
       if (stockFilter === "limited" && !isProductAtLimit(p)) return false;
+      if (stockFilter === "normal" && isProductAtLimit(p)) return false;
+      if (unitFilter !== "ALL" && p.unit !== unitFilter) return false;
+      if (barcodeFilter === "has" && !p.barcode.trim()) return false;
+      if (barcodeFilter === "none" && p.barcode.trim()) return false;
       if (supplierFilter !== "ALL" && getSupplierForProduct(p.name) !== supplierFilter)
         return false;
       if (!q) return true;
@@ -404,11 +542,11 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
         (isProductAtLimit(p) && "limit ogohlantirish kam qoldi".includes(q))
       );
     });
-  }, [query, stockFilter, warehouse, supplierFilter, version]);
+  }, [query, stockFilter, warehouse, supplierFilter, unitFilter, barcodeFilter, version]);
 
   React.useEffect(() => {
     setPage(1);
-  }, [query, stockFilter, warehouse, supplierFilter, pageSize]);
+  }, [query, stockFilter, warehouse, supplierFilter, unitFilter, barcodeFilter, pageSize]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, totalPages);
@@ -446,9 +584,11 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
   const allFilteredSelected =
     filtered.length > 0 && filtered.every((product) => selectedIds.has(product.id));
   const activeFilterCount =
-    (stockFilter === "limited" ? 1 : 0) +
+    (stockFilter !== "all" ? 1 : 0) +
     (warehouse !== "ALL" ? 1 : 0) +
-    (supplierFilter !== "ALL" ? 1 : 0);
+    (supplierFilter !== "ALL" ? 1 : 0) +
+    (unitFilter !== "ALL" ? 1 : 0) +
+    (barcodeFilter !== "all" ? 1 : 0);
   const supplierOptions = React.useMemo(() => getAgentsList(), [version]);
 
   const toggleProduct = (productId: string) => {
@@ -2087,88 +2227,20 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-wrap items-center gap-3 border-b bg-card p-3">
-        <Popover open={filterOpen} onOpenChange={setFilterOpen}>
-          <PopoverTrigger asChild>
-            <Button
-              type="button"
-              variant={activeFilterCount > 0 ? "default" : "outline"}
-              className="relative h-10 gap-2"
-            >
-              <Filter className="h-4 w-4" />
-              Filtr
-              {activeFilterCount > 0 && (
-                <span className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground">
-                  {activeFilterCount}
-                </span>
-              )}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent align="start" className="w-64 space-y-3 p-3">
-            <button
-              type="button"
-              onClick={() => setStockFilter((current) => (current === "all" ? "limited" : "all"))}
-              className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm font-medium transition-colors ${
-                stockFilter === "limited"
-                  ? "border-primary bg-primary/5 text-primary"
-                  : "hover:bg-muted"
-              }`}
-            >
-              <span className="flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4" /> Ogohlantirishdagilar
-              </span>
-              {stockFilter === "limited" && <Check className="h-4 w-4" />}
-            </button>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Ombor bo'yicha</Label>
-              <Select value={warehouse} onValueChange={setWarehouse}>
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue placeholder="Ombor" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">Barcha omborlar</SelectItem>
-                  {settings.warehouses.map((w) => (
-                    <SelectItem key={w.id} value={w.name}>
-                      {w.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Taminotchi bo'yicha</Label>
-              <Select value={supplierFilter} onValueChange={setSupplierFilter}>
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue placeholder="Taminotchi" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">Barcha taminotchilar</SelectItem>
-                  {supplierOptions.map((agent) => (
-                    <SelectItem key={agent.id} value={agent.name}>
-                      {agent.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {activeFilterCount > 0 && (
-              <Button
-                type="button"
-                variant="ghost"
-                className="h-8 w-full text-xs text-muted-foreground"
-                onClick={() => {
-                  setStockFilter("all");
-                  setWarehouse("ALL");
-                  setSupplierFilter("ALL");
-                }}
-              >
-                Filtrni tozalash
-              </Button>
-            )}
-          </PopoverContent>
-        </Popover>
+        <Button
+          type="button"
+          variant={activeFilterCount > 0 ? "default" : "outline"}
+          className="relative h-10 gap-2"
+          onClick={() => setFilterOpen((open) => !open)}
+        >
+          <Filter className="h-4 w-4" />
+          Filtr
+          {activeFilterCount > 0 && (
+            <span className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground">
+              {activeFilterCount}
+            </span>
+          )}
+        </Button>
 
         <div className="relative min-w-[260px] flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -2229,6 +2301,66 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
           </div>
         </div>
       </div>
+      {filterOpen && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b bg-card px-3 py-2">
+          <FilterSelect label="Ombor" value={warehouse} onChange={setWarehouse}>
+            <SelectItem value="ALL">Barchasi</SelectItem>
+            {settings.warehouses.map((w) => (
+              <SelectItem key={w.id} value={w.name}>
+                {w.name}
+              </SelectItem>
+            ))}
+          </FilterSelect>
+          <SupplierFilter
+            value={supplierFilter}
+            onChange={setSupplierFilter}
+            agents={supplierOptions}
+          />
+          <FilterSelect
+            label="Limit"
+            value={stockFilter}
+            onChange={(v) => setStockFilter(v as "all" | "limited" | "normal")}
+          >
+            <SelectItem value="all">Barchasi</SelectItem>
+            <SelectItem value="limited">Limitda</SelectItem>
+            <SelectItem value="normal">Limitda emas</SelectItem>
+          </FilterSelect>
+          <FilterSelect label="Birlik" value={unitFilter} onChange={setUnitFilter}>
+            <SelectItem value="ALL">Barchasi</SelectItem>
+            {settings.units.map((unit) => (
+              <SelectItem key={unit.id} value={unit.name}>
+                {unit.name}
+              </SelectItem>
+            ))}
+          </FilterSelect>
+          <FilterSelect
+            label="Shtrix kod"
+            value={barcodeFilter}
+            onChange={(v) => setBarcodeFilter(v as "all" | "has" | "none")}
+          >
+            <SelectItem value="all">Barchasi</SelectItem>
+            <SelectItem value="has">Bor</SelectItem>
+            <SelectItem value="none">Yo'q</SelectItem>
+          </FilterSelect>
+
+          {activeFilterCount > 0 && (
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-8 text-xs text-muted-foreground"
+              onClick={() => {
+                setStockFilter("all");
+                setWarehouse("ALL");
+                setSupplierFilter("ALL");
+                setUnitFilter("ALL");
+                setBarcodeFilter("all");
+              }}
+            >
+              Tozalash
+            </Button>
+            )}
+        </div>
+      )}
 
       <div className="relative flex-1 overflow-auto">
         <table className="w-full text-sm">
@@ -2464,12 +2596,18 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                             ) : (
                               <span className="text-xs italic text-muted-foreground">—</span>
                             )}
+                            {!hiddenColumns.has("margin") && (
+                              <MarginTag price={p.wholesalePrice} costPrice={p.costPrice} />
+                            )}
                           </td>
                         )}
                         <td className="px-4 py-2.5 text-right font-medium tabular-nums">
                           {p.priceCurrency && p.priceCurrency !== "UZS"
                             ? `${p.price} ${p.priceCurrency}`
                             : formatSom(p.price)}
+                          {!hiddenColumns.has("margin") && (
+                            <MarginTag price={p.price} costPrice={p.costPrice} />
+                          )}
                         </td>
                         {!hiddenColumns.has("customCode") && (
                           <td className="px-4 py-2.5">
@@ -2746,12 +2884,18 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                             ) : (
                               <span className="text-xs italic text-muted-foreground">—</span>
                             )}
+                            {!hiddenColumns.has("margin") && (
+                              <MarginTag price={view.wholesalePrice} costPrice={view.costPrice} />
+                            )}
                           </td>
                         )}
                         <td className="px-4 py-2 text-right font-medium tabular-nums">
                           {view.priceCurrency && view.priceCurrency !== "UZS"
                             ? `${view.price} ${view.priceCurrency}`
                             : formatSom(view.price)}
+                          {!hiddenColumns.has("margin") && (
+                            <MarginTag price={view.price} costPrice={view.costPrice} />
+                          )}
                         </td>
                         {!hiddenColumns.has("customCode") && (
                           <td className="px-4 py-2">
