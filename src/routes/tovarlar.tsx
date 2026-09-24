@@ -9,8 +9,9 @@ import { TovarQoshish } from "@/components/tovarlar/TovarQoshish";
 import { TovarPrixod } from "@/components/tovarlar/TovarPrixod";
 import { TovarlarTarixi } from "@/components/tovarlar/TovarlarTarixi";
 import { Sanoq } from "@/components/tovarlar/Sanoq";
+import { TalabQilinganTovarlar } from "@/components/tovarlar/TalabQilinganTovarlar";
 import { useApp } from "@/lib/app-context";
-import { Package, History, ClipboardList, PackageCheck } from "lucide-react";
+import { Package, History, ClipboardList, PackageCheck, PackageSearch } from "lucide-react";
 
 export const Route = createFileRoute("/tovarlar")({
   head: () => ({
@@ -23,6 +24,7 @@ const TABS = [
   { id: "barcha", labelKey: "all_products", icon: Package },
   { id: "prixod", labelKey: "goods_receipt", icon: PackageCheck },
   { id: "sanoq", labelKey: "stock_count", icon: ClipboardList },
+  { id: "talab", labelKey: "requested_products", icon: PackageSearch },
   { id: "tarix", labelKey: "products_history", icon: History },
 ] as const;
 
@@ -76,6 +78,7 @@ function TovarlarPage() {
               )}
               {tab === "prixod" && <TovarPrixod />}
               {tab === "sanoq" && <Sanoq />}
+              {tab === "talab" && <TalabQilinganTovarlar />}
               {tab === "tarix" && <TovarlarTarixi />}
             </>
           )}

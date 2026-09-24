@@ -5,6 +5,7 @@ import { formatSom, maxAllowedCartDiscount } from "@/lib/mock-data";
 import type { Product, ReceiptItem } from "@/lib/mock-data";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { FinalizeSaleDialog } from "@/components/sotuv/FinalizeSaleDialog";
+import { RequestedProductButton } from "@/components/sotuv/RequestedProductButton";
 import { OneTimeItemDialog } from "@/components/sotuv/OneTimeItemDialog";
 import { TovarQaytarish } from "@/components/tovarlar/TovarQaytarish";
 import type {
@@ -277,6 +278,7 @@ export function PosPage({
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex-shrink-0 space-y-2 border-b border-[#E2E7F0] bg-white p-3">
             <div className="flex flex-wrap items-center justify-end gap-1.5">
+              <RequestedProductButton variant="pos" />
               {onOpenDebtPayment && (
                 <button
                   type="button"

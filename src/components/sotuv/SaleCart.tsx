@@ -12,6 +12,7 @@ import type {
   PriceMode,
 } from "./types";
 import { DiscountDialog } from "./DiscountDialog";
+import { RequestedProductButton } from "./RequestedProductButton";
 import { FinalizeSaleDialog } from "./FinalizeSaleDialog";
 import { DemoReceiptDialog } from "./DemoReceiptDialog";
 import { OneTimeItemDialog } from "./OneTimeItemDialog";
@@ -221,6 +222,7 @@ export function SaleCart({
             )}
           </div>
           <div className="flex items-center gap-1.5">
+            <RequestedProductButton variant="cart" />
             {onOpenDebtPayment && (
               <Button
                 type="button"
