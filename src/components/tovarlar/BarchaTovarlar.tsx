@@ -176,6 +176,7 @@ type EditDraft = {
   warehouse: string;
   shelfLocation: string;
   minStockAlert: string;
+  perBox: string;
   barcode: string;
   customCode: string;
   variants: EditVariantDraft[];
@@ -681,6 +682,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
         : (settings.warehouses[0]?.name ?? product.warehouse),
       shelfLocation: product.shelfLocation ?? "",
       minStockAlert: typeof product.minStockAlert === "number" ? String(product.minStockAlert) : "",
+      perBox: typeof product.perBox === "number" ? String(product.perBox) : "",
       barcode: product.barcode,
       customCode: product.customCode,
       variants: (product.variants ?? []).map((v) => makeEditVariantDraft(v)),
@@ -689,17 +691,6 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
 
   const updateDraft = (patch: Partial<EditDraft>) => {
     setDraft((current) => ({ ...current, ...patch }));
-  };
-
-  const assignDraftBarcode = () => {
-    const currentCodes = splitBarcodes(draft.barcode);
-    const nextCode = makeUniqueBarcode(currentCodes);
-    updateDraft({ barcode: joinBarcodes([...currentCodes, nextCode]) });
-  };
-
-  const assignDraftCustomCode = () => {
-    const nextCode = makeUniqueCustomCode(draft.customCode ? [draft.customCode] : []);
-    updateDraft({ customCode: nextCode });
   };
 
   /** Optom/sotuv narx qo'lda o'zgartirilib, inputdan chiqilganda (blur) — tan
@@ -830,6 +821,8 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
     const newShelf = draft.shelfLocation;
     const newMinStockAlert =
       draft.minStockAlert.trim() === "" ? undefined : Math.max(0, Number(draft.minStockAlert) || 0);
+    const newPerBox =
+      draft.perBox.trim() === "" ? undefined : Math.max(0, Number(draft.perBox) || 0);
     const draftBarcodes = splitBarcodes(draft.barcode);
     const newBarcode = joinBarcodes(
       draftBarcodes.length > 0 ? draftBarcodes : [makeUniqueBarcode()],
@@ -967,6 +960,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
       p.warehouse = newWarehouse;
       p.shelfLocation = newShelf;
       p.minStockAlert = newMinStockAlert;
+      p.perBox = newPerBox;
       p.barcode = newBarcode;
       p.customCode = newCustomCode;
       MOCK_EDIT_HISTORY.unshift({
@@ -2936,22 +2930,33 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                         className="rounded-lg border bg-card p-4 shadow-sm"
                         onClick={(event) => event.stopPropagation()}
                       >
-                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
-                          <Field label="Mahsulot nomi">
+                        <div className="flex flex-nowrap items-start gap-3">
+                          <Field label="Tovar nomi" className="min-w-[110px] flex-[1.5]">
                             <Input
                               value={draft.name}
                               onChange={(e) => updateDraft({ name: e.target.value })}
                               placeholder="Mahsulot nomini kiriting"
-                              className="h-9 text-xs"
+                              className="h-8 text-xs"
                             />
                           </Field>
 
-                          <Field label="Birlik">
+                          <Field label="Miqdori" className="min-w-[44px] flex-[0.6]">
+                            <Input
+                              type="number"
+                              min={0}
+                              value={draft.vitrinaQty}
+                              onChange={(e) => updateDraft({ vitrinaQty: e.target.value })}
+                              placeholder="0"
+                              className="h-8 text-xs"
+                            />
+                          </Field>
+
+                          <Field label="Birlik" className="min-w-[60px] flex-[0.7]">
                             <Select
                               value={draft.unit}
                               onValueChange={(value) => updateDraft({ unit: value })}
                             >
-                              <SelectTrigger className="h-9 text-xs">
+                              <SelectTrigger className="h-8 text-xs">
                                 <SelectValue placeholder="Birlik" />
                               </SelectTrigger>
                               <SelectContent>
@@ -2964,7 +2969,29 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                             </Select>
                           </Field>
 
-                          <Field label="Tan narx">
+                          <Field label="Karobkadagi soni" className="min-w-[68px] flex-1">
+                            <Input
+                              type="number"
+                              min={0}
+                              value={draft.perBox}
+                              onChange={(e) => updateDraft({ perBox: e.target.value })}
+                              placeholder="—"
+                              className="h-8 text-xs"
+                            />
+                          </Field>
+
+                          <Field label="Limit" className="min-w-[44px] flex-[0.6]">
+                            <Input
+                              type="number"
+                              min={0}
+                              value={draft.minStockAlert}
+                              onChange={(e) => updateDraft({ minStockAlert: e.target.value })}
+                              placeholder="—"
+                              className="h-8 text-xs"
+                            />
+                          </Field>
+
+                          <Field label="Tan narx" className="min-w-[120px] flex-1">
                             <CurrencyField
                               value={draft.costPrice}
                               onChange={(value) => updateDraft({ costPrice: value })}
@@ -2975,7 +3002,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                             />
                           </Field>
 
-                          <Field label="Optom narx">
+                          <Field label="Optom narx" className="min-w-[120px] flex-1">
                             <CurrencyField
                               value={draft.wholesalePrice}
                               onChange={(value) => updateDraft({ wholesalePrice: value })}
@@ -3015,7 +3042,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                             />
                           </Field>
 
-                          <Field label="Sotuv narx">
+                          <Field label="Sotuv narx" className="min-w-[120px] flex-1">
                             <CurrencyField
                               value={draft.price}
                               onChange={(value) => updateDraft({ price: value })}
@@ -3053,49 +3080,64 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                             />
                           </Field>
 
-                          <Field label="Shtrix kod">
-                            <div className="flex gap-1">
-                              <Input
-                                value={draft.barcode}
-                                onChange={(e) => updateDraft({ barcode: e.target.value })}
-                                placeholder="Shtrix kod"
-                                className="h-9 min-w-0 text-xs"
-                              />
-                              <Button
-                                type="button"
-                                size="icon"
-                                variant="outline"
-                                className="h-9 w-9 shrink-0"
-                                onClick={assignDraftBarcode}
-                                title="Avtomatik shtrix kod"
-                              >
-                                <Barcode className="h-3.5 w-3.5" />
-                              </Button>
-                            </div>
+                          <Field label="Shtrix kod" className="min-w-[112px] flex-1">
+                            <Input
+                              value={draft.barcode}
+                              onChange={(e) => updateDraft({ barcode: e.target.value })}
+                              placeholder="Shtrix kod"
+                              className="h-8 text-xs"
+                            />
                           </Field>
 
-                          <Field label="Artikul">
-                            <div className="flex gap-1">
-                              <Input
-                                value={draft.customCode}
-                                onChange={(e) => updateDraft({ customCode: e.target.value })}
-                                placeholder="Artikul"
-                                className="h-9 min-w-0 text-xs"
-                              />
-                              <Button
-                                type="button"
-                                size="icon"
-                                variant="outline"
-                                className="h-9 w-9 shrink-0"
-                                onClick={assignDraftCustomCode}
-                                title="Avtomatik artikul"
-                              >
-                                <Hash className="h-3.5 w-3.5" />
-                              </Button>
-                            </div>
+                          <Field label="Artikul" className="min-w-[84px] flex-1">
+                            <Input
+                              value={draft.customCode}
+                              onChange={(e) => updateDraft({ customCode: e.target.value })}
+                              placeholder="Artikul"
+                              className="h-8 text-xs"
+                            />
                           </Field>
 
-                          <Field label="Rasm">
+                          <Field label="Ombor" className="min-w-[84px] flex-1">
+                            <Select
+                              value={draft.warehouse}
+                              onValueChange={(value) => updateDraft({ warehouse: value })}
+                            >
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue placeholder="Ombor" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {settings.warehouses.map((w) => (
+                                  <SelectItem key={w.id} value={w.name}>
+                                    {w.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </Field>
+
+                          <Field label="Polka raqami" className="min-w-[84px] flex-1">
+                            <Select
+                              value={draft.shelfLocation || "NONE"}
+                              onValueChange={(value) =>
+                                updateDraft({ shelfLocation: value === "NONE" ? "" : value })
+                              }
+                            >
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue placeholder="Polka" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="NONE">— Tanlanmagan —</SelectItem>
+                                {settings.shelfLocations.map((loc) => (
+                                  <SelectItem key={loc.id} value={loc.name}>
+                                    {loc.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </Field>
+
+                          <Field label="Rasm" className="min-w-[96px] flex-1">
                             <ImageUploadField
                               image={draft.image}
                               onPick={handleEditImagePick}
@@ -4095,9 +4137,17 @@ function PrintPreview({ product, settings }: { product?: Product; settings: Prin
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  children,
+  className,
+}: {
+  label: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
-    <div className="min-w-0 space-y-1.5">
+    <div className={`space-y-1.5 ${className ?? "min-w-0"}`}>
       <Label className="text-xs font-medium text-muted-foreground">{label}</Label>
       {children}
     </div>
