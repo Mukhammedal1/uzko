@@ -1,5 +1,6 @@
 import * as React from "react";
 import type { PrintSettings } from "@/lib/label-print";
+import { syncExpiredDiscounts } from "@/lib/discounts";
 
 // ─── Til / i18n ─────────────────────────────────────────────────────────────
 
@@ -103,7 +104,6 @@ export const TRANSLATIONS: Record<Lang, Record<string, string>> = {
     shelf_location: "Polka raqami",
     stock_count: "Sanoq",
     stock_counted: "Sanoq qilindi",
-    requested_products: "Talab qilingan tovarlar",
     boshqaruv: "Boshqaruv",
   },
   uz_cyr: {
@@ -203,7 +203,6 @@ export const TRANSLATIONS: Record<Lang, Record<string, string>> = {
     shelf_location: "Полка рақами",
     stock_count: "Саноқ",
     stock_counted: "Саноқ қилинди",
-    requested_products: "Талаб қилинган товарлар",
     boshqaruv: "Бошқарув",
   },
   ru: {
@@ -303,7 +302,6 @@ export const TRANSLATIONS: Record<Lang, Record<string, string>> = {
     shelf_location: "Номер полки",
     stock_count: "Ревизия",
     stock_counted: "Ревизия проведена",
-    requested_products: "Запрошенные товары",
     boshqaruv: "Управление",
   },
   en: {
@@ -403,7 +401,6 @@ export const TRANSLATIONS: Record<Lang, Record<string, string>> = {
     shelf_location: "Shelf Number",
     stock_count: "Stock count",
     stock_counted: "Stock counted",
-    requested_products: "Requested products",
     boshqaruv: "Management",
   },
 };
@@ -840,6 +837,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch {}
     return DEFAULT_SETTINGS;
   });
+
+  // Muddati o'tgan chegirmalarni tovarlarga qaytaradi (ilova yuklanganda bir marta).
+  React.useEffect(() => {
+    syncExpiredDiscounts();
+  }, []);
 
   // Apply theme to <html>
   React.useEffect(() => {

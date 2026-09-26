@@ -13,6 +13,14 @@ export type Product = {
   /** Tan narx ustiga qo'yilgan foiz — saqlansa, tan narx keyinchalik (masalan
    * prixod qilinganda) o'zgarganda sotuv narx shu foiz asosida qayta hisoblanadi. */
   priceMarkupPercent?: number;
+  /** Vaqtinchalik chegirma — bo'lsa, `price` chegirmali narx, `originalPrice` esa asl narx.
+   * `endDate` o'tgach chegirma avtomatik bekor qilinadi (bu haqda lib/discounts.ts ga qarang). */
+  discount?: {
+    originalPrice: number;
+    percent: number;
+    startDate: string; // yyyy-mm-dd
+    endDate: string; // yyyy-mm-dd
+  };
   wholesalePrice?: number; // optom narx — wholesaleCurrency da
   wholesaleCurrency?: Currency; // optom narx valyutasi (yo'q bo'lsa UZS)
   /** Tan narx ustiga qo'yilgan foiz — optom narx uchun, priceMarkupPercent kabi. */
