@@ -28,8 +28,20 @@ import {
 import { cn } from "@/lib/utils";
 import {
   Search, CalendarDays, Pencil, Printer, Trash2, Plus, Minus, Wifi, Eye, EyeOff,
-  Lock, AlertTriangle, Send,
+  Lock, AlertTriangle, Send, ChevronDown, Check,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  RECEIPT_PRINT_FORMAT_OPTIONS,
+  printSaleReceipt,
+} from "@/lib/receipt-print";
+import type { ReceiptPrintFormat } from "@/lib/app-context";
 import {
   MOCK_RECEIPTS,
   MOCK_RECEIPT_EDIT_HISTORY,
@@ -73,7 +85,7 @@ function matchesReceiptQuery(r: Receipt, rawQuery: string) {
 }
 
 export function KunlikSotuv() {
-  const { settings } = useApp();
+  const { settings, updateSettings } = useApp();
   const [query, setQuery] = React.useState("");
   const [range, setRange] = React.useState<DateRange | undefined>();
   const [, force] = React.useState(0);
@@ -139,8 +151,23 @@ export function KunlikSotuv() {
     return { ...acc, cardsByType, currenciesByCode, currencySomByCode };
   }, [dateFiltered]);
 
-  const handlePrint = (r: Receipt) => {
-    toast.success(`Chek #${r.id} chop etildi`);
+  const printReceiptAs = (r: Receipt, format: ReceiptPrintFormat) => {
+    const ok = printSaleReceipt(r, format, {
+      receiptSettings: settings.receiptSettings,
+      showImages: settings.receiptSettings.nakladnoyShowImage,
+    });
+    if (!ok) toast.error("Chop etish oynasi ochilmadi");
+  };
+
+  const printFormat = settings.receiptPrintFormat ?? "savdo80";
+
+  /** Asosiy Print tugmasi — doim tanlangan standart format bilan chop etadi. */
+  const handlePrint = (r: Receipt) => printReceiptAs(r, printFormat);
+
+  /** Formatni tanlash — shu format standart bo'lib saqlanadi va darhol chop etiladi. */
+  const choosePrintFormat = (r: Receipt, format: ReceiptPrintFormat) => {
+    updateSettings({ receiptPrintFormat: format });
+    printReceiptAs(r, format);
   };
 
   const handleDelete = () => {
@@ -292,7 +319,7 @@ export function KunlikSotuv() {
               <th className="px-3 py-2 text-left font-semibold">Chek raqami</th>
               <th className="px-3 py-2 text-right font-semibold">Summa</th>
               <th className="px-3 py-2 text-left font-semibold">Sana</th>
-              <th className="w-32 px-3 py-2 text-center font-semibold">Amallar</th>
+              <th className="w-40 px-3 py-2 text-center font-semibold">Amallar</th>
             </tr>
           </thead>
           <tbody>
@@ -321,6 +348,26 @@ export function KunlikSotuv() {
                       onClick={() => handlePrint(r)} aria-label="Print">
                       <Printer className="h-4 w-4" />
                     </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="icon" variant="outline" className="h-8 w-6 px-0"
+                          aria-label="Chek formatini tanlash" title="Chek formati">
+                          <ChevronDown className="h-3.5 w-3.5" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-60">
+                        <DropdownMenuLabel>Chek formati (standart)</DropdownMenuLabel>
+                        {RECEIPT_PRINT_FORMAT_OPTIONS.map((opt) => (
+                          <DropdownMenuItem key={opt.value} onSelect={() => choosePrintFormat(r, opt.value)}>
+                            <Check className={cn("mr-2 h-3.5 w-3.5", printFormat === opt.value ? "opacity-100" : "opacity-0")} />
+                            <div>
+                              <div className="text-sm font-medium">{opt.label}</div>
+                              <div className="text-[11px] text-muted-foreground">{opt.hint}</div>
+                            </div>
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                     <Button size="icon" variant="outline"
                       className="h-8 w-8 text-destructive hover:text-destructive"
                       onClick={() => setDeleting(r)} aria-label="O'chirish">

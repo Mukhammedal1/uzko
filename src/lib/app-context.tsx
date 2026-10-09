@@ -446,6 +446,8 @@ export type UnitEntry = { id: string; name: string; abbr: string; isBoxUnit?: bo
 export type Theme = "light" | "dark";
 
 export type ReceiptWidth = "58" | "80";
+/** Chek turi: 80 mm savdo cheki yoki A4 nakladnoy (shtrix kod + artikul bilan) */
+export type ReceiptPrintFormat = "savdo80" | "nakladnoy";
 export type ReceiptFontSize = "small" | "normal" | "large";
 
 export type ReceiptSettings = {
@@ -460,6 +462,8 @@ export type ReceiptSettings = {
   showPhone: boolean;
   showCashier: boolean;
   showQr: boolean;
+  /** Nakladnoyda tovar rasmini ko'rsatish (ixtiyoriy) */
+  nakladnoyShowImage: boolean;
   width: ReceiptWidth;
   fontSize: ReceiptFontSize;
 };
@@ -508,6 +512,8 @@ export type AppSettings = {
   units: UnitEntry[];
   shelfLocations: ShelfLocationEntry[];
   quickAddToCart: boolean;
+  /** Kassa amallaridagi chek chop etish standart formati */
+  receiptPrintFormat: ReceiptPrintFormat;
   labelPrintSettings?: PrintSettings;
   telegramBot: TelegramBotSettings;
 };
@@ -518,6 +524,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   username: "Admin",
   confirmCode: "1234",
   quickAddToCart: true,
+  receiptPrintFormat: "savdo80",
   theme: "light",
   lang: "uz",
   companyRegistrationId: "",
@@ -535,6 +542,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     showPhone: true,
     showCashier: true,
     showQr: false,
+    nakladnoyShowImage: false,
     width: "80",
     fontSize: "normal",
   },

@@ -33,7 +33,6 @@ import {
 import type { Currency, Product, ProductVariant } from "@/lib/mock-data";
 import { toast } from "sonner";
 import { LoadingScreen } from "@/components/shared/LoadingScreen";
-import { YangiTovarlarNatija } from "@/components/tovarlar/YangiTovarlarNatija";
 import { useApp } from "@/lib/app-context";
 import type { ProductCreateMode } from "@/routes/tovarlar";
 import { cn, formatNumberInput, parseNumberInput } from "@/lib/utils";
@@ -146,8 +145,6 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
   const [lockedPricePercent, setLockedPricePercent] = React.useState<string | null>(null);
   // Mahsulot bazaga yozilayotganini simulyatsiya qilish uchun.
   const [saving, setSaving] = React.useState(false);
-  // Saqlangandan keyin qo'shilgan mahsulotlar — natija (dashboard) ekrani uchun.
-  const [savedProducts, setSavedProducts] = React.useState<Product[] | null>(null);
 
   const updateRow = (id: string, patch: Partial<NewProductRow>) => {
     setRows((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)));
@@ -539,7 +536,6 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
       return code;
     };
 
-    const createdProducts: Product[] = [];
     validRows.forEach((row) => {
       const barcode = nextBarcode(row.barcodeValue);
       const customCode = nextCustomCode(row.customCodeValue);
@@ -595,7 +591,6 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
         variants,
       };
       MOCK_PRODUCTS.push(newProduct);
-      createdProducts.push(newProduct);
 
       MOCK_NEW_PRODUCT_LOG.unshift({
         id: `npl-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -615,15 +610,11 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
     toast.success("Yangi mahsulot(lar) bazaga qo'shildi", {
       description: `${validRows.length} ta mahsulot — qoldiqni "Tovar prixod qilish" bo'limidan kiriting`,
     });
-    setSavedProducts(createdProducts);
+    onDone();
   };
 
   if (saving) {
     return <LoadingScreen />;
-  }
-
-  if (savedProducts) {
-    return <YangiTovarlarNatija open products={savedProducts} onClose={onDone} />;
   }
 
   return (

@@ -23,10 +23,6 @@ export type PrintBarcodeItem = {
   qtyAdded: number;
   /** true — shtrix kodni tizim o'zi yaratgan (default: soniga mos); false — o'z (ishlab chiqaruvchi) shtrix kodi (default: 2 ta) */
   barcodeAuto: boolean;
-  /** Ixtiyoriy: qatordagi qo'shimcha matn (qtyAdded o'rniga ko'rsatiladi) */
-  subtitle?: string;
-  /** Ixtiyoriy: standart nusxa soni (qtyAdded/barcodeAuto qoidasini o'zgartiradi) */
-  copies?: number;
 };
 
 type Props = {
@@ -36,7 +32,6 @@ type Props = {
 };
 
 function defaultCopies(item: PrintBarcodeItem) {
-  if (item.copies !== undefined) return String(Math.max(0, Math.round(item.copies)));
   if (item.barcodeAuto) return String(Math.max(1, Math.round(item.qtyAdded)));
   return "2";
 }
@@ -97,10 +92,8 @@ export function PrintNewBarcodesDialog({ open, onOpenChange, items }: Props) {
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium">{item.product.name || "—"}</div>
                 <div className="truncate text-[11px] text-muted-foreground">
-                  {item.subtitle ??
-                    `${item.qtyAdded} ta qo'shildi · ${
-                      item.barcodeAuto ? "tizim shtrix kodi" : "o'z shtrix kodi"
-                    }`}
+                  {item.qtyAdded} ta qo'shildi ·{" "}
+                  {item.barcodeAuto ? "tizim shtrix kodi" : "o'z shtrix kodi"}
                 </div>
               </div>
               <Input

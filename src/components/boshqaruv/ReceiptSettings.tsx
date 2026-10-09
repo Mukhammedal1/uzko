@@ -143,6 +143,12 @@ export function ReceiptSettings() {
             onChange={(v) => patch({ showCashier: v })}
           />
           <ToggleRow label="QR-kod" checked={draft.showQr} onChange={(v) => patch({ showQr: v })} />
+
+          <ToggleRow
+            label="Nakladnoyda tovar rasmi"
+            checked={draft.nakladnoyShowImage}
+            onChange={(v) => patch({ nakladnoyShowImage: v })}
+          />
           <ToggleRow
             label="Tovar kodi chekda ko'rinsin"
             checked={draft.showProductCode}
