@@ -1367,3 +1367,14 @@
 .text-\[\#737D91\] {
   color: var(--muted-foreground);
 }
+
+/* --- Barcha tovarlar: tahrirlash qatori tokenlari ---
+   "Tovar tahrirlash" qatorida (BarchaTovarlar.tsx) ishlatiladigan input/select
+   balandligi va maydonlar orasidagi bo'shliq shu yerdan boshqariladi — bitta
+   qiymatni o'zgartirsangiz, qatordagi barcha input/select shunga mos o'zgaradi.
+   Matn o'lchami va burchak radiusi esa yuqoridagi umumiy --text-xs / --radius
+   tokenlariga bog'liq (ular butun ilova uchun umumiy). */
+.tovar-edit-row {
+  --edit-h: 2rem; /* input/select balandligi — 32px */
+  --edit-gap: 0.75rem; /* maydonlar orasidagi bo'shliq — 12px */
+}

@@ -32,6 +32,8 @@ import {
 } from "@/lib/mock-data";
 import type { Currency, Product, ProductVariant } from "@/lib/mock-data";
 import { toast } from "sonner";
+import { LoadingScreen } from "@/components/shared/LoadingScreen";
+import { YangiTovarlarNatija } from "@/components/tovarlar/YangiTovarlarNatija";
 import { useApp } from "@/lib/app-context";
 import type { ProductCreateMode } from "@/routes/tovarlar";
 import { cn, formatNumberInput, parseNumberInput } from "@/lib/utils";
@@ -142,6 +144,10 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
   // foizga qotib qoladi va shu qiymat yangi qo'shiladigan qatorlarga ko'chadi.
   const [lockedWholesalePercent, setLockedWholesalePercent] = React.useState<string | null>(null);
   const [lockedPricePercent, setLockedPricePercent] = React.useState<string | null>(null);
+  // Mahsulot bazaga yozilayotganini simulyatsiya qilish uchun.
+  const [saving, setSaving] = React.useState(false);
+  // Saqlangandan keyin qo'shilgan mahsulotlar — natija (dashboard) ekrani uchun.
+  const [savedProducts, setSavedProducts] = React.useState<Product[] | null>(null);
 
   const updateRow = (id: string, patch: Partial<NewProductRow>) => {
     setRows((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)));
@@ -504,6 +510,16 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
       return;
     }
 
+    // Bazaga yozish jarayonini simulyatsiya qilamiz — shu vaqt davomida
+    // LoadingScreen ko'rsatiladi.
+    setSaving(true);
+    setTimeout(() => {
+      saveValidRows();
+      setSaving(false);
+    }, 550);
+  };
+
+  const saveValidRows = () => {
     const usedBarcodes = collectUsedBarcodes();
     const nextBarcode = (preferred: string) => {
       const code =
@@ -523,6 +539,7 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
       return code;
     };
 
+    const createdProducts: Product[] = [];
     validRows.forEach((row) => {
       const barcode = nextBarcode(row.barcodeValue);
       const customCode = nextCustomCode(row.customCodeValue);
@@ -578,6 +595,7 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
         variants,
       };
       MOCK_PRODUCTS.push(newProduct);
+      createdProducts.push(newProduct);
 
       MOCK_NEW_PRODUCT_LOG.unshift({
         id: `npl-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -597,8 +615,16 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
     toast.success("Yangi mahsulot(lar) bazaga qo'shildi", {
       description: `${validRows.length} ta mahsulot — qoldiqni "Tovar prixod qilish" bo'limidan kiriting`,
     });
-    onDone();
+    setSavedProducts(createdProducts);
   };
+
+  if (saving) {
+    return <LoadingScreen />;
+  }
+
+  if (savedProducts) {
+    return <YangiTovarlarNatija open products={savedProducts} onClose={onDone} />;
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
@@ -1318,6 +1344,7 @@ export function CurrencyField({
   currencies,
   onCurrencyChange,
   error,
+  heightClassName = "h-9",
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -1327,6 +1354,8 @@ export function CurrencyField({
   currencies: string[];
   onCurrencyChange: (value: string) => void;
   error?: boolean;
+  /** Input/valyuta belgisi balandligini boshqa qiymatga o'zgartirish uchun (standart: h-9). */
+  heightClassName?: string;
 }) {
   return (
     <div className="relative">
@@ -1336,13 +1365,19 @@ export function CurrencyField({
         onBlur={onBlur}
         placeholder={placeholder}
         className={cn(
-          "h-9 pr-14 text-right text-xs",
+          heightClassName,
+          "pr-14 text-right text-xs",
           error && "border-destructive focus-visible:ring-destructive",
         )}
         inputMode="decimal"
       />
       <Select value={currency} onValueChange={onCurrencyChange}>
-        <SelectTrigger className="absolute right-0 top-0 h-9 w-14 cursor-pointer justify-center border-0 bg-transparent px-1.5 text-[10px] font-semibold uppercase text-muted-foreground shadow-none hover:text-primary focus:ring-0 focus:ring-offset-0 [&>span]:line-clamp-1 [&_svg]:hidden">
+        <SelectTrigger
+          className={cn(
+            heightClassName,
+            "absolute right-0 top-0 w-14 cursor-pointer justify-center border-0 bg-transparent px-1.5 text-[10px] font-semibold uppercase text-muted-foreground shadow-none hover:text-primary focus:ring-0 focus:ring-offset-0 [&>span]:line-clamp-1 [&_svg]:hidden",
+          )}
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent align="end">

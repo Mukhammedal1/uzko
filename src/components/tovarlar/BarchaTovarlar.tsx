@@ -123,6 +123,10 @@ import {
 import { formatNumberInput, parseNumberInput } from "@/lib/utils";
 import type { ProductCreateMode } from "@/routes/tovarlar";
 import { toast } from "sonner";
+import { LoadingScreen } from "@/components/shared/LoadingScreen";
+
+// Tovarlar ro'yxati "bazadan" kelib bo'lguncha ko'rsatiladigan vaqt (ms).
+const PRODUCTS_LOAD_DELAY_MS = 550;
 import { CurrencyField, ImageUploadField, MarkupRow } from "./TovarQoshish";
 
 type EditVariantDraft = {
@@ -339,6 +343,15 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
   const [query, setQuery] = React.useState("");
   const [warehouse, setWarehouse] = React.useState<string>("ALL");
   const [version, setVersion] = React.useState(0);
+  // Tovarlar ma'lumotlari "bazadan" kelayotganini simulyatsiya qilish —
+  // bo'lim ochilganda LoadingScreen bir zum ko'rinadi.
+  const [isLoading, setIsLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    setIsLoading(true);
+    const timer = setTimeout(() => setIsLoading(false), PRODUCTS_LOAD_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, []);
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(() => new Set());
   const [hiddenColumns, setHiddenColumns] = React.useState<Set<OptionalColumn>>(readHiddenColumns);
@@ -1672,6 +1685,10 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
     });
   };
 
+  if (isLoading) {
+    return <LoadingScreen />;
+  }
+
   if (bulkEditOpen) {
     return (
       <BulkEditPage
@@ -2930,13 +2947,13 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                         className="rounded-lg border bg-card p-4 shadow-sm"
                         onClick={(event) => event.stopPropagation()}
                       >
-                        <div className="flex flex-nowrap items-start gap-3">
+                        <div className="tovar-edit-row flex flex-nowrap items-start gap-[var(--edit-gap)]">
                           <Field label="Tovar nomi" className="min-w-[110px] flex-[1.5]">
                             <Input
                               value={draft.name}
                               onChange={(e) => updateDraft({ name: e.target.value })}
                               placeholder="Mahsulot nomini kiriting"
-                              className="h-8 text-xs"
+                              className="h-[var(--edit-h)] text-xs"
                             />
                           </Field>
 
@@ -2947,7 +2964,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                               value={draft.vitrinaQty}
                               onChange={(e) => updateDraft({ vitrinaQty: e.target.value })}
                               placeholder="0"
-                              className="h-8 text-xs"
+                              className="h-[var(--edit-h)] text-xs"
                             />
                           </Field>
 
@@ -2956,7 +2973,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                               value={draft.unit}
                               onValueChange={(value) => updateDraft({ unit: value })}
                             >
-                              <SelectTrigger className="h-8 text-xs">
+                              <SelectTrigger className="h-[var(--edit-h)] text-xs">
                                 <SelectValue placeholder="Birlik" />
                               </SelectTrigger>
                               <SelectContent>
@@ -2976,7 +2993,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                               value={draft.perBox}
                               onChange={(e) => updateDraft({ perBox: e.target.value })}
                               placeholder="—"
-                              className="h-8 text-xs"
+                              className="h-[var(--edit-h)] text-xs"
                             />
                           </Field>
 
@@ -2987,7 +3004,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                               value={draft.minStockAlert}
                               onChange={(e) => updateDraft({ minStockAlert: e.target.value })}
                               placeholder="—"
-                              className="h-8 text-xs"
+                              className="h-[var(--edit-h)] text-xs"
                             />
                           </Field>
 
@@ -2999,6 +3016,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                               currency={draft.costCurrency}
                               currencies={settings.currencies}
                               onCurrencyChange={(value) => updateDraft({ costCurrency: value })}
+                              heightClassName="h-[var(--edit-h)]"
                             />
                           </Field>
 
@@ -3013,6 +3031,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                               onCurrencyChange={(value) =>
                                 updateDraft({ wholesaleCurrency: value })
                               }
+                              heightClassName="h-[var(--edit-h)]"
                             />
                             <MarkupRow
                               percent={draft.wholesaleMarkupPercent}
@@ -3051,6 +3070,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                               currency={draft.priceCurrency}
                               currencies={settings.currencies}
                               onCurrencyChange={(value) => updateDraft({ priceCurrency: value })}
+                              heightClassName="h-[var(--edit-h)]"
                             />
                             <MarkupRow
                               percent={draft.priceMarkupPercent}
@@ -3085,7 +3105,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                               value={draft.barcode}
                               onChange={(e) => updateDraft({ barcode: e.target.value })}
                               placeholder="Shtrix kod"
-                              className="h-8 text-xs"
+                              className="h-[var(--edit-h)] text-xs"
                             />
                           </Field>
 
@@ -3094,7 +3114,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                               value={draft.customCode}
                               onChange={(e) => updateDraft({ customCode: e.target.value })}
                               placeholder="Artikul"
-                              className="h-8 text-xs"
+                              className="h-[var(--edit-h)] text-xs"
                             />
                           </Field>
 
@@ -3103,7 +3123,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                               value={draft.warehouse}
                               onValueChange={(value) => updateDraft({ warehouse: value })}
                             >
-                              <SelectTrigger className="h-8 text-xs">
+                              <SelectTrigger className="h-[var(--edit-h)] text-xs">
                                 <SelectValue placeholder="Ombor" />
                               </SelectTrigger>
                               <SelectContent>
@@ -3123,7 +3143,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                                 updateDraft({ shelfLocation: value === "NONE" ? "" : value })
                               }
                             >
-                              <SelectTrigger className="h-8 text-xs">
+                              <SelectTrigger className="h-[var(--edit-h)] text-xs">
                                 <SelectValue placeholder="Polka" />
                               </SelectTrigger>
                               <SelectContent>

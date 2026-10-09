@@ -7,27 +7,55 @@ import {
   Scripts,
   useLocation,
   useNavigate,
+  useRouterState,
 } from "@tanstack/react-router";
 import { AppProvider } from "@/lib/app-context";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { UiScaleProvider } from "@/hooks/use-ui-scale";
 import { AdminBotRuntime } from "@/lib/bot/AdminBotRuntime";
+import { LoadingScreen } from "@/components/shared/LoadingScreen";
 
 import appCss from "../styles.css?url";
 
 const AUTH_ROUTES = new Set(["/login", "/register"]);
 
-function SplashScreen() {
-  return (
-    <div className="flex min-h-dvh w-full flex-col items-center justify-center gap-4 bg-muted/30">
-      <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-md shadow-sm">
-        <img src="/uzko-logo.jpg" alt="UZKO" className="h-full w-full object-cover" />
-      </div>
-      <div className="h-1 w-32 overflow-hidden rounded-full bg-muted">
-        <div className="h-full w-1/2 animate-pulse rounded-full bg-primary" />
-      </div>
-    </div>
-  );
+// Sahifadan-sahifaga o'tishda kamida shu vaqt davomida (ms) LoadingScreen
+// ko'rinib turadi — o'tish juda tez bo'lsa ham animatsiya "miltillab"
+// ketmasligi uchun.
+const NAV_LOADING_MIN_MS = 350;
+
+function useDelayedNavigating(minVisibleMs: number) {
+  const isPending = useRouterState({ select: (s) => s.status === "pending" });
+  const [visible, setVisible] = React.useState(false);
+  const shownAtRef = React.useRef<number | null>(null);
+
+  React.useEffect(() => {
+    let hideTimer: ReturnType<typeof setTimeout> | undefined;
+
+    if (isPending) {
+      shownAtRef.current = Date.now();
+      setVisible(true);
+    } else if (shownAtRef.current !== null) {
+      const elapsed = Date.now() - shownAtRef.current;
+      const remaining = Math.max(0, minVisibleMs - elapsed);
+      hideTimer = setTimeout(() => {
+        setVisible(false);
+        shownAtRef.current = null;
+      }, remaining);
+    }
+
+    return () => {
+      if (hideTimer) clearTimeout(hideTimer);
+    };
+  }, [isPending, minVisibleMs]);
+
+  return visible;
+}
+
+function NavigationLoadingOverlay() {
+  const visible = useDelayedNavigating(NAV_LOADING_MIN_MS);
+  if (!visible) return null;
+  return <LoadingScreen />;
 }
 
 function AuthGate({ children }: { children: React.ReactNode }) {
@@ -45,9 +73,9 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     }
   }, [status, isAuthRoute, navigate]);
 
-  if (status === "loading") return <SplashScreen />;
-  if (status === "guest" && !isAuthRoute) return <SplashScreen />;
-  if (status === "authenticated" && isAuthRoute) return <SplashScreen />;
+  if (status === "loading") return <LoadingScreen />;
+  if (status === "guest" && !isAuthRoute) return <LoadingScreen />;
+  if (status === "authenticated" && isAuthRoute) return <LoadingScreen />;
   return <>{children}</>;
 }
 
@@ -132,6 +160,7 @@ function RootComponent() {
           <AuthGate>
             <Outlet />
           </AuthGate>
+          <NavigationLoadingOverlay />
         </AuthProvider>
       </UiScaleProvider>
     </AppProvider>
