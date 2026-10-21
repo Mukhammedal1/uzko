@@ -3,6 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -15,8 +16,6 @@ import {
   Hash,
   ImagePlus,
   Layers,
-  Lock,
-  LockOpen,
   Pencil,
   Plus,
   Check,
@@ -139,10 +138,10 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
     makeNewProductRow(settings.units[0]?.name ?? "dona"),
   ]);
   const [showValidation, setShowValidation] = React.useState(false);
-  // Qulflangan foizlar: null bo'lsa qulf o'chiq. Qiymat qulflangan paytdagi
-  // foizga qotib qoladi va shu qiymat yangi qo'shiladigan qatorlarga ko'chadi.
-  const [lockedWholesalePercent, setLockedWholesalePercent] = React.useState<string | null>(null);
-  const [lockedPricePercent, setLockedPricePercent] = React.useState<string | null>(null);
+  // Yoqilsa — marja foizidan narx hisoblanganda UZS 1000 so'mgacha
+  // yaxlitlanmaydi, aniq qiymat ko'rsatiladi (masalan 3000 + 50% = 4500,
+  // o'chiq bo'lsa 5000gacha yaxlitlanadi).
+  const [exactMarkup, setExactMarkup] = React.useState(false);
   // Mahsulot bazaga yozilayotganini simulyatsiya qilish uchun.
   const [saving, setSaving] = React.useState(false);
 
@@ -150,35 +149,72 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
     setRows((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)));
   };
 
+  // Marja foizini o'zgartirish bilan bir vaqtda, tan narx asosida narxni ham
+  // darhol qayta hisoblaydi — qo'shimcha "Qo'llash" tugmasi kerak emas.
+  const updateWholesaleMarkupPercent = (id: string, percent: string) => {
+    setRows((current) =>
+      current.map((row) => {
+        if (row.id !== id) return row;
+        const cost = parseNumberInput(row.costPrice);
+        if (!cost) {
+          return { ...row, wholesaleMarkupPercent: percent, wholesaleMarkupWarn: percent !== "" };
+        }
+        const result = computeMarkupPrice(
+          cost,
+          row.costCurrency,
+          row.wholesaleCurrency,
+          parseNumberInput(percent),
+          exactMarkup,
+        );
+        return {
+          ...row,
+          wholesaleMarkupPercent: percent,
+          wholesalePrice: formatNumberInput(String(result)),
+          wholesaleMarkupWarn: false,
+        };
+      }),
+    );
+  };
+
+  const updatePriceMarkupPercent = (id: string, percent: string) => {
+    setRows((current) =>
+      current.map((row) => {
+        if (row.id !== id) return row;
+        const cost = parseNumberInput(row.costPrice);
+        if (!cost) {
+          return { ...row, priceMarkupPercent: percent, priceMarkupWarn: percent !== "" };
+        }
+        const result = computeMarkupPrice(
+          cost,
+          row.costCurrency,
+          row.priceCurrency,
+          parseNumberInput(percent),
+          exactMarkup,
+        );
+        return {
+          ...row,
+          priceMarkupPercent: percent,
+          price: formatNumberInput(String(result)),
+          priceMarkupWarn: false,
+        };
+      }),
+    );
+  };
+
   const addRow = () => {
     if (hasOpenVariantEditor) {
       toast.error("Avval boshlangan variantlarni yakunlang");
       return;
     }
+    const lastRow = rows[rows.length - 1];
     setRows((current) => [
       ...current,
       {
         ...makeNewProductRow(settings.units[0]?.name ?? "dona"),
-        wholesaleMarkupPercent: lockedWholesalePercent ?? "",
-        priceMarkupPercent: lockedPricePercent ?? "",
+        wholesaleMarkupPercent: lastRow?.wholesaleMarkupPercent ?? "",
+        priceMarkupPercent: lastRow?.priceMarkupPercent ?? "",
       },
     ]);
-  };
-
-  const toggleWholesaleLock = (rowId: string) => {
-    setLockedWholesalePercent((prev) => {
-      if (prev !== null) return null;
-      const row = rows.find((r) => r.id === rowId);
-      return row?.wholesaleMarkupPercent || "0";
-    });
-  };
-
-  const togglePriceLock = (rowId: string) => {
-    setLockedPricePercent((prev) => {
-      if (prev !== null) return null;
-      const row = rows.find((r) => r.id === rowId);
-      return row?.priceMarkupPercent || "0";
-    });
   };
 
   /** Tan narx real vaqtda (har bir tugma bosilganda) o'zgarganda — agar foiz
@@ -199,13 +235,20 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
               row.costCurrency,
               row.wholesaleCurrency,
               wPercent,
+              exactMarkup,
             );
             patch.wholesalePrice = formatNumberInput(String(result));
             patch.wholesaleMarkupWarn = false;
           }
           const pPercent = parseNumberInput(row.priceMarkupPercent);
           if (pPercent > 0) {
-            const result = computeMarkupPrice(cost, row.costCurrency, row.priceCurrency, pPercent);
+            const result = computeMarkupPrice(
+              cost,
+              row.costCurrency,
+              row.priceCurrency,
+              pPercent,
+              exactMarkup,
+            );
             patch.price = formatNumberInput(String(result));
             patch.priceMarkupWarn = false;
           }
@@ -373,6 +416,74 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
             }
           : row,
       ),
+    );
+  };
+
+  // Variant uchun marja foizi o'zgarganda — tan narx asosida narxni darhol
+  // qayta hisoblaydi (qo'shimcha tugma kerak emas).
+  const updateVariantWholesaleMarkupPercent = (
+    rowId: string,
+    variantId: string,
+    percent: string,
+  ) => {
+    setRows((current) =>
+      current.map((row) => {
+        if (row.id !== rowId) return row;
+        return {
+          ...row,
+          variants: row.variants.map((v) => {
+            if (v.id !== variantId) return v;
+            const cost = parseNumberInput(v.costPrice);
+            if (!cost) {
+              return { ...v, wholesaleMarkupPercent: percent, wholesaleMarkupWarn: percent !== "" };
+            }
+            const result = computeMarkupPrice(
+              cost,
+              v.costCurrency,
+              v.wholesaleCurrency,
+              parseNumberInput(percent),
+              exactMarkup,
+            );
+            return {
+              ...v,
+              wholesaleMarkupPercent: percent,
+              wholesalePrice: formatNumberInput(String(result)),
+              wholesaleMarkupWarn: false,
+            };
+          }),
+        };
+      }),
+    );
+  };
+
+  const updateVariantPriceMarkupPercent = (rowId: string, variantId: string, percent: string) => {
+    setRows((current) =>
+      current.map((row) => {
+        if (row.id !== rowId) return row;
+        return {
+          ...row,
+          variants: row.variants.map((v) => {
+            if (v.id !== variantId) return v;
+            const cost = parseNumberInput(v.costPrice);
+            if (!cost) {
+              return { ...v, priceMarkupPercent: percent, priceMarkupWarn: percent !== "" };
+            }
+            const result = computeMarkupPrice(
+              cost,
+              v.costCurrency,
+              v.priceCurrency,
+              parseNumberInput(percent),
+              exactMarkup,
+            );
+            return {
+              ...v,
+              priceMarkupPercent: percent,
+              price: formatNumberInput(String(result)),
+              priceMarkupWarn: false,
+            };
+          }),
+        };
+      }),
     );
   };
 
@@ -628,15 +739,23 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
               kiriting.
             </div>
           </div>
-          <Button
-            onClick={handleSubmit}
-            disabled={hasOpenVariantEditor}
-            title={hasOpenVariantEditor ? "Avval boshlangan variantlarni yakunlang" : undefined}
-            className="h-8 gap-2 text-xs"
-          >
-            <Check className="h-4 w-4" />
-            Saqlash
-          </Button>
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Switch checked={exactMarkup} onCheckedChange={setExactMarkup} />
+              <span title="Yoqilsa, marjadan hisoblangan narx 1000 so'mgacha yaxlitlanmaydi (masalan 3000 + 50% = 4500, o'chiq bo'lsa 5000)">
+                Marjani aniq hisobla (yaxlitmasiz)
+              </span>
+            </label>
+            <Button
+              onClick={handleSubmit}
+              disabled={hasOpenVariantEditor}
+              title={hasOpenVariantEditor ? "Avval boshlangan variantlarni yakunlang" : undefined}
+              className="h-8 gap-2 text-xs"
+            >
+              <Check className="h-4 w-4" />
+              Saqlash
+            </Button>
+          </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto p-3">
@@ -791,30 +910,9 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
                             <MarkupRow
                               percent={row.wholesaleMarkupPercent}
                               warn={row.wholesaleMarkupWarn}
-                              locked={lockedWholesalePercent !== null}
-                              onToggleLock={() => toggleWholesaleLock(row.id)}
                               onPercentChange={(value) =>
-                                updateRow(row.id, { wholesaleMarkupPercent: value })
+                                updateWholesaleMarkupPercent(row.id, value)
                               }
-                              onApply={() => {
-                                const cost = parseNumberInput(row.costPrice);
-                                const percent = parseNumberInput(row.wholesaleMarkupPercent);
-                                if (!cost) {
-                                  updateRow(row.id, { wholesaleMarkupWarn: true });
-                                  toast.error("Avval tan narxni kiriting");
-                                  return;
-                                }
-                                const result = computeMarkupPrice(
-                                  cost,
-                                  row.costCurrency,
-                                  row.wholesaleCurrency,
-                                  percent,
-                                );
-                                updateRow(row.id, {
-                                  wholesalePrice: formatNumberInput(String(result)),
-                                  wholesaleMarkupWarn: false,
-                                });
-                              }}
                             />
                           </Field>
 
@@ -836,30 +934,7 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
                             <MarkupRow
                               percent={row.priceMarkupPercent}
                               warn={row.priceMarkupWarn}
-                              locked={lockedPricePercent !== null}
-                              onToggleLock={() => togglePriceLock(row.id)}
-                              onPercentChange={(value) =>
-                                updateRow(row.id, { priceMarkupPercent: value })
-                              }
-                              onApply={() => {
-                                const cost = parseNumberInput(row.costPrice);
-                                const percent = parseNumberInput(row.priceMarkupPercent);
-                                if (!cost) {
-                                  updateRow(row.id, { priceMarkupWarn: true });
-                                  toast.error("Avval tan narxni kiriting");
-                                  return;
-                                }
-                                const result = computeMarkupPrice(
-                                  cost,
-                                  row.costCurrency,
-                                  row.priceCurrency,
-                                  percent,
-                                );
-                                updateRow(row.id, {
-                                  price: formatNumberInput(String(result)),
-                                  priceMarkupWarn: false,
-                                });
-                              }}
+                              onPercentChange={(value) => updatePriceMarkupPercent(row.id, value)}
                             />
                           </Field>
 
@@ -1000,33 +1075,8 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
                                     percent={variant.wholesaleMarkupPercent}
                                     warn={variant.wholesaleMarkupWarn}
                                     onPercentChange={(value) =>
-                                      updateVariant(row.id, variant.id, {
-                                        wholesaleMarkupPercent: value,
-                                      })
+                                      updateVariantWholesaleMarkupPercent(row.id, variant.id, value)
                                     }
-                                    onApply={() => {
-                                      const cost = parseNumberInput(variant.costPrice);
-                                      const percent = parseNumberInput(
-                                        variant.wholesaleMarkupPercent,
-                                      );
-                                      if (!cost) {
-                                        updateVariant(row.id, variant.id, {
-                                          wholesaleMarkupWarn: true,
-                                        });
-                                        toast.error("Avval tan narxni kiriting");
-                                        return;
-                                      }
-                                      const result = computeMarkupPrice(
-                                        cost,
-                                        variant.costCurrency,
-                                        variant.wholesaleCurrency,
-                                        percent,
-                                      );
-                                      updateVariant(row.id, variant.id, {
-                                        wholesalePrice: formatNumberInput(String(result)),
-                                        wholesaleMarkupWarn: false,
-                                      });
-                                    }}
                                   />
                                 </Field>
 
@@ -1052,31 +1102,8 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
                                     percent={variant.priceMarkupPercent}
                                     warn={variant.priceMarkupWarn}
                                     onPercentChange={(value) =>
-                                      updateVariant(row.id, variant.id, {
-                                        priceMarkupPercent: value,
-                                      })
+                                      updateVariantPriceMarkupPercent(row.id, variant.id, value)
                                     }
-                                    onApply={() => {
-                                      const cost = parseNumberInput(variant.costPrice);
-                                      const percent = parseNumberInput(variant.priceMarkupPercent);
-                                      if (!cost) {
-                                        updateVariant(row.id, variant.id, {
-                                          priceMarkupWarn: true,
-                                        });
-                                        toast.error("Avval tan narxni kiriting");
-                                        return;
-                                      }
-                                      const result = computeMarkupPrice(
-                                        cost,
-                                        variant.costCurrency,
-                                        variant.priceCurrency,
-                                        percent,
-                                      );
-                                      updateVariant(row.id, variant.id, {
-                                        price: formatNumberInput(String(result)),
-                                        priceMarkupWarn: false,
-                                      });
-                                    }}
                                   />
                                 </Field>
 
@@ -1384,23 +1411,16 @@ export function CurrencyField({
 }
 
 /** Tan narx ustiga foiz qo'yib, natijani narx maydoniga qo'yadigan mini-hisoblagich.
- * Foiz doim ko'rinib turadi; Enter bosilganda yoki tugma bosilganda hisoblanadi. */
+ * Foiz kiritilgan zahoti (har bir belgida) narx avtomatik qayta hisoblanadi —
+ * qo'shimcha tugma bosish shart emas. */
 export function MarkupRow({
   percent,
   onPercentChange,
-  onApply,
   warn,
-  locked,
-  onToggleLock,
 }: {
   percent: string;
   onPercentChange: (value: string) => void;
-  onApply: () => void;
   warn?: boolean;
-  /** true bo'lsa — bu foiz keyingi yangi qatorlarga avtomatik ko'chadi. */
-  locked?: boolean;
-  /** Ko'rsatilsa — qulf tugmasi chizilib, foizni keyingi qatorlarga "qotirish" imkonini beradi. */
-  onToggleLock?: () => void;
 }) {
   return (
     <div className="mt-1 flex items-center justify-between gap-1 text-[10px] text-muted-foreground">
@@ -1408,31 +1428,9 @@ export function MarkupRow({
         {warn ? "Avval tan narxni kiriting" : "Tan narx + %"}
       </span>
       <div className="flex items-center gap-1">
-        {onToggleLock && (
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className={cn("h-6 w-6 shrink-0", locked && "text-primary")}
-            onClick={onToggleLock}
-            title={
-              locked
-                ? "Qulflangan — foiz keyingi qatorlarga ko'chmoqda"
-                : "Foizni keyingi qatorlarga qulflash"
-            }
-          >
-            {locked ? <Lock className="h-3 w-3" /> : <LockOpen className="h-3 w-3" />}
-          </Button>
-        )}
         <Input
           value={percent}
           onChange={(e) => onPercentChange(formatNumberInput(e.target.value))}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              onApply();
-            }
-          }}
           placeholder="0"
           inputMode="decimal"
           className={cn(
@@ -1440,16 +1438,7 @@ export function MarkupRow({
             warn && "border-destructive focus-visible:ring-destructive",
           )}
         />
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          className="h-6 w-6 shrink-0"
-          onClick={onApply}
-          title="Narxni hisoblash"
-        >
-          <Percent className="h-3 w-3" />
-        </Button>
+        <Percent className="h-3 w-3 shrink-0" />
       </div>
     </div>
   );

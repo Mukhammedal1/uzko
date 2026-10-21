@@ -80,13 +80,13 @@ import {
   isProductAtLimit,
   productHasVariants,
   variantTotalQty,
-  getAgentsList,
-  type AgentSummary,
+  getSuppliersList,
+  type SupplierSummary,
   type Product,
   type ProductVariant,
   type Currency,
 } from "@/lib/mock-data";
-import { mergeProductsWithAgent, recordProductAddition } from "@/lib/data-actions";
+import { mergeProductsWithSupplier, recordProductAddition } from "@/lib/data-actions";
 import { applyDiscount, computeDiscountedPrice, todayKey } from "@/lib/discounts";
 import {
   ExcelYuklashModal,
@@ -225,7 +225,21 @@ type Props = {
   selectionSlot?: HTMLElement | null;
 };
 
-type OptionalColumn = "limit" | "unit" | "shelf" | "wholesale" | "customCode" | "margin";
+type OptionalColumn = "limit" | "unit" | "shelf" | "wholesale" | "customCode" | "margin" | "boxQty";
+
+/** Jadval katakchasini ikki marta bosib, faqat shu maydonni alohida tahrirlash uchun maydon nomlari. */
+type InlineCellField =
+  | "name"
+  | "costPrice"
+  | "wholesalePrice"
+  | "price"
+  | "vitrinaQty"
+  | "unit"
+  | "minStockAlert"
+  | "customCode"
+  | "shelfLocation"
+  | "warehouse"
+  | "barcode";
 
 const OPTIONAL_COLUMNS: { key: OptionalColumn; label: string }[] = [
   { key: "limit", label: "Limit" },
@@ -234,6 +248,7 @@ const OPTIONAL_COLUMNS: { key: OptionalColumn; label: string }[] = [
   { key: "wholesale", label: "Optom narx" },
   { key: "customCode", label: "Artikul" },
   { key: "margin", label: "Marja %" },
+  { key: "boxQty", label: "O'ram bo'yicha qoldiq" },
 ];
 
 /** Tan narxga nisbatan qo'yilgan marjani foizda qaytaradi (tan narx bo'lmasa null). */
@@ -256,6 +271,191 @@ function MarginTag({ price, costPrice }: { price?: number; costPrice?: number })
       {rounded >= 0 ? "+" : ""}
       {rounded}%
     </span>
+  );
+}
+
+/** Umumiy sonni (masalan 83 dona) o'ram birligi (karobka/pallet/quti) bo'yicha
+ * "4 karobka va 3 dona" ko'rinishida taqsimlab ko'rsatadi. perBox bo'lmasa null. */
+function formatBoxBreakdown(
+  qty: number,
+  perBox?: number,
+  packUnit?: string,
+  unit?: string,
+): string | null {
+  if (!perBox || perBox <= 1) return null;
+  const boxLabel = packUnit ?? "karobka";
+  const unitLabel = unit ?? "dona";
+  const boxes = Math.floor(qty / perBox);
+  const rest = qty % perBox;
+  if (boxes <= 0) return `${rest} ${unitLabel}`;
+  if (rest <= 0) return `${boxes} ${boxLabel}`;
+  return `${boxes} ${boxLabel} va ${rest} ${unitLabel}`;
+}
+
+/** "O'ram bo'yicha qoldiq" katakchasi — perBox bo'lmasa "—" ko'rsatadi. */
+function BoxBreakdownCell({
+  qty,
+  perBox,
+  packUnit,
+  unit,
+}: {
+  qty: number;
+  perBox?: number;
+  packUnit?: string;
+  unit?: string;
+}) {
+  const breakdown = formatBoxBreakdown(qty, perBox, packUnit, unit);
+  if (!breakdown) return <span className="text-xs italic text-muted-foreground">—</span>;
+  return <span className="text-xs font-medium text-muted-foreground">{breakdown}</span>;
+}
+
+/** Jadval ichida bitta katakchani ikki marta bosib tahrirlash uchun inline input.
+ * `active` bo'lmasa oddiy ko'rinishni (children) chiqaradi. */
+function InlineEditCell({
+  active,
+  value,
+  onChange,
+  onCommit,
+  onCancel,
+  align = "left",
+  children,
+}: {
+  active: boolean;
+  value: string;
+  onChange: (value: string) => void;
+  onCommit: () => void;
+  onCancel: () => void;
+  align?: "left" | "right" | "center";
+  children: React.ReactNode;
+}) {
+  if (!active) return <>{children}</>;
+  return (
+    <Input
+      autoFocus
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onFocus={(e) => e.currentTarget.select()}
+      onBlur={onCommit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          onCommit();
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onCancel();
+        }
+      }}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      className={`h-8 text-xs ${align === "right" ? "text-right" : align === "center" ? "text-center" : ""}`}
+    />
+  );
+}
+
+/** Jadval katakchasida Birlik/Ombor kabi tanlov (select) maydonlarini inline tahrirlash. */
+function InlineEditSelectCell({
+  active,
+  value,
+  options,
+  onSelect,
+  onCancel,
+  children,
+}: {
+  active: boolean;
+  value: string;
+  options: string[];
+  onSelect: (value: string) => void;
+  onCancel: () => void;
+  children: React.ReactNode;
+}) {
+  if (!active) return <>{children}</>;
+  return (
+    <Select
+      open
+      value={value}
+      onValueChange={onSelect}
+      onOpenChange={(open) => {
+        if (!open) onCancel();
+      }}
+    >
+      <SelectTrigger className="h-8 text-xs" onClick={(e) => e.stopPropagation()}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((opt) => (
+          <SelectItem key={opt} value={opt}>
+            {opt}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+/** Optom/Sotuv narx katakchasini inline tahrirlash — narx inputi bilan birga
+ * pastida "Tan narx + %" marja maydoni ham tahrirlanadi (foiz kiritib
+ * "Qo'llash" bosilsa, narx shu foiz asosida qayta hisoblanadi). Saqlash/bekor
+ * qilish aniq tugmalar bilan (blur orqali tasodifiy saqlanib qolmasligi uchun). */
+function InlinePriceEditCell({
+  active,
+  value,
+  onChange,
+  percent,
+  onPercentChange,
+  warn,
+  onCommit,
+  onCancel,
+  children,
+}: {
+  active: boolean;
+  value: string;
+  onChange: (value: string) => void;
+  percent: string;
+  onPercentChange: (value: string) => void;
+  warn: boolean;
+  onCommit: () => void;
+  onCancel: () => void;
+  children: React.ReactNode;
+}) {
+  if (!active) return <>{children}</>;
+  return (
+    <div className="flex flex-col items-end gap-1" onClick={(e) => e.stopPropagation()}>
+      <Input
+        autoFocus
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={(e) => e.currentTarget.select()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            onCommit();
+          }
+          if (e.key === "Escape") {
+            e.preventDefault();
+            onCancel();
+          }
+        }}
+        inputMode="decimal"
+        className="h-8 w-28 text-right text-xs"
+      />
+      <MarkupRow percent={percent} warn={warn} onPercentChange={onPercentChange} />
+      <div className="flex gap-1">
+        <Button
+          type="button"
+          size="icon"
+          variant="outline"
+          className="h-6 w-6"
+          onClick={onCancel}
+          title="Bekor qilish"
+        >
+          <X className="h-3 w-3" />
+        </Button>
+        <Button type="button" size="icon" className="h-6 w-6" onClick={onCommit} title={"Saqlash"}>
+          <Check className="h-3 w-3" />
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -292,16 +492,16 @@ function readExportColumns(): Set<ExportColumnKey> {
   }
 }
 
-/** Mahsulot nomi bo'yicha eng so'nggi prixod yozuvidan taminotchi (agent) nomini topadi. */
+/** Mahsulot nomi bo'yicha eng so'nggi prixod yozuvidan taminotchi (yetkazib beruvchi) nomini topadi. */
 function getSupplierForProduct(productName: string): string {
   let latest: (typeof MOCK_PRODUCT_HISTORY)[number] | undefined;
   for (const entry of MOCK_PRODUCT_HISTORY) {
-    if (entry.productName !== productName || !entry.agentName) continue;
+    if (entry.productName !== productName || !entry.supplierName) continue;
     if (!latest || new Date(entry.date).getTime() > new Date(latest.date).getTime()) {
       latest = entry;
     }
   }
-  return latest?.agentName ?? "-";
+  return latest?.supplierName ?? "-";
 }
 
 function readHiddenColumns(): Set<OptionalColumn> {
@@ -389,7 +589,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
   const [writeOffRows, setWriteOffRows] = React.useState<WriteOffRow[]>([]);
   const [writeOffReason, setWriteOffReason] = React.useState("");
   const [excelModalOpen, setExcelModalOpen] = React.useState(false);
-  const [mergeAgentOpen, setMergeAgentOpen] = React.useState(false);
+  const [mergeSupplierOpen, setMergeSupplierOpen] = React.useState(false);
 
   const [discountOpen, setDiscountOpen] = React.useState(false);
   const [discountMode, setDiscountMode] = React.useState<"percent" | "amount">("percent");
@@ -403,9 +603,9 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
   );
   const [discountBulkPercent, setDiscountBulkPercent] = React.useState("");
   const [discountBulkAmount, setDiscountBulkAmount] = React.useState("");
-  const [mergeAgentId, setMergeAgentId] = React.useState<string>("__new__");
-  const [mergeAgentName, setMergeAgentName] = React.useState("");
-  const [mergeAgentPhone, setMergeAgentPhone] = React.useState("");
+  const [mergeSupplierId, setMergeSupplierId] = React.useState<string>("__new__");
+  const [mergeSupplierName, setMergeSupplierName] = React.useState("");
+  const [mergeSupplierPhone, setMergeSupplierPhone] = React.useState("");
   const [mergeMode, setMergeMode] = React.useState<"current-stock" | "zero-debt">("current-stock");
   const [mergeNote, setMergeNote] = React.useState("");
   const [printSettings, setPrintSettings] = React.useState<PrintSettings>(() => ({
@@ -439,6 +639,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
     minStockAlert: "",
     barcode: "",
     customCode: "",
+    perBox: "",
     variants: [],
   });
 
@@ -502,7 +703,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
     (stockFilter === "limited" ? 1 : 0) +
     (warehouse !== "ALL" ? 1 : 0) +
     (supplierFilter !== "ALL" ? 1 : 0);
-  const supplierOptions = React.useMemo(() => getAgentsList(), [version]);
+  const supplierOptions = React.useMemo(() => getSuppliersList(), [version]);
 
   const toggleProduct = (productId: string) => {
     setSelectedIds((current) => {
@@ -543,9 +744,282 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
     draft: VariantEditDraft;
   } | null>(null);
 
+  // Jadvalda bitta katakchani (ikki marta bosib) alohida tahrirlash — to'liq
+  // forma ochmasdan, faqat shu maydonni saqlaydi.
+  const [editingCell, setEditingCell] = React.useState<{
+    id: string;
+    field: InlineCellField;
+  } | null>(null);
+  const [cellValue, setCellValue] = React.useState("");
+  // Optom/Sotuv narxni inline tahrirlashda, pastidagi "Tan narx + %" marja
+  // maydonini ham alohida tahrirlash uchun.
+  const [cellMarkupPercent, setCellMarkupPercent] = React.useState("");
+  const [cellMarkupWarn, setCellMarkupWarn] = React.useState(false);
+
+  const startCellEdit = (product: Product, field: InlineCellField) => {
+    setEditingId(null);
+    setRenamingId(null);
+    setVariantEdit(null);
+    setCellMarkupWarn(false);
+    let initial = "";
+    switch (field) {
+      case "name":
+        initial = product.name;
+        break;
+      case "costPrice":
+        initial = String(product.costPrice);
+        break;
+      case "wholesalePrice": {
+        initial = product.wholesalePrice ? String(product.wholesalePrice) : "";
+        const percent =
+          product.costPrice && product.wholesalePrice
+            ? reverseMarkupPercent(
+                product.costPrice,
+                product.costCurrency,
+                product.wholesalePrice,
+                product.wholesaleCurrency ?? "UZS",
+              )
+            : null;
+        setCellMarkupPercent(
+          percent !== null
+            ? formatNumberInput(String(percent))
+            : typeof product.wholesaleMarkupPercent === "number"
+              ? String(product.wholesaleMarkupPercent)
+              : "",
+        );
+        break;
+      }
+      case "price": {
+        initial = String(product.price);
+        const percent =
+          product.costPrice && product.price
+            ? reverseMarkupPercent(
+                product.costPrice,
+                product.costCurrency,
+                product.price,
+                product.priceCurrency ?? "UZS",
+              )
+            : null;
+        setCellMarkupPercent(
+          percent !== null
+            ? formatNumberInput(String(percent))
+            : typeof product.priceMarkupPercent === "number"
+              ? String(product.priceMarkupPercent)
+              : "",
+        );
+        break;
+      }
+      case "vitrinaQty":
+        initial = String(product.vitrinaQty);
+        break;
+      case "unit":
+        initial = product.unit;
+        break;
+      case "minStockAlert":
+        initial = typeof product.minStockAlert === "number" ? String(product.minStockAlert) : "";
+        break;
+      case "customCode":
+        initial = product.customCode;
+        break;
+      case "shelfLocation":
+        initial = product.shelfLocation ?? "";
+        break;
+      case "warehouse":
+        initial = product.warehouse;
+        break;
+      case "barcode":
+        initial = product.barcode;
+        break;
+    }
+    setCellValue(initial);
+    setEditingCell({ id: product.id, field });
+  };
+
+  const cancelCellEdit = () => setEditingCell(null);
+
+  const recordCellChange = (
+    p: Product,
+    field:
+      | "name"
+      | "costPrice"
+      | "price"
+      | "wholesalePrice"
+      | "customCode"
+      | "qty"
+      | "unit"
+      | "warehouse"
+      | "shelfLocation"
+      | "minStockAlert"
+      | "barcode",
+    label: string,
+    oldValue: string | number,
+    newValue: string | number,
+  ) => {
+    if (oldValue === newValue) return;
+    MOCK_EDIT_HISTORY.unshift({
+      id: `eh${Date.now()}`,
+      date: new Date().toISOString(),
+      editedBy: settings.username,
+      productName: p.name,
+      oldQty: p.vitrinaQty,
+      newQty: p.vitrinaQty,
+      unit: p.unit,
+      action: "edit",
+      changes: [{ field, label, oldValue, newValue }],
+    });
+  };
+
+  /** Katakcha qiymatini saqlaydi. `overrideValue` select (Birlik/Ombor) kabi
+   * bir martalik tanlovlarda, state hali yangilanmagan bo'lsa ham to'g'ri
+   * qiymat bilan saqlash uchun ishlatiladi. */
+  const commitCellEdit = (overrideValue?: string) => {
+    if (!editingCell) return;
+    const { id, field } = editingCell;
+    const raw = overrideValue ?? cellValue;
+    const p = MOCK_PRODUCTS.find((item) => item.id === id);
+    if (!p) {
+      setEditingCell(null);
+      return;
+    }
+
+    switch (field) {
+      case "name": {
+        const next = raw.trim();
+        if (!next) {
+          toast.error("Tovar nomini kiriting");
+          return;
+        }
+        recordCellChange(p, "name", "Nomi", p.name, next);
+        p.name = next;
+        break;
+      }
+      case "costPrice": {
+        const next = Math.max(0, parseNumberInput(raw) || 0);
+        recordCellChange(p, "costPrice", "Tan narx", p.costPrice, next);
+        p.costPrice = next;
+        break;
+      }
+      case "wholesalePrice": {
+        const next = raw.trim() === "" ? undefined : Math.max(0, parseNumberInput(raw) || 0);
+        recordCellChange(p, "wholesalePrice", "Optom narx", p.wholesalePrice ?? "", next ?? "");
+        p.wholesalePrice = next;
+        p.wholesaleMarkupPercent = cellMarkupPercent.trim()
+          ? parseNumberInput(cellMarkupPercent)
+          : undefined;
+        break;
+      }
+      case "price": {
+        const next = Math.max(0, parseNumberInput(raw) || 0);
+        recordCellChange(p, "price", "Sotuv narx", p.price, next);
+        p.price = next;
+        p.priceMarkupPercent = cellMarkupPercent.trim()
+          ? parseNumberInput(cellMarkupPercent)
+          : undefined;
+        break;
+      }
+      case "vitrinaQty": {
+        const next = Math.max(0, Number(raw) || 0);
+        recordCellChange(p, "qty", "Miqdor", p.vitrinaQty, next);
+        p.vitrinaQty = next;
+        break;
+      }
+      case "unit": {
+        const next = raw.trim() || p.unit;
+        recordCellChange(p, "unit", "Birlik", p.unit, next);
+        p.unit = next;
+        break;
+      }
+      case "minStockAlert": {
+        const next = raw.trim() === "" ? undefined : Math.max(0, Number(raw) || 0);
+        recordCellChange(
+          p,
+          "minStockAlert",
+          "Ogohlantirish limiti",
+          p.minStockAlert ?? "",
+          next ?? "",
+        );
+        p.minStockAlert = next;
+        break;
+      }
+      case "customCode": {
+        const next = raw.trim();
+        if (!next) {
+          toast.error("Artikulni kiriting");
+          return;
+        }
+        recordCellChange(p, "customCode", "Artikul", p.customCode, next);
+        p.customCode = next;
+        break;
+      }
+      case "shelfLocation": {
+        const next = raw.trim();
+        recordCellChange(p, "shelfLocation", "Raf", p.shelfLocation ?? "", next);
+        p.shelfLocation = next;
+        break;
+      }
+      case "warehouse": {
+        const next = settings.warehouses.some((w) => w.name === raw) ? raw : p.warehouse;
+        recordCellChange(p, "warehouse", "Ombor", p.warehouse, next);
+        p.warehouse = next;
+        break;
+      }
+      case "barcode": {
+        const codes = splitBarcodes(raw);
+        if (codes.length === 0) {
+          toast.error("Shtrix kodni kiriting");
+          return;
+        }
+        const otherBarcodes = new Set<string>(
+          MOCK_PRODUCTS.filter((item) => item.id !== p.id).flatMap((item) =>
+            splitBarcodes(item.barcode),
+          ),
+        );
+        const hasDuplicate = codes.some((code) => otherBarcodes.has(code));
+        if (hasDuplicate) {
+          toast.error("Bu shtrix kod boshqa tovarda mavjud");
+          return;
+        }
+        const next = joinBarcodes(codes);
+        recordCellChange(p, "barcode", "Shtrix kod", p.barcode, next);
+        p.barcode = next;
+        break;
+      }
+    }
+
+    setEditingCell(null);
+    setVersion((v) => v + 1);
+  };
+
+  /** Optom/Sotuv narxni inline tahrirlashda "Tan narx + %" maydoniga foiz
+   * kiritilgan zahoti (har bir belgida) narxni hisoblab, narx inputiga darhol
+   * qo'yadi — qo'shimcha tugma bosish shart emas. */
+  const updateCellMarkupPercent = (percent: string) => {
+    if (!editingCell) return;
+    const { id, field } = editingCell;
+    if (field !== "price" && field !== "wholesalePrice") return;
+    setCellMarkupPercent(percent);
+    const p = MOCK_PRODUCTS.find((item) => item.id === id);
+    if (!p) return;
+    if (!p.costPrice) {
+      setCellMarkupWarn(percent.trim() !== "");
+      return;
+    }
+    const currency =
+      field === "price" ? (p.priceCurrency ?? "UZS") : (p.wholesaleCurrency ?? "UZS");
+    const result = computeMarkupPrice(
+      p.costPrice,
+      p.costCurrency,
+      currency,
+      parseNumberInput(percent),
+    );
+    setCellValue(formatNumberInput(String(result)));
+    setCellMarkupWarn(false);
+  };
+
   const startRename = (product: Product) => {
     setEditingId(null);
     setVariantEdit(null);
+    setEditingCell(null);
     setRenamingId(product.id);
     setRenameValue(product.name);
   };
@@ -579,6 +1053,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
   const startVariantEdit = (product: Product, variant: ProductVariant) => {
     setEditingId(null);
     setRenamingId(null);
+    setEditingCell(null);
     setVariantEdit({
       productId: product.id,
       draft: {
@@ -668,6 +1143,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
     }
     setRenamingId(null);
     setVariantEdit(null);
+    setEditingCell(null);
     setEditingId(product.id);
     setDraft({
       name: product.name,
@@ -748,6 +1224,46 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
       priceMarkupPercent:
         percent === null ? draft.priceMarkupPercent : formatNumberInput(String(percent)),
       priceMarkupWarn: percent === null,
+    });
+  };
+
+  // Marja foizi o'zgarganda — tan narx asosida narxni darhol qayta hisoblaydi,
+  // qo'shimcha "Qo'llash" tugmasi kerak emas.
+  const updateDraftWholesaleMarkupPercent = (percent: string) => {
+    const cost = parseNumberInput(draft.costPrice);
+    if (!cost) {
+      updateDraft({ wholesaleMarkupPercent: percent, wholesaleMarkupWarn: percent.trim() !== "" });
+      return;
+    }
+    const result = computeMarkupPrice(
+      cost,
+      draft.costCurrency,
+      draft.wholesaleCurrency,
+      parseNumberInput(percent),
+    );
+    updateDraft({
+      wholesaleMarkupPercent: percent,
+      wholesalePrice: formatNumberInput(String(result)),
+      wholesaleMarkupWarn: false,
+    });
+  };
+
+  const updateDraftPriceMarkupPercent = (percent: string) => {
+    const cost = parseNumberInput(draft.costPrice);
+    if (!cost) {
+      updateDraft({ priceMarkupPercent: percent, priceMarkupWarn: percent.trim() !== "" });
+      return;
+    }
+    const result = computeMarkupPrice(
+      cost,
+      draft.costCurrency,
+      draft.priceCurrency,
+      parseNumberInput(percent),
+    );
+    updateDraft({
+      priceMarkupPercent: percent,
+      price: formatNumberInput(String(result)),
+      priceMarkupWarn: false,
     });
   };
 
@@ -1131,11 +1647,12 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
   };
 
   const updateDiscountValue = (id: string, valueStr: string) => {
-    setDiscountRows((current) => current.map((row) => (row.id === id ? { ...row, valueStr } : row)));
+    setDiscountRows((current) =>
+      current.map((row) => (row.id === id ? { ...row, valueStr } : row)),
+    );
   };
 
-  const bulkMode: "percent" | "amount" =
-    discountBulkPercent.trim() !== "" ? "percent" : "amount";
+  const bulkMode: "percent" | "amount" = discountBulkPercent.trim() !== "" ? "percent" : "amount";
   const bulkValue = Number(
     discountBulkPercent.trim() !== "" ? discountBulkPercent : discountBulkAmount,
   );
@@ -1180,7 +1697,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
     clearSelection();
   };
 
-  const agents = React.useMemo(() => getAgentsList(), [version]);
+  const agents = React.useMemo(() => getSuppliersList(), [version]);
 
   // ─── Exceldan yuklash modali uchun sintetik (number) ID ro'yxatlari ───────
   const excelCurrencies = React.useMemo(
@@ -1200,7 +1717,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
       })),
     [settings.shelfLocations, excelStocks],
   );
-  const excelAgents = React.useMemo(
+  const excelSuppliers = React.useMemo(
     () => agents.map((agent, idx) => ({ id: idx + 1, name: agent.name })),
     [agents],
   );
@@ -1223,8 +1740,12 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
       0,
     );
 
-    const agentInfo = payment ? excelAgents.find((a) => a.id === payment.agentId) : undefined;
-    const realAgent = agentInfo ? agents.find((a) => a.name === agentInfo.name) : undefined;
+    const supplierInfo = payment
+      ? excelSuppliers.find((a) => a.id === payment.supplierId)
+      : undefined;
+    const realSupplier = supplierInfo
+      ? agents.find((a) => a.name === supplierInfo.name)
+      : undefined;
     const paidAmountSom = payment
       ? Math.max(0, Math.min(totalCostSom, Math.round(payment.paidAmount * purchaseRate)))
       : 0;
@@ -1299,7 +1820,9 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
 
       const rowCostSom = row.quantity * (row.purchase_price ?? 0) * purchaseRate;
       const paidShare =
-        realAgent && totalCostSom > 0 ? Math.round((paidAmountSom * rowCostSom) / totalCostSom) : 0;
+        realSupplier && totalCostSom > 0
+          ? Math.round((paidAmountSom * rowCostSom) / totalCostSom)
+          : 0;
 
       recordProductAddition({
         productName: product.name,
@@ -1310,12 +1833,12 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
         warehouse: stockName,
         shelfLocation: shelfName,
         addedBy: settings.username,
-        source: realAgent
+        source: realSupplier
           ? {
               enabled: true,
-              agentId: realAgent.id,
-              agentName: realAgent.name,
-              agentPhone: realAgent.phone,
+              supplierId: realSupplier.id,
+              supplierName: realSupplier.name,
+              supplierPhone: realSupplier.phone,
               paidAmount: String(paidShare),
               note: "Excelldan yuklandi",
               sendBotUpdate: false,
@@ -1324,31 +1847,31 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
       });
     });
 
-    if (realAgent && payment?.source === "kassa" && paidAmountSom > 0) {
+    if (realSupplier && payment?.source === "kassa" && paidAmountSom > 0) {
       MOCK_WITHDRAWALS.push({
         id: `CH-excel-${Date.now()}`,
         date: new Date().toISOString(),
         cashier: settings.username,
-        category: "Agentlarga to'lov",
+        category: "Yetkazib beruvchilarga to'lov",
         cash: paidAmountSom,
         cardAmount: 0,
         currencies: [],
         note: "Excelldan tovar import qilingandagi to'lov",
-        agentId: realAgent.id,
+        supplierId: realSupplier.id,
       });
     }
 
     setVersion((v) => v + 1);
   };
 
-  const openMergeAgentDialog = () => {
+  const openMergeSupplierDialog = () => {
     if (selectedProducts.length === 0) return;
-    setMergeAgentId(agents[0]?.id ?? "__new__");
-    setMergeAgentName(agents[0]?.name ?? "");
-    setMergeAgentPhone(agents[0]?.phone ?? "");
+    setMergeSupplierId(agents[0]?.id ?? "__new__");
+    setMergeSupplierName(agents[0]?.name ?? "");
+    setMergeSupplierPhone(agents[0]?.phone ?? "");
     setMergeMode("current-stock");
     setMergeNote("");
-    setMergeAgentOpen(true);
+    setMergeSupplierOpen(true);
   };
 
   const mergeTotalCost = React.useMemo(
@@ -1360,28 +1883,28 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
     [selectedProducts],
   );
 
-  const confirmMergeAgent = () => {
-    const agentName = mergeAgentName.trim();
-    if (!agentName) {
-      toast.error("Agent nomini kiriting");
+  const confirmMergeSupplier = () => {
+    const supplierName = mergeSupplierName.trim();
+    if (!supplierName) {
+      toast.error("Yetkazib beruvchi nomini kiriting");
       return;
     }
     if (selectedProducts.length === 0) return;
 
-    mergeProductsWithAgent({
+    mergeProductsWithSupplier({
       products: selectedProducts,
-      agentId: mergeAgentId !== "__new__" ? mergeAgentId : undefined,
-      agentName,
-      agentPhone: mergeAgentPhone,
+      supplierId: mergeSupplierId !== "__new__" ? mergeSupplierId : undefined,
+      supplierName,
+      supplierPhone: mergeSupplierPhone,
       mode: mergeMode,
       addedBy: settings.username,
       note: mergeNote,
     });
 
-    toast.success("Tovarlar agentga birlashtirildi", {
-      description: `${selectedProducts.length} ta tovar · ${agentName}`,
+    toast.success("Tovarlar yetkazib beruvchiga birlashtirildi", {
+      description: `${selectedProducts.length} ta tovar · ${supplierName}`,
     });
-    setMergeAgentOpen(false);
+    setMergeSupplierOpen(false);
     setVersion((v) => v + 1);
     clearSelection();
   };
@@ -2413,6 +2936,9 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                 <th className="px-4 py-2.5 text-left font-semibold">Artikul</th>
               )}
               <th className="px-4 py-2.5 text-right font-semibold">{t("qty")}</th>
+              {!hiddenColumns.has("boxQty") && (
+                <th className="px-4 py-2.5 text-left font-semibold">O'ram bo'yicha qoldiq</th>
+              )}
               {!hiddenColumns.has("unit") && (
                 <th className="px-4 py-2.5 text-left font-semibold">Birlik</th>
               )}
@@ -2458,7 +2984,6 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                   <tr
                     className="cursor-pointer border-b hover:bg-muted/40"
                     onClick={() => productHasVariants(p) && toggleExpanded(p.id)}
-                    onDoubleClick={() => !productHasVariants(p) && startEdit(p)}
                   >
                     <td className="px-4 py-2.5">
                       <Checkbox
@@ -2506,8 +3031,36 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                             <X className="h-4 w-4" />
                           </Button>
                         </div>
+                      ) : editingCell?.id === p.id && editingCell.field === "name" ? (
+                        <div onClick={(e) => e.stopPropagation()}>
+                          <Input
+                            autoFocus
+                            value={cellValue}
+                            onChange={(e) => setCellValue(e.target.value)}
+                            onFocus={(e) => e.currentTarget.select()}
+                            onBlur={() => commitCellEdit()}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                commitCellEdit();
+                              }
+                              if (e.key === "Escape") {
+                                e.preventDefault();
+                                cancelCellEdit();
+                              }
+                            }}
+                            className="h-8 text-xs"
+                          />
+                        </div>
                       ) : (
-                        <div className="flex items-center gap-2">
+                        <div
+                          className="flex items-center gap-2"
+                          onDoubleClick={(e) => {
+                            if (productHasVariants(p)) return;
+                            e.stopPropagation();
+                            startCellEdit(p, "name");
+                          }}
+                        >
                           {productHasVariants(p) && (
                             <ChevronRight
                               className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${expandedIds.has(p.id) ? "rotate-90" : ""}`}
@@ -2525,9 +3078,30 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                           )}
                         </div>
                       )}
-                      <div className="text-xs text-muted-foreground">
-                        {productHasVariants(p) ? `${p.variants.length} ta variant` : p.barcode}
-                      </div>
+                      {productHasVariants(p) ? (
+                        <div className="text-xs text-muted-foreground">
+                          {p.variants.length} ta variant
+                        </div>
+                      ) : (
+                        <div
+                          className="text-xs text-muted-foreground"
+                          onClick={(e) => e.stopPropagation()}
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            startCellEdit(p, "barcode");
+                          }}
+                        >
+                          <InlineEditCell
+                            active={editingCell?.id === p.id && editingCell.field === "barcode"}
+                            value={cellValue}
+                            onChange={setCellValue}
+                            onCommit={() => commitCellEdit()}
+                            onCancel={cancelCellEdit}
+                          >
+                            {p.barcode}
+                          </InlineEditCell>
+                        </div>
+                      )}
                     </td>
                     {productHasVariants(p) ? (
                       <>
@@ -2543,6 +3117,9 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                           <td className="px-4 py-2.5 text-muted-foreground">—</td>
                         )}
                         <td className="px-4 py-2.5 text-right text-muted-foreground">—</td>
+                        {!hiddenColumns.has("boxQty") && (
+                          <td className="px-4 py-2.5 text-muted-foreground">—</td>
+                        )}
                         {!hiddenColumns.has("unit") && (
                           <td className="px-4 py-2.5 text-muted-foreground">—</td>
                         )}
@@ -2554,96 +3131,260 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                     ) : (
                       <>
                         {!hiddenColumns.has("limit") && (
-                          <td className="px-4 py-2.5 text-center">
-                            {typeof p.minStockAlert === "number" ? (
-                              <span
-                                className={`inline-flex rounded-md px-2 py-1 text-xs font-bold ${
-                                  isProductAtLimit(p)
-                                    ? "bg-amber-100 text-amber-700"
-                                    : "bg-muted text-muted-foreground"
-                                }`}
-                              >
-                                {p.minStockAlert} {p.unit}
-                              </span>
-                            ) : (
-                              <span className="text-xs italic text-muted-foreground">yo'q</span>
-                            )}
+                          <td
+                            className="px-4 py-2.5 text-center"
+                            onDoubleClick={(e) => {
+                              e.stopPropagation();
+                              startCellEdit(p, "minStockAlert");
+                            }}
+                          >
+                            <InlineEditCell
+                              active={
+                                editingCell?.id === p.id && editingCell.field === "minStockAlert"
+                              }
+                              value={cellValue}
+                              onChange={setCellValue}
+                              onCommit={() => commitCellEdit()}
+                              onCancel={cancelCellEdit}
+                              align="center"
+                            >
+                              {typeof p.minStockAlert === "number" ? (
+                                <span
+                                  className={`inline-flex rounded-md px-2 py-1 text-xs font-bold ${
+                                    isProductAtLimit(p)
+                                      ? "bg-amber-100 text-amber-700"
+                                      : "bg-muted text-muted-foreground"
+                                  }`}
+                                >
+                                  {p.minStockAlert} {p.unit}
+                                </span>
+                              ) : (
+                                <span className="text-xs italic text-muted-foreground">yo'q</span>
+                              )}
+                            </InlineEditCell>
                           </td>
                         )}
-                        <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">
-                          {`${p.costPrice} ${p.costCurrency}`}
+                        <td
+                          className="px-4 py-2.5 text-right tabular-nums text-muted-foreground"
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            startCellEdit(p, "costPrice");
+                          }}
+                        >
+                          <InlineEditCell
+                            active={editingCell?.id === p.id && editingCell.field === "costPrice"}
+                            value={cellValue}
+                            onChange={setCellValue}
+                            onCommit={() => commitCellEdit()}
+                            onCancel={cancelCellEdit}
+                            align="right"
+                          >
+                            {`${p.costPrice} ${p.costCurrency}`}
+                          </InlineEditCell>
                         </td>
                         {!hiddenColumns.has("wholesale") && (
-                          <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">
-                            {p.wholesalePrice ? (
-                              p.wholesaleCurrency && p.wholesaleCurrency !== "UZS" ? (
-                                `${p.wholesalePrice} ${p.wholesaleCurrency}`
-                              ) : (
-                                formatSom(p.wholesalePrice)
-                              )
-                            ) : (
-                              <span className="text-xs italic text-muted-foreground">—</span>
-                            )}
-                            {!hiddenColumns.has("margin") && (
-                              <MarginTag price={p.wholesalePrice} costPrice={p.costPrice} />
-                            )}
+                          <td
+                            className="px-4 py-2.5 text-right tabular-nums text-muted-foreground"
+                            onDoubleClick={(e) => {
+                              e.stopPropagation();
+                              startCellEdit(p, "wholesalePrice");
+                            }}
+                          >
+                            <InlinePriceEditCell
+                              active={
+                                editingCell?.id === p.id && editingCell.field === "wholesalePrice"
+                              }
+                              value={cellValue}
+                              onChange={setCellValue}
+                              percent={cellMarkupPercent}
+                              onPercentChange={updateCellMarkupPercent}
+                              warn={cellMarkupWarn}
+                              onCommit={() => commitCellEdit()}
+                              onCancel={cancelCellEdit}
+                            >
+                              <>
+                                {p.wholesalePrice ? (
+                                  p.wholesaleCurrency && p.wholesaleCurrency !== "UZS" ? (
+                                    `${p.wholesalePrice} ${p.wholesaleCurrency}`
+                                  ) : (
+                                    formatSom(p.wholesalePrice)
+                                  )
+                                ) : (
+                                  <span className="text-xs italic text-muted-foreground">—</span>
+                                )}
+                                {!hiddenColumns.has("margin") && (
+                                  <MarginTag price={p.wholesalePrice} costPrice={p.costPrice} />
+                                )}
+                              </>
+                            </InlinePriceEditCell>
                           </td>
                         )}
-                        <td className="px-4 py-2.5 text-right font-medium tabular-nums">
-                          {p.discount && (
-                            <div className="text-xs font-normal text-muted-foreground line-through">
-                              {formatSom(p.discount.originalPrice)}
-                            </div>
-                          )}
-                          {p.priceCurrency && p.priceCurrency !== "UZS"
-                            ? `${p.price} ${p.priceCurrency}`
-                            : formatSom(p.price)}
-                          {p.discount && (
-                            <span
-                              className="ml-1.5 inline-flex items-center rounded-full bg-destructive/10 px-1.5 py-0.5 text-[10px] font-bold text-destructive"
-                              title={`Chegirma ${p.discount.startDate} — ${p.discount.endDate}`}
-                            >
-                              -{p.discount.percent}%
-                            </span>
-                          )}
-                          {!hiddenColumns.has("margin") && (
-                            <MarginTag price={p.price} costPrice={p.costPrice} />
-                          )}
+                        <td
+                          className="px-4 py-2.5 text-right font-medium tabular-nums"
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            startCellEdit(p, "price");
+                          }}
+                        >
+                          <InlinePriceEditCell
+                            active={editingCell?.id === p.id && editingCell.field === "price"}
+                            value={cellValue}
+                            onChange={setCellValue}
+                            percent={cellMarkupPercent}
+                            onPercentChange={updateCellMarkupPercent}
+                            warn={cellMarkupWarn}
+                            onCommit={() => commitCellEdit()}
+                            onCancel={cancelCellEdit}
+                          >
+                            <>
+                              {p.discount && (
+                                <div className="text-xs font-normal text-muted-foreground line-through">
+                                  {formatSom(p.discount.originalPrice)}
+                                </div>
+                              )}
+                              {p.priceCurrency && p.priceCurrency !== "UZS"
+                                ? `${p.price} ${p.priceCurrency}`
+                                : formatSom(p.price)}
+                              {p.discount && (
+                                <span
+                                  className="ml-1.5 inline-flex items-center rounded-full bg-destructive/10 px-1.5 py-0.5 text-[10px] font-bold text-destructive"
+                                  title={`Chegirma ${p.discount.startDate} — ${p.discount.endDate}`}
+                                >
+                                  -{p.discount.percent}%
+                                </span>
+                              )}
+                              {!hiddenColumns.has("margin") && (
+                                <MarginTag price={p.price} costPrice={p.costPrice} />
+                              )}
+                            </>
+                          </InlinePriceEditCell>
                         </td>
                         {!hiddenColumns.has("customCode") && (
-                          <td className="px-4 py-2.5">
-                            <span className="text-xs text-muted-foreground">{p.customCode}</span>
+                          <td
+                            className="px-4 py-2.5"
+                            onDoubleClick={(e) => {
+                              e.stopPropagation();
+                              startCellEdit(p, "customCode");
+                            }}
+                          >
+                            <InlineEditCell
+                              active={
+                                editingCell?.id === p.id && editingCell.field === "customCode"
+                              }
+                              value={cellValue}
+                              onChange={setCellValue}
+                              onCommit={() => commitCellEdit()}
+                              onCancel={cancelCellEdit}
+                            >
+                              <span className="text-xs text-muted-foreground">{p.customCode}</span>
+                            </InlineEditCell>
                           </td>
                         )}
-                        <td className="px-4 py-2.5 text-right tabular-nums">
-                          <span
-                            className={
-                              variantTotalQty(p) < 10 ? "font-semibold text-destructive" : ""
-                            }
+                        <td
+                          className="px-4 py-2.5 text-right tabular-nums"
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            startCellEdit(p, "vitrinaQty");
+                          }}
+                        >
+                          <InlineEditCell
+                            active={editingCell?.id === p.id && editingCell.field === "vitrinaQty"}
+                            value={cellValue}
+                            onChange={setCellValue}
+                            onCommit={() => commitCellEdit()}
+                            onCancel={cancelCellEdit}
+                            align="right"
                           >
-                            {variantTotalQty(p)}
-                          </span>
+                            <span
+                              className={
+                                variantTotalQty(p) < 10 ? "font-semibold text-destructive" : ""
+                              }
+                            >
+                              {variantTotalQty(p)}
+                            </span>
+                          </InlineEditCell>
                         </td>
+                        {!hiddenColumns.has("boxQty") && (
+                          <td className="px-4 py-2.5">
+                            <BoxBreakdownCell
+                              qty={variantTotalQty(p)}
+                              perBox={p.perBox}
+                              packUnit={p.packUnit}
+                              unit={p.unit}
+                            />
+                          </td>
+                        )}
                         {!hiddenColumns.has("unit") && (
-                          <td className="px-4 py-2.5 text-muted-foreground">{p.unit}</td>
+                          <td
+                            className="px-4 py-2.5 text-muted-foreground"
+                            onDoubleClick={(e) => {
+                              e.stopPropagation();
+                              startCellEdit(p, "unit");
+                            }}
+                          >
+                            <InlineEditSelectCell
+                              active={editingCell?.id === p.id && editingCell.field === "unit"}
+                              value={cellValue}
+                              options={settings.units.map((u) => u.name)}
+                              onSelect={(value) => commitCellEdit(value)}
+                              onCancel={cancelCellEdit}
+                            >
+                              {p.unit}
+                            </InlineEditSelectCell>
+                          </td>
                         )}
                         {!hiddenColumns.has("shelf") && (
-                          <td className="px-4 py-2.5 text-muted-foreground">
-                            {p.shelfLocation ? (
-                              <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-1 text-xs font-bold text-primary ring-1 ring-inset ring-primary/20">
-                                {p.shelfLocation}
-                              </span>
-                            ) : (
-                              <span className="text-xs italic text-muted-foreground">
-                                belgilanmagan
-                              </span>
-                            )}
+                          <td
+                            className="px-4 py-2.5 text-muted-foreground"
+                            onDoubleClick={(e) => {
+                              e.stopPropagation();
+                              startCellEdit(p, "shelfLocation");
+                            }}
+                          >
+                            <InlineEditCell
+                              active={
+                                editingCell?.id === p.id && editingCell.field === "shelfLocation"
+                              }
+                              value={cellValue}
+                              onChange={setCellValue}
+                              onCommit={() => commitCellEdit()}
+                              onCancel={cancelCellEdit}
+                            >
+                              {p.shelfLocation ? (
+                                <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-1 text-xs font-bold text-primary ring-1 ring-inset ring-primary/20">
+                                  {p.shelfLocation}
+                                </span>
+                              ) : (
+                                <span className="text-xs italic text-muted-foreground">
+                                  belgilanmagan
+                                </span>
+                              )}
+                            </InlineEditCell>
                           </td>
                         )}
-                        <td className="px-4 py-2.5 text-muted-foreground">{p.warehouse}</td>
+                        <td
+                          className="px-4 py-2.5 text-muted-foreground"
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            startCellEdit(p, "warehouse");
+                          }}
+                        >
+                          <InlineEditSelectCell
+                            active={editingCell?.id === p.id && editingCell.field === "warehouse"}
+                            value={cellValue}
+                            options={settings.warehouses.map((w) => w.name)}
+                            onSelect={(value) => commitCellEdit(value)}
+                            onCancel={cancelCellEdit}
+                          >
+                            {p.warehouse}
+                          </InlineEditSelectCell>
+                        </td>
                       </>
                     )}
-                    <td className="px-4 py-2.5 pr-6 text-right" onClick={(e) => e.stopPropagation()}>
+                    <td
+                      className="px-4 py-2.5 pr-6 text-right"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <div className="flex justify-end gap-1">
                         <Button
                           size="icon"
@@ -2679,7 +3420,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                       const d = variantEdit.draft;
                       return (
                         <tr key={v.id} className="border-b bg-muted/20">
-                          <td colSpan={13 - hiddenColumns.size} className="p-3 pl-10">
+                          <td colSpan={14 - hiddenColumns.size} className="p-3 pl-10">
                             <div
                               className="rounded-lg border bg-card p-4 shadow-sm"
                               onClick={(event) => event.stopPropagation()}
@@ -2910,6 +3651,16 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                             {v.vitrinaQty}
                           </span>
                         </td>
+                        {!hiddenColumns.has("boxQty") && (
+                          <td className="px-4 py-2">
+                            <BoxBreakdownCell
+                              qty={v.vitrinaQty}
+                              perBox={v.perBox ?? p.perBox}
+                              packUnit={p.packUnit}
+                              unit={p.unit}
+                            />
+                          </td>
+                        )}
                         {!hiddenColumns.has("unit") && (
                           <td className="px-4 py-2 text-muted-foreground">{p.unit}</td>
                         )}
@@ -2942,7 +3693,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                   })}
                 {editingId === p.id && (
                   <tr className="border-b bg-muted/20">
-                    <td colSpan={13 - hiddenColumns.size} className="p-3">
+                    <td colSpan={14 - hiddenColumns.size} className="p-3">
                       <div
                         className="rounded-lg border bg-card p-4 shadow-sm"
                         onClick={(event) => event.stopPropagation()}
@@ -3036,28 +3787,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                             <MarkupRow
                               percent={draft.wholesaleMarkupPercent}
                               warn={draft.wholesaleMarkupWarn}
-                              onPercentChange={(value) =>
-                                updateDraft({ wholesaleMarkupPercent: value })
-                              }
-                              onApply={() => {
-                                const cost = parseNumberInput(draft.costPrice);
-                                const percent = parseNumberInput(draft.wholesaleMarkupPercent);
-                                if (!cost) {
-                                  updateDraft({ wholesaleMarkupWarn: true });
-                                  toast.error("Avval tan narxni kiriting");
-                                  return;
-                                }
-                                const result = computeMarkupPrice(
-                                  cost,
-                                  draft.costCurrency,
-                                  draft.wholesaleCurrency,
-                                  percent,
-                                );
-                                updateDraft({
-                                  wholesalePrice: formatNumberInput(String(result)),
-                                  wholesaleMarkupWarn: false,
-                                });
-                              }}
+                              onPercentChange={updateDraftWholesaleMarkupPercent}
                             />
                           </Field>
 
@@ -3075,28 +3805,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                             <MarkupRow
                               percent={draft.priceMarkupPercent}
                               warn={draft.priceMarkupWarn}
-                              onPercentChange={(value) =>
-                                updateDraft({ priceMarkupPercent: value })
-                              }
-                              onApply={() => {
-                                const cost = parseNumberInput(draft.costPrice);
-                                const percent = parseNumberInput(draft.priceMarkupPercent);
-                                if (!cost) {
-                                  updateDraft({ priceMarkupWarn: true });
-                                  toast.error("Avval tan narxni kiriting");
-                                  return;
-                                }
-                                const result = computeMarkupPrice(
-                                  cost,
-                                  draft.costCurrency,
-                                  draft.priceCurrency,
-                                  percent,
-                                );
-                                updateDraft({
-                                  price: formatNumberInput(String(result)),
-                                  priceMarkupWarn: false,
-                                });
-                              }}
+                              onPercentChange={updateDraftPriceMarkupPercent}
                             />
                           </Field>
 
@@ -3362,7 +4071,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
             {filtered.length === 0 && (
               <tr>
                 <td
-                  colSpan={13 - hiddenColumns.size}
+                  colSpan={14 - hiddenColumns.size}
                   className="px-4 py-10 text-center text-sm text-muted-foreground"
                 >
                   Hech narsa topilmadi
@@ -3447,12 +4156,12 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                   type="button"
                   onClick={() => {
                     setEditMenuOpen(false);
-                    openMergeAgentDialog();
+                    openMergeSupplierDialog();
                   }}
                   className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm font-medium hover:bg-muted"
                 >
                   <Link2 className="h-4 w-4" />
-                  Tovarni agentga birlashtirish
+                  Tovarni yetkazib beruvchiga birlashtirish
                 </button>
                 <button
                   type="button"
@@ -3692,8 +4401,8 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
             <div className="rounded-lg border bg-muted/30 p-3 text-sm">
               <div className="font-semibold">{discountRows.length} ta mahsulot tanlangan</div>
               <div className="mt-1 text-xs text-muted-foreground">
-                Har bir tovar uchun chegirma qiymatini kiriting. Belgilangan muddat tugagach,
-                tovar narxi avtomatik asl holiga qaytadi.
+                Har bir tovar uchun chegirma qiymatini kiriting. Belgilangan muddat tugagach, tovar
+                narxi avtomatik asl holiga qaytadi.
               </div>
             </div>
 
@@ -3827,9 +4536,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                 const bulkActive = discountApplyMode === "bulk" && discountRows.length > 1;
                 const mode = bulkActive ? bulkMode : discountMode;
                 const value = bulkActive ? bulkValue : Number(row.valueStr);
-                const hasValue = bulkActive
-                  ? value > 0
-                  : row.valueStr.trim() !== "" && value > 0;
+                const hasValue = bulkActive ? value > 0 : row.valueStr.trim() !== "" && value > 0;
                 const newPrice = hasValue
                   ? computeDiscountedPrice(row.originalPrice, { mode, value })
                   : null;
@@ -3856,9 +4563,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                           min={0}
                           value={row.valueStr}
                           onChange={(e) => updateDiscountValue(row.id, e.target.value)}
-                          placeholder={
-                            discountMode === "percent" ? "0" : String(row.originalPrice)
-                          }
+                          placeholder={discountMode === "percent" ? "0" : String(row.originalPrice)}
                           className="h-9 w-28 text-right"
                         />
                         <span className="w-10 text-xs text-muted-foreground">
@@ -3883,45 +4588,45 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={mergeAgentOpen} onOpenChange={setMergeAgentOpen}>
+      <Dialog open={mergeSupplierOpen} onOpenChange={setMergeSupplierOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Link2 className="h-5 w-5" />
-              Tovarni agentga birlashtirish
+              Tovarni yetkazib beruvchiga birlashtirish
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="rounded-lg border bg-muted/30 p-3 text-sm">
               <div className="font-semibold">{selectedProducts.length} ta mahsulot tanlangan</div>
               <div className="mt-1 text-xs text-muted-foreground">
-                Tovarlar shu agentdan kelgan deb belgilanadi. Keyingi safar shu tovarlar qabul
-                qilinganda agent avtomatik aniqlanadi.
+                Tovarlar shu yetkazib beruvchidan kelgan deb belgilanadi. Keyingi safar shu tovarlar
+                qabul qilinganda yetkazib beruvchi avtomatik aniqlanadi.
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label className="text-xs">Agent</Label>
+              <Label className="text-xs">Yetkazib beruvchi</Label>
               <Select
-                value={mergeAgentId}
+                value={mergeSupplierId}
                 onValueChange={(value) => {
-                  setMergeAgentId(value);
+                  setMergeSupplierId(value);
                   if (value === "__new__") {
-                    setMergeAgentName("");
-                    setMergeAgentPhone("");
+                    setMergeSupplierName("");
+                    setMergeSupplierPhone("");
                     return;
                   }
-                  const agent = agents.find((item: AgentSummary) => item.id === value);
+                  const agent = agents.find((item: SupplierSummary) => item.id === value);
                   if (!agent) return;
-                  setMergeAgentName(agent.name);
-                  setMergeAgentPhone(agent.phone);
+                  setMergeSupplierName(agent.name);
+                  setMergeSupplierPhone(agent.phone);
                 }}
               >
                 <SelectTrigger className="h-9 text-sm">
-                  <SelectValue placeholder="Agent tanlang" />
+                  <SelectValue placeholder="Yetkazib beruvchi tanlang" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__new__">+ Yangi agent</SelectItem>
+                  <SelectItem value="__new__">+ Yangi yetkazib beruvchi</SelectItem>
                   {agents.map((agent) => (
                     <SelectItem key={agent.id} value={agent.id}>
                       {agent.name}
@@ -3931,22 +4636,22 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
               </Select>
             </div>
 
-            {mergeAgentId === "__new__" && (
+            {mergeSupplierId === "__new__" && (
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Agent ismi</Label>
+                  <Label className="text-xs">Yetkazib beruvchi ismi</Label>
                   <Input
-                    value={mergeAgentName}
-                    onChange={(e) => setMergeAgentName(e.target.value)}
-                    placeholder="Masalan: Bekzod Agent"
+                    value={mergeSupplierName}
+                    onChange={(e) => setMergeSupplierName(e.target.value)}
+                    placeholder="Masalan: Bekzod Ta'minot"
                     className="h-9 text-sm"
                   />
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs">Telefon (ixtiyoriy)</Label>
                   <Input
-                    value={mergeAgentPhone}
-                    onChange={(e) => setMergeAgentPhone(e.target.value)}
+                    value={mergeSupplierPhone}
+                    onChange={(e) => setMergeSupplierPhone(e.target.value)}
                     placeholder="+998 XX XXX XX XX"
                     className="h-9 text-sm"
                   />
@@ -3966,8 +4671,8 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                 >
                   <div className="font-semibold">Joriy qoldiq bo'yicha qarz sifatida</div>
                   <div className="mt-0.5 text-muted-foreground">
-                    Tanlangan tovarlarning hozirgi qoldig'i tan narxda hisoblanib, agentga qarz
-                    sifatida yoziladi:{" "}
+                    Tanlangan tovarlarning hozirgi qoldig'i tan narxda hisoblanib, yetkazib
+                    beruvchiga qarz sifatida yoziladi:{" "}
                     <span className="font-semibold text-foreground">
                       {formatSom(mergeTotalCost)}
                     </span>
@@ -3983,7 +4688,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                   <div className="font-semibold">0 qarz bilan birlashtirish</div>
                   <div className="mt-0.5 text-muted-foreground">
                     Hozirgi qoldiq uchun qarz yozilmaydi — faqat keyingi safar shu tovarlar qabul
-                    qilinganda agentga qarz hisoblana boshlaydi.
+                    qilinganda yetkazib beruvchiga qarz hisoblana boshlaydi.
                   </div>
                 </button>
               </div>
@@ -4000,10 +4705,10 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setMergeAgentOpen(false)}>
+            <Button variant="outline" onClick={() => setMergeSupplierOpen(false)}>
               Bekor
             </Button>
-            <Button onClick={confirmMergeAgent} className="gap-2">
+            <Button onClick={confirmMergeSupplier} className="gap-2">
               <Link2 className="h-4 w-4" />
               Birlashtirish
             </Button>
@@ -4016,7 +4721,7 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
           currencies={excelCurrencies}
           stocks={excelStocks}
           shelfNumbers={excelShelfNumbers}
-          agents={excelAgents}
+          agents={excelSuppliers}
           onClose={() => setExcelModalOpen(false)}
           onSubmit={handleExcelSubmit}
         />
@@ -4367,9 +5072,8 @@ function BulkEditPage({
                   value={row.shelfLocation || "NONE"}
                   onValueChange={(value) => {
                     const next = value === "NONE" ? "" : value;
-                    index === 0
-                      ? changeFirstRowField("shelfLocation", next)
-                      : onUpdateRow(row.id, { shelfLocation: next });
+                    if (index === 0) changeFirstRowField("shelfLocation", next);
+                    else onUpdateRow(row.id, { shelfLocation: next });
                   }}
                 >
                   <SelectTrigger className="h-9 text-xs">

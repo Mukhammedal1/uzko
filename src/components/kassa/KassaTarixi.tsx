@@ -1,13 +1,26 @@
 import * as React from "react";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import {
-  MOCK_RECEIPTS, MOCK_CASH_CLOSES, MOCK_WITHDRAWALS, MOCK_DEBT_PAYMENTS,
-  MOCK_ONE_TIME_ITEMS, MOCK_RECEIPT_EDIT_HISTORY,
-  formatSom, type Receipt, type CashClose, type CashWithdrawal, type DebtPayment, type OneTimeItemHistory,
+  MOCK_RECEIPTS,
+  MOCK_CASH_CLOSES,
+  MOCK_WITHDRAWALS,
+  MOCK_DEBT_PAYMENTS,
+  MOCK_ONE_TIME_ITEMS,
+  MOCK_RECEIPT_EDIT_HISTORY,
+  formatSom,
+  type Receipt,
+  type CashClose,
+  type CashWithdrawal,
+  type DebtPayment,
+  type OneTimeItemHistory,
   type EditedReceiptHistory,
 } from "@/lib/mock-data";
 import {
@@ -25,7 +38,7 @@ import { PeriodFilter, type PeriodFilterValue } from "@/components/shared/Period
 const TABS = [
   { id: "yopish", label: "Kassa yopish" },
   { id: "chiqim", label: "Pul chiqarish" },
-  { id: "qarz",   label: "Qarz so'ndirish" },
+  { id: "qarz", label: "Qarz so'ndirish" },
   { id: "bir_martalik", label: "Bir martalik tovarlar" },
   { id: "tahrirlangan", label: "Tahrirlangan cheklar" },
 ] as const;
@@ -33,10 +46,10 @@ type Tab = (typeof TABS)[number]["id"];
 type Period = PeriodFilterValue;
 
 type PickedItem =
-  | { kind: "sotuv";  data: Receipt }
+  | { kind: "sotuv"; data: Receipt }
   | { kind: "yopish"; data: CashClose }
   | { kind: "chiqim"; data: CashWithdrawal }
-  | { kind: "qarz";   data: DebtPayment }
+  | { kind: "qarz"; data: DebtPayment }
   | { kind: "bir_martalik"; data: OneTimeItemHistory };
 
 const now = new Date("2026-05-07T12:00:00");
@@ -67,24 +80,33 @@ function inDateRange(date: string, period: Period, from: string, to: string) {
   let end: Date | null = null;
 
   if (period === "today") {
-    start = new Date(now); start.setHours(0, 0, 0, 0);
-    end = new Date(now); end.setHours(23, 59, 59, 999);
+    start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    end = new Date(now);
+    end.setHours(23, 59, 59, 999);
   }
   if (period === "yesterday") {
-    start = new Date(now); start.setDate(start.getDate() - 1); start.setHours(0, 0, 0, 0);
-    end = new Date(now); end.setDate(end.getDate() - 1); end.setHours(23, 59, 59, 999);
+    start = new Date(now);
+    start.setDate(start.getDate() - 1);
+    start.setHours(0, 0, 0, 0);
+    end = new Date(now);
+    end.setDate(end.getDate() - 1);
+    end.setHours(23, 59, 59, 999);
   }
   if (period === "week") {
     start = startOfWeek(now);
-    end = new Date(now); end.setHours(23, 59, 59, 999);
+    end = new Date(now);
+    end.setHours(23, 59, 59, 999);
   }
   if (period === "month") {
     start = startOfMonth(now);
-    end = new Date(now); end.setHours(23, 59, 59, 999);
+    end = new Date(now);
+    end.setHours(23, 59, 59, 999);
   }
   if (period === "year") {
     start = startOfYear(now);
-    end = new Date(now); end.setHours(23, 59, 59, 999);
+    end = new Date(now);
+    end.setHours(23, 59, 59, 999);
   }
   if (period === "custom") {
     if (from) start = new Date(`${from}T00:00:00`);
@@ -103,7 +125,11 @@ function receiptCategory(r: Receipt) {
 }
 
 function closeTotal(r: CashClose) {
-  return r.cash + r.cards.reduce((s, c) => s + c.amount, 0) + r.currencies.reduce((s, c) => s + c.amount, 0);
+  return (
+    r.cash +
+    r.cards.reduce((s, c) => s + c.amount, 0) +
+    r.currencies.reduce((s, c) => s + c.amount, 0)
+  );
 }
 
 function withdrawalTotal(r: CashWithdrawal) {
@@ -117,25 +143,30 @@ export function KassaTarixi() {
   const [from, setFrom] = React.useState("");
   const [to, setTo] = React.useState("");
 
-  const filteredCloses = React.useMemo(() => MOCK_CASH_CLOSES.filter((r) =>
-    inDateRange(r.date, period, from, to)
-  ), [period, from, to]);
+  const filteredCloses = React.useMemo(
+    () => MOCK_CASH_CLOSES.filter((r) => inDateRange(r.date, period, from, to)),
+    [period, from, to],
+  );
 
-  const filteredWithdrawals = React.useMemo(() => MOCK_WITHDRAWALS.filter((r) =>
-    inDateRange(r.date, period, from, to)
-  ), [period, from, to]);
+  const filteredWithdrawals = React.useMemo(
+    () => MOCK_WITHDRAWALS.filter((r) => inDateRange(r.date, period, from, to)),
+    [period, from, to],
+  );
 
-  const filteredDebtPayments = React.useMemo(() => MOCK_DEBT_PAYMENTS.filter((r) =>
-    inDateRange(r.date, period, from, to)
-  ), [period, from, to]);
+  const filteredDebtPayments = React.useMemo(
+    () => MOCK_DEBT_PAYMENTS.filter((r) => inDateRange(r.date, period, from, to)),
+    [period, from, to],
+  );
 
-  const filteredOneTimeItems = React.useMemo(() => MOCK_ONE_TIME_ITEMS.filter((r) =>
-    inDateRange(r.date, period, from, to)
-  ), [period, from, to]);
+  const filteredOneTimeItems = React.useMemo(
+    () => MOCK_ONE_TIME_ITEMS.filter((r) => inDateRange(r.date, period, from, to)),
+    [period, from, to],
+  );
 
-  const filteredEditedReceipts = React.useMemo(() => MOCK_RECEIPT_EDIT_HISTORY.filter((r) =>
-    inDateRange(r.date, period, from, to)
-  ), [period, from, to]);
+  const filteredEditedReceipts = React.useMemo(
+    () => MOCK_RECEIPT_EDIT_HISTORY.filter((r) => inDateRange(r.date, period, from, to)),
+    [period, from, to],
+  );
 
   const total = React.useMemo(() => {
     if (tab === "yopish") return filteredCloses.reduce((s, r) => s + closeTotal(r), 0);
@@ -143,16 +174,26 @@ export function KassaTarixi() {
     if (tab === "qarz") return filteredDebtPayments.reduce((s, r) => s + r.amount, 0);
     if (tab === "tahrirlangan") return filteredEditedReceipts.length;
     return filteredOneTimeItems.reduce((s, r) => s + r.total, 0);
-  }, [tab, filteredCloses, filteredWithdrawals, filteredDebtPayments, filteredOneTimeItems, filteredEditedReceipts]);
+  }, [
+    tab,
+    filteredCloses,
+    filteredWithdrawals,
+    filteredDebtPayments,
+    filteredOneTimeItems,
+    filteredEditedReceipts,
+  ]);
 
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-card p-3">
         <div className="flex flex-wrap gap-2">
           {TABS.map((t) => (
-            <Button key={t.id} size="sm"
+            <Button
+              key={t.id}
+              size="sm"
               variant={tab === t.id ? "default" : "outline"}
-              onClick={() => setTab(t.id)}>
+              onClick={() => setTab(t.id)}
+            >
               {t.label}
             </Button>
           ))}
@@ -172,15 +213,45 @@ export function KassaTarixi() {
           <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
             <Filter className="h-4 w-4" /> Filter
           </div>
-          <PeriodFilter value={period} onValueChange={setPeriod} from={from} to={to} onFromChange={setFrom} onToChange={setTo} hideAllOption showYesterdayOption instantSingleDay />
+          <PeriodFilter
+            value={period}
+            onValueChange={setPeriod}
+            from={from}
+            to={to}
+            onFromChange={setFrom}
+            onToChange={setTo}
+            hideAllOption
+            showYesterdayOption
+            instantSingleDay
+          />
         </div>
       </div>
 
       <div className="flex-1 overflow-auto p-3">
-        {tab === "yopish" && <YopishList rows={filteredCloses} onPick={(r) => setPicked({ kind: "yopish", data: r })} />}
-        {tab === "chiqim" && <ChiqimList rows={filteredWithdrawals} onPick={(r) => setPicked({ kind: "chiqim", data: r })} />}
-        {tab === "qarz"   && <QarzList rows={filteredDebtPayments} onPick={(r) => setPicked({ kind: "qarz",   data: r })} />}
-        {tab === "bir_martalik" && <OneTimeList rows={filteredOneTimeItems} onPick={(r) => setPicked({ kind: "bir_martalik", data: r })} />}
+        {tab === "yopish" && (
+          <YopishList
+            rows={filteredCloses}
+            onPick={(r) => setPicked({ kind: "yopish", data: r })}
+          />
+        )}
+        {tab === "chiqim" && (
+          <ChiqimList
+            rows={filteredWithdrawals}
+            onPick={(r) => setPicked({ kind: "chiqim", data: r })}
+          />
+        )}
+        {tab === "qarz" && (
+          <QarzList
+            rows={filteredDebtPayments}
+            onPick={(r) => setPicked({ kind: "qarz", data: r })}
+          />
+        )}
+        {tab === "bir_martalik" && (
+          <OneTimeList
+            rows={filteredOneTimeItems}
+            onPick={(r) => setPicked({ kind: "bir_martalik", data: r })}
+          />
+        )}
         {tab === "tahrirlangan" && <EditedReceiptsList rows={filteredEditedReceipts} />}
       </div>
 
@@ -233,7 +304,9 @@ function OneTimeDetailDialog({
                     <div className="text-xs text-muted-foreground">
                       {item.qty} {item.unit} × {formatSom(item.price)}
                     </div>
-                    {item.note && <div className="mt-1 text-xs text-muted-foreground">Izoh: {item.note}</div>}
+                    {item.note && (
+                      <div className="mt-1 text-xs text-muted-foreground">Izoh: {item.note}</div>
+                    )}
                   </div>
                   <div className="shrink-0 font-semibold tabular-nums">
                     {formatSom(item.price * item.qty)}
@@ -246,7 +319,9 @@ function OneTimeDetailDialog({
           <NoteBlock>Bu yozuv faqat ko'rish uchun. Edit yoki delete huquqi berilmagan.</NoteBlock>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Yopish</Button>
+          <Button variant="outline" onClick={onClose}>
+            Yopish
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -289,7 +364,9 @@ function CashCloseDetailDialog({ record, onClose }: { record: CashClose; onClose
           {record.note && <NoteBlock>{record.note}</NoteBlock>}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Yopish</Button>
+          <Button variant="outline" onClick={onClose}>
+            Yopish
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -317,11 +394,17 @@ function WithdrawalDetailDialog({
             <Info label="Kassir" value={record.cashier} />
             <Info label="Sana" value={new Date(record.date).toLocaleString("uz-UZ")} />
             <Info label="Kategoriya" value={record.category} />
-            <Info label="Agent ID" value={record.agentId || "-"} />
-            <Info label="Xodim" value={record.employeeName ? `${record.employeeId} — ${record.employeeName}` : "-"} />
+            <Info label="Yetkazib beruvchi ID" value={record.supplierId || "-"} />
+            <Info
+              label="Xodim"
+              value={record.employeeName ? `${record.employeeId} — ${record.employeeName}` : "-"}
+            />
             <Info label="Naqd" value={formatSom(record.cash)} accent />
             <Info label="Karta" value={formatSom(record.cardAmount)} />
-            <Info label="Valyuta" value={formatSom(record.currencies.reduce((s, c) => s + c.amount, 0))} />
+            <Info
+              label="Valyuta"
+              value={formatSom(record.currencies.reduce((s, c) => s + c.amount, 0))}
+            />
             <Info label="Jami" value={formatSom(withdrawalTotal(record))} accent />
           </InfoGrid>
 
@@ -340,7 +423,9 @@ function WithdrawalDetailDialog({
           {record.note && <NoteBlock>{record.note}</NoteBlock>}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Yopish</Button>
+          <Button variant="outline" onClick={onClose}>
+            Yopish
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -389,7 +474,9 @@ function DebtPaymentDetailDialog({
           {record.note && <NoteBlock>{record.note}</NoteBlock>}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Yopish</Button>
+          <Button variant="outline" onClick={onClose}>
+            Yopish
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -472,7 +559,9 @@ function ReceiptDetailDialog({ receipt, onClose }: { receipt: Receipt; onClose: 
             <span className="text-muted-foreground">Sana:</span>
             <span className="font-medium">{new Date(receipt.date).toLocaleString("uz-UZ")}</span>
             <span className="text-muted-foreground">Mijoz turi:</span>
-            <span className="font-medium">{receipt.customerType === "oddiy" ? "Oddiy" : "Nasiya"}</span>
+            <span className="font-medium">
+              {receipt.customerType === "oddiy" ? "Oddiy" : "Nasiya"}
+            </span>
             {receipt.customerName && (
               <>
                 <span className="text-muted-foreground">Mijoz:</span>
@@ -510,14 +599,24 @@ function ReceiptDetailDialog({ receipt, onClose }: { receipt: Receipt; onClose: 
                       <div className="flex items-center gap-2 font-medium">
                         {it.name}
                         {it.source === "one-time" && (
-                          <Badge variant="secondary" className="text-[9px]">bir martalik</Badge>
+                          <Badge variant="secondary" className="text-[9px]">
+                            bir martalik
+                          </Badge>
                         )}
                       </div>
-                      {it.note && <div className="text-xs text-muted-foreground">Izoh: {it.note}</div>}
+                      {it.note && (
+                        <div className="text-xs text-muted-foreground">Izoh: {it.note}</div>
+                      )}
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{formatSom(it.price)}</td>
-                    <td className="px-3 py-2 text-center tabular-nums">{it.qty} <span className="text-xs text-muted-foreground">{it.unit}</span></td>
-                    <td className="px-3 py-2 text-right font-semibold tabular-nums">{formatSom(it.price * it.qty)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                      {formatSom(it.price)}
+                    </td>
+                    <td className="px-3 py-2 text-center tabular-nums">
+                      {it.qty} <span className="text-xs text-muted-foreground">{it.unit}</span>
+                    </td>
+                    <td className="px-3 py-2 text-right font-semibold tabular-nums">
+                      {formatSom(it.price * it.qty)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -542,7 +641,9 @@ function ReceiptDetailDialog({ receipt, onClose }: { receipt: Receipt; onClose: 
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Yopish</Button>
+          <Button variant="outline" onClick={onClose}>
+            Yopish
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -550,30 +651,67 @@ function ReceiptDetailDialog({ receipt, onClose }: { receipt: Receipt; onClose: 
 }
 
 function Th({ children }: { children: React.ReactNode }) {
-  return <th className="px-3 py-1.5 text-left text-xs font-semibold uppercase text-muted-foreground">{children}</th>;
+  return (
+    <th className="px-3 py-1.5 text-left text-xs font-semibold uppercase text-muted-foreground">
+      {children}
+    </th>
+  );
 }
 
 function SotuvList({ rows, onPick }: { rows: Receipt[]; onPick: (r: Receipt) => void }) {
   return (
     <table className="w-full text-sm">
-      <thead className="bg-muted/50"><tr>
-        <Th>Chek</Th><Th>Sotuvchi</Th><Th>Kategoriya</Th><Th>Mijoz</Th><Th>Summa</Th><Th>Sana</Th><th></th>
-      </tr></thead>
+      <thead className="bg-muted/50">
+        <tr>
+          <Th>Chek</Th>
+          <Th>Sotuvchi</Th>
+          <Th>Kategoriya</Th>
+          <Th>Mijoz</Th>
+          <Th>Summa</Th>
+          <Th>Sana</Th>
+          <th></th>
+        </tr>
+      </thead>
       <tbody>
-        {rows.length === 0 && <tr><td colSpan={7} className="p-6 text-center text-muted-foreground">Bu filter bo'yicha ma'lumot yo'q</td></tr>}
+        {rows.length === 0 && (
+          <tr>
+            <td colSpan={7} className="p-6 text-center text-muted-foreground">
+              Bu filter bo'yicha ma'lumot yo'q
+            </td>
+          </tr>
+        )}
         {rows.map((r) => (
-          <tr key={r.id} className="cursor-pointer border-b hover:bg-muted/40" onClick={() => onPick(r)}>
+          <tr
+            key={r.id}
+            className="cursor-pointer border-b hover:bg-muted/40"
+            onClick={() => onPick(r)}
+          >
             <td className="px-3 py-1.5 font-mono text-xs">{r.id}</td>
             <td className="px-3 py-1.5">{r.cashier}</td>
-            <td className="px-3 py-1.5"><Badge variant="secondary" className="text-[10px]">{receiptCategory(r)}</Badge></td>
+            <td className="px-3 py-1.5">
+              <Badge variant="secondary" className="text-[10px]">
+                {receiptCategory(r)}
+              </Badge>
+            </td>
             <td className="px-3 py-1.5 text-xs">
-              {r.customerName
-                ? <><span className="font-medium">{r.customerName}</span> <Badge variant="secondary" className="text-[9px] ml-1">nasiya</Badge></>
-                : r.customerType}
+              {r.customerName ? (
+                <>
+                  <span className="font-medium">{r.customerName}</span>{" "}
+                  <Badge variant="secondary" className="text-[9px] ml-1">
+                    nasiya
+                  </Badge>
+                </>
+              ) : (
+                r.customerType
+              )}
             </td>
             <td className="px-3 py-1.5 font-semibold tabular-nums">{formatSom(r.total)}</td>
-            <td className="px-3 py-1.5 text-xs text-muted-foreground">{new Date(r.date).toLocaleString("uz-UZ")}</td>
-            <td className="px-3 py-1.5 text-muted-foreground"><ChevronRight className="h-4 w-4" /></td>
+            <td className="px-3 py-1.5 text-xs text-muted-foreground">
+              {new Date(r.date).toLocaleString("uz-UZ")}
+            </td>
+            <td className="px-3 py-1.5 text-muted-foreground">
+              <ChevronRight className="h-4 w-4" />
+            </td>
           </tr>
         ))}
       </tbody>
@@ -584,18 +722,42 @@ function SotuvList({ rows, onPick }: { rows: Receipt[]; onPick: (r: Receipt) => 
 function YopishList({ rows, onPick }: { rows: CashClose[]; onPick: (r: CashClose) => void }) {
   return (
     <table className="w-full text-sm">
-      <thead className="bg-muted/50"><tr><Th>ID</Th><Th>Kim</Th><Th>Naqd</Th><Th>Karta</Th><Th>Jami</Th><Th>Kamomat</Th><Th>Sana</Th></tr></thead>
+      <thead className="bg-muted/50">
+        <tr>
+          <Th>ID</Th>
+          <Th>Kim</Th>
+          <Th>Naqd</Th>
+          <Th>Karta</Th>
+          <Th>Jami</Th>
+          <Th>Kamomat</Th>
+          <Th>Sana</Th>
+        </tr>
+      </thead>
       <tbody>
-        {rows.length === 0 && <tr><td colSpan={7} className="p-6 text-center text-muted-foreground">Bu filter bo'yicha ma'lumot yo'q</td></tr>}
+        {rows.length === 0 && (
+          <tr>
+            <td colSpan={7} className="p-6 text-center text-muted-foreground">
+              Bu filter bo'yicha ma'lumot yo'q
+            </td>
+          </tr>
+        )}
         {rows.map((r) => (
-          <tr key={r.id} className="cursor-pointer border-b hover:bg-muted/40" onClick={() => onPick(r)}>
+          <tr
+            key={r.id}
+            className="cursor-pointer border-b hover:bg-muted/40"
+            onClick={() => onPick(r)}
+          >
             <td className="px-3 py-1.5 font-mono text-xs">{r.id}</td>
             <td className="px-3 py-1.5">{r.cashier}</td>
             <td className="px-3 py-1.5 tabular-nums">{formatSom(r.cash)}</td>
-            <td className="px-3 py-1.5 tabular-nums">{formatSom(r.cards.reduce((s, c) => s + c.amount, 0))}</td>
+            <td className="px-3 py-1.5 tabular-nums">
+              {formatSom(r.cards.reduce((s, c) => s + c.amount, 0))}
+            </td>
             <td className="px-3 py-1.5 font-semibold tabular-nums">{formatSom(closeTotal(r))}</td>
             <td className="px-3 py-1.5 tabular-nums">{formatSom(r.shortage)}</td>
-            <td className="px-3 py-1.5 text-xs text-muted-foreground">{new Date(r.date).toLocaleString("uz-UZ")}</td>
+            <td className="px-3 py-1.5 text-xs text-muted-foreground">
+              {new Date(r.date).toLocaleString("uz-UZ")}
+            </td>
           </tr>
         ))}
       </tbody>
@@ -603,22 +765,55 @@ function YopishList({ rows, onPick }: { rows: CashClose[]; onPick: (r: CashClose
   );
 }
 
-function ChiqimList({ rows, onPick }: { rows: CashWithdrawal[]; onPick: (r: CashWithdrawal) => void }) {
+function ChiqimList({
+  rows,
+  onPick,
+}: {
+  rows: CashWithdrawal[];
+  onPick: (r: CashWithdrawal) => void;
+}) {
   return (
     <table className="w-full text-sm">
-      <thead className="bg-muted/50"><tr><Th>ID</Th><Th>Kim</Th><Th>Kategoriya</Th><Th>Agent/Xodim</Th><Th>Summa</Th><Th>Sana</Th></tr></thead>
+      <thead className="bg-muted/50">
+        <tr>
+          <Th>ID</Th>
+          <Th>Kim</Th>
+          <Th>Kategoriya</Th>
+          <Th>Yetkazib beruvchi/Xodim</Th>
+          <Th>Summa</Th>
+          <Th>Sana</Th>
+        </tr>
+      </thead>
       <tbody>
-        {rows.length === 0 && <tr><td colSpan={6} className="p-6 text-center text-muted-foreground">Bu filter bo'yicha ma'lumot yo'q</td></tr>}
+        {rows.length === 0 && (
+          <tr>
+            <td colSpan={6} className="p-6 text-center text-muted-foreground">
+              Bu filter bo'yicha ma'lumot yo'q
+            </td>
+          </tr>
+        )}
         {rows.map((r) => (
-          <tr key={r.id} className="cursor-pointer border-b hover:bg-muted/40" onClick={() => onPick(r)}>
+          <tr
+            key={r.id}
+            className="cursor-pointer border-b hover:bg-muted/40"
+            onClick={() => onPick(r)}
+          >
             <td className="px-3 py-1.5 font-mono text-xs">{r.id}</td>
             <td className="px-3 py-1.5">{r.cashier}</td>
-            <td className="px-3 py-1.5"><Badge variant="secondary" className="text-[10px]">{r.category}</Badge></td>
-            <td className="px-3 py-1.5 text-xs text-muted-foreground">
-              {r.employeeName ? `${r.employeeId} — ${r.employeeName}` : r.agentId || "—"}
+            <td className="px-3 py-1.5">
+              <Badge variant="secondary" className="text-[10px]">
+                {r.category}
+              </Badge>
             </td>
-            <td className="px-3 py-1.5 font-semibold tabular-nums">{formatSom(withdrawalTotal(r))}</td>
-            <td className="px-3 py-1.5 text-xs text-muted-foreground">{new Date(r.date).toLocaleString("uz-UZ")}</td>
+            <td className="px-3 py-1.5 text-xs text-muted-foreground">
+              {r.employeeName ? `${r.employeeId} — ${r.employeeName}` : r.supplierId || "—"}
+            </td>
+            <td className="px-3 py-1.5 font-semibold tabular-nums">
+              {formatSom(withdrawalTotal(r))}
+            </td>
+            <td className="px-3 py-1.5 text-xs text-muted-foreground">
+              {new Date(r.date).toLocaleString("uz-UZ")}
+            </td>
           </tr>
         ))}
       </tbody>
@@ -629,17 +824,40 @@ function ChiqimList({ rows, onPick }: { rows: CashWithdrawal[]; onPick: (r: Cash
 function QarzList({ rows, onPick }: { rows: DebtPayment[]; onPick: (r: DebtPayment) => void }) {
   return (
     <table className="w-full text-sm">
-      <thead className="bg-muted/50"><tr><Th>ID</Th><Th>Kim</Th><Th>Mijoz</Th><Th>Summa</Th><Th>Kategoriya</Th><Th>Sana</Th></tr></thead>
+      <thead className="bg-muted/50">
+        <tr>
+          <Th>ID</Th>
+          <Th>Kim</Th>
+          <Th>Mijoz</Th>
+          <Th>Summa</Th>
+          <Th>Kategoriya</Th>
+          <Th>Sana</Th>
+        </tr>
+      </thead>
       <tbody>
-        {rows.length === 0 && <tr><td colSpan={6} className="p-6 text-center text-muted-foreground">Bu filter bo'yicha ma'lumot yo'q</td></tr>}
+        {rows.length === 0 && (
+          <tr>
+            <td colSpan={6} className="p-6 text-center text-muted-foreground">
+              Bu filter bo'yicha ma'lumot yo'q
+            </td>
+          </tr>
+        )}
         {rows.map((r) => (
-          <tr key={r.id} className="cursor-pointer border-b hover:bg-muted/40" onClick={() => onPick(r)}>
+          <tr
+            key={r.id}
+            className="cursor-pointer border-b hover:bg-muted/40"
+            onClick={() => onPick(r)}
+          >
             <td className="px-3 py-1.5 font-mono text-xs">{r.id}</td>
             <td className="px-3 py-1.5">{r.cashier}</td>
             <td className="px-3 py-1.5">{r.customerName}</td>
             <td className="px-3 py-1.5 font-semibold tabular-nums">{formatSom(r.amount)}</td>
-            <td className="px-3 py-1.5 text-xs"><Badge variant="outline">{r.method === "naqd" ? "Naqd" : "Karta"}</Badge></td>
-            <td className="px-3 py-1.5 text-xs text-muted-foreground">{new Date(r.date).toLocaleString("uz-UZ")}</td>
+            <td className="px-3 py-1.5 text-xs">
+              <Badge variant="outline">{r.method === "naqd" ? "Naqd" : "Karta"}</Badge>
+            </td>
+            <td className="px-3 py-1.5 text-xs text-muted-foreground">
+              {new Date(r.date).toLocaleString("uz-UZ")}
+            </td>
           </tr>
         ))}
       </tbody>
@@ -650,21 +868,37 @@ function QarzList({ rows, onPick }: { rows: DebtPayment[]; onPick: (r: DebtPayme
 function EditedReceiptsList({ rows }: { rows: EditedReceiptHistory[] }) {
   return (
     <table className="w-full text-sm">
-      <thead className="bg-muted/50"><tr>
-        <Th>Sana</Th><Th>Chek</Th><Th>Amal</Th><Th>O'zgarishlar</Th><Th>Eski summa</Th><Th>Yangi summa</Th><Th>Kim tahrirladi</Th>
-      </tr></thead>
+      <thead className="bg-muted/50">
+        <tr>
+          <Th>Sana</Th>
+          <Th>Chek</Th>
+          <Th>Amal</Th>
+          <Th>O'zgarishlar</Th>
+          <Th>Eski summa</Th>
+          <Th>Yangi summa</Th>
+          <Th>Kim tahrirladi</Th>
+        </tr>
+      </thead>
       <tbody>
         {rows.length === 0 && (
-          <tr><td colSpan={7} className="p-6 text-center text-muted-foreground">Tahrirlangan cheklar topilmadi</td></tr>
+          <tr>
+            <td colSpan={7} className="p-6 text-center text-muted-foreground">
+              Tahrirlangan cheklar topilmadi
+            </td>
+          </tr>
         )}
         {rows.map((r) => (
           <tr key={r.id} className="border-b hover:bg-muted/40">
-            <td className="px-3 py-1.5 text-xs text-muted-foreground">{new Date(r.date).toLocaleString("uz-UZ")}</td>
+            <td className="px-3 py-1.5 text-xs text-muted-foreground">
+              {new Date(r.date).toLocaleString("uz-UZ")}
+            </td>
             <td className="px-3 py-1.5 font-mono text-xs">{r.receiptId}</td>
             <td className="px-3 py-1.5">
               <Badge
                 variant="outline"
-                className={"gap-1 " + (r.action === "delete" ? "border-destructive/40 text-destructive" : "")}
+                className={
+                  "gap-1 " + (r.action === "delete" ? "border-destructive/40 text-destructive" : "")
+                }
               >
                 <Pencil className="h-3 w-3" />
                 {r.action === "delete" ? "O'chirildi" : "Tahrirlandi"}
@@ -677,7 +911,11 @@ function EditedReceiptsList({ rows }: { rows: EditedReceiptHistory[] }) {
             </td>
             <td className="px-3 py-1.5 tabular-nums">{formatSom(r.oldTotal)}</td>
             <td className="px-3 py-1.5 font-semibold tabular-nums">{formatSom(r.newTotal)}</td>
-            <td className="px-3 py-1.5"><Badge variant="secondary" className="text-[10px]">{r.editedBy}</Badge></td>
+            <td className="px-3 py-1.5">
+              <Badge variant="secondary" className="text-[10px]">
+                {r.editedBy}
+              </Badge>
+            </td>
           </tr>
         ))}
       </tbody>
@@ -685,14 +923,40 @@ function EditedReceiptsList({ rows }: { rows: EditedReceiptHistory[] }) {
   );
 }
 
-function OneTimeList({ rows, onPick }: { rows: OneTimeItemHistory[]; onPick: (r: OneTimeItemHistory) => void }) {
+function OneTimeList({
+  rows,
+  onPick,
+}: {
+  rows: OneTimeItemHistory[];
+  onPick: (r: OneTimeItemHistory) => void;
+}) {
   return (
     <table className="w-full text-sm">
-      <thead className="bg-muted/50"><tr><Th>ID</Th><Th>Chek</Th><Th>Sotuvchi</Th><Th>Tovar</Th><Th>Summa</Th><Th>Sana</Th><th></th></tr></thead>
+      <thead className="bg-muted/50">
+        <tr>
+          <Th>ID</Th>
+          <Th>Chek</Th>
+          <Th>Sotuvchi</Th>
+          <Th>Tovar</Th>
+          <Th>Summa</Th>
+          <Th>Sana</Th>
+          <th></th>
+        </tr>
+      </thead>
       <tbody>
-        {rows.length === 0 && <tr><td colSpan={7} className="p-6 text-center text-muted-foreground">Bu filter bo'yicha ma'lumot yo'q</td></tr>}
+        {rows.length === 0 && (
+          <tr>
+            <td colSpan={7} className="p-6 text-center text-muted-foreground">
+              Bu filter bo'yicha ma'lumot yo'q
+            </td>
+          </tr>
+        )}
         {rows.map((r) => (
-          <tr key={r.id} className="cursor-pointer border-b hover:bg-muted/40" onClick={() => onPick(r)}>
+          <tr
+            key={r.id}
+            className="cursor-pointer border-b hover:bg-muted/40"
+            onClick={() => onPick(r)}
+          >
             <td className="px-3 py-1.5 font-mono text-xs">{r.id}</td>
             <td className="px-3 py-1.5 font-mono text-xs">{r.receiptId}</td>
             <td className="px-3 py-1.5">{r.cashier}</td>
@@ -703,8 +967,12 @@ function OneTimeList({ rows, onPick }: { rows: OneTimeItemHistory[]; onPick: (r:
               <div className="text-xs text-muted-foreground">{r.items.length} pozitsiya</div>
             </td>
             <td className="px-3 py-1.5 font-semibold tabular-nums">{formatSom(r.total)}</td>
-            <td className="px-3 py-1.5 text-xs text-muted-foreground">{new Date(r.date).toLocaleString("uz-UZ")}</td>
-            <td className="px-3 py-1.5 text-muted-foreground"><ChevronRight className="h-4 w-4" /></td>
+            <td className="px-3 py-1.5 text-xs text-muted-foreground">
+              {new Date(r.date).toLocaleString("uz-UZ")}
+            </td>
+            <td className="px-3 py-1.5 text-muted-foreground">
+              <ChevronRight className="h-4 w-4" />
+            </td>
           </tr>
         ))}
       </tbody>

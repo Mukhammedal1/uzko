@@ -11,18 +11,15 @@ import { KassaTarixi } from "@/components/kassa/KassaTarixi";
 
 export const Route = createFileRoute("/kassa")({
   head: () => ({
-    meta: [
-      { title: "UZKO — Kassa" },
-      { name: "description", content: "Kassa operatsiyalari" },
-    ],
+    meta: [{ title: "UZKO — Kassa" }, { name: "description", content: "Kassa operatsiyalari" }],
   }),
   component: KassaPage,
 });
 
 const TABS = [
-  { id: "kunlik",  label: "Kunlik sotuv",       icon: Receipt },
-  { id: "chiqim",  label: "Kassadan pul chiqarish", icon: Banknote },
-  { id: "tarix",   label: "Kassa tarixi",       icon: History },
+  { id: "kunlik", label: "Kunlik sotuv", icon: Receipt },
+  { id: "chiqim", label: "Kassadan pul chiqarish", icon: Banknote },
+  { id: "tarix", label: "Kassa tarixi", icon: History },
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
 
@@ -56,7 +53,7 @@ function KassaPage() {
         <section className="responsive-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card shadow-sm">
           {tab === "kunlik" && <KunlikSotuv />}
           {tab === "chiqim" && <KassadanPulChiqarish />}
-          {tab === "tarix"  && <KassaTarixi />}
+          {tab === "tarix" && <KassaTarixi />}
         </section>
       </main>
 

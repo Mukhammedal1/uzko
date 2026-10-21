@@ -67,13 +67,13 @@ export function KassadanPulChiqarish() {
     { code: "USD", amount: "" },
   ]);
   const [note, setNote] = React.useState("");
-  const [agentId, setAgentId] = React.useState("");
+  const [supplierId, setSupplierId] = React.useState("");
   const [employeeQuery, setEmployeeQuery] = React.useState("");
   const [employeeId, setEmployeeId] = React.useState("");
   const [employeeHistoryOpen, setEmployeeHistoryOpen] = React.useState(false);
   const optionScrollRef = React.useRef<HTMLDivElement | null>(null);
 
-  const isAgentCategory = category.toLowerCase().includes("agent");
+  const isSupplierCategory = category.toLowerCase().includes("yetkazib");
   const isEmployeeCategory = isEmployeeExpenseCategory(category);
   const selectedEmployee = React.useMemo(
     () => MOCK_EMPLOYEES.find((employee) => employee.id === employeeId) ?? null,
@@ -96,21 +96,21 @@ export function KassadanPulChiqarish() {
       { id: string; name: string; phone?: string; botEnabled: boolean; remainingDebt: number }
     >();
     MOCK_SUPPLIER_REPORTS.forEach((row) => {
-      if (!row.agentId) return;
-      const old = map.get(row.agentId);
-      map.set(row.agentId, {
-        id: row.agentId,
-        name: row.agentName || "Nomsiz agent",
-        phone: row.agentPhone,
+      if (!row.supplierId) return;
+      const old = map.get(row.supplierId);
+      map.set(row.supplierId, {
+        id: row.supplierId,
+        name: row.supplierName || "Nomsiz yetkazib beruvchi",
+        phone: row.supplierPhone,
         botEnabled: (old?.botEnabled ?? false) || Boolean(row.botEnabled),
         remainingDebt: (old?.remainingDebt ?? 0) + (row.remainingDebt || 0),
       });
     });
     return Array.from(map.values());
   }, []);
-  const selectedAgent = React.useMemo(
-    () => agents.find((agent) => agent.id === agentId) ?? null,
-    [agentId, agents],
+  const selectedSupplier = React.useMemo(
+    () => agents.find((agent) => agent.id === supplierId) ?? null,
+    [supplierId, agents],
   );
 
   React.useEffect(() => {
@@ -162,8 +162,8 @@ export function KassadanPulChiqarish() {
       toast.error("Summa kiriting");
       return;
     }
-    if (isAgentCategory && !agentId.trim()) {
-      toast.error("Agent tanlash shart");
+    if (isSupplierCategory && !supplierId.trim()) {
+      toast.error("Yetkazib beruvchi tanlash shart");
       return;
     }
     if (isEmployeeCategory && !selectedEmployee) {
@@ -179,21 +179,21 @@ export function KassadanPulChiqarish() {
       cardAmount: sum(cards),
       currencies: currs.map((c) => ({ code: c.code, amount: parseFloat(c.amount) || 0 })),
       note,
-      agentId: isAgentCategory ? agentId.trim() : undefined,
+      supplierId: isSupplierCategory ? supplierId.trim() : undefined,
       employeeId: isEmployeeCategory ? selectedEmployee?.id : undefined,
       employeeName: isEmployeeCategory ? selectedEmployee?.name : undefined,
     };
     MOCK_WITHDRAWALS.push(w);
-    if (isAgentCategory && selectedAgent?.botEnabled) {
+    if (isSupplierCategory && selectedSupplier?.botEnabled) {
       dispatchReceiptMessage({
-        recipientCategory: "agent",
-        recipientId: selectedAgent.id,
-        recipientName: selectedAgent.name,
-        phone: selectedAgent.phone,
+        recipientCategory: "yetkazib_beruvchi",
+        recipientId: selectedSupplier.id,
+        recipientName: selectedSupplier.name,
+        phone: selectedSupplier.phone,
         receiptId: w.id,
-        title: "Agentga to'lov",
+        title: "Yetkazib beruvchiga to'lov",
         total,
-        note: `Agent kodi: ${selectedAgent.id}${note.trim() ? ` · ${note.trim()}` : ""}`,
+        note: `Yetkazib beruvchi kodi: ${selectedSupplier.id}${note.trim() ? ` · ${note.trim()}` : ""}`,
       });
     }
     toast.success("Pul chiqarildi", { description: `${category}: ${formatSom(total)}` });
@@ -201,7 +201,7 @@ export function KassadanPulChiqarish() {
     setCards([{ type: "Humo", amount: "" }]);
     setCurrs([{ code: "USD", amount: "" }]);
     setNote("");
-    setAgentId("");
+    setSupplierId("");
     setEmployeeId("");
     setEmployeeQuery("");
   };
@@ -241,7 +241,7 @@ export function KassadanPulChiqarish() {
                           className="min-w-0 flex-1 truncate text-left text-sm font-medium"
                           onClick={() => {
                             setCategory(c);
-                            if (!c.toLowerCase().includes("agent")) setAgentId("");
+                            if (!c.toLowerCase().includes("yetkazib")) setSupplierId("");
                             if (!isEmployeeExpenseCategory(c)) {
                               setEmployeeId("");
                               setEmployeeQuery("");
@@ -269,12 +269,14 @@ export function KassadanPulChiqarish() {
                   </div>
                 </PopoverContent>
               </Popover>
-              {isAgentCategory && (
+              {isSupplierCategory && (
                 <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 p-3">
-                  <Label className="mb-1.5 block text-xs font-semibold">Agent tanlang *</Label>
-                  <Select value={agentId} onValueChange={setAgentId}>
+                  <Label className="mb-1.5 block text-xs font-semibold">
+                    Yetkazib beruvchi tanlang *
+                  </Label>
+                  <Select value={supplierId} onValueChange={setSupplierId}>
                     <SelectTrigger className="bg-background">
-                      <SelectValue placeholder="Agentni ro'yxatdan tanlang" />
+                      <SelectValue placeholder="Yetkazib beruvchini ro'yxatdan tanlang" />
                     </SelectTrigger>
                     <SelectContent className="max-h-72">
                       {agents.map((agent) => (
@@ -294,12 +296,13 @@ export function KassadanPulChiqarish() {
                   </Select>
                   {agents.length === 0 ? (
                     <div className="mt-2 text-[11px] text-destructive">
-                      Hali agent qo'shilmagan. Agentlar Tovar qo'shishdagi “Qayerdan keldi”
-                      bo'limidan yaratiladi.
+                      Hali yetkazib beruvchi qo'shilmagan. Yetkazib beruvchilar Tovar qo'shishdagi
+                      “Qayerdan keldi” bo'limidan yaratiladi.
                     </div>
                   ) : (
                     <div className="mt-2 text-[11px] text-muted-foreground">
-                      Agent ID qo'lda yozilmaydi — bazadagi agentlar ro'yxatidan tanlanadi.
+                      Yetkazib beruvchi ID qo'lda yozilmaydi — bazadagi yetkazib beruvchilar
+                      ro'yxatidan tanlanadi.
                     </div>
                   )}
                 </div>
@@ -716,7 +719,13 @@ function EmployeeHistoryDialog({
 
 function isEmployeeExpenseCategory(category: string) {
   const value = category.toLowerCase();
-  return value.includes("oylik") || value.includes("avans") || value.includes("premya");
+  return (
+    value.includes("oylik") ||
+    value.includes("avans") ||
+    value.includes("premya") ||
+    value.includes("bonus") ||
+    value.includes("jarima")
+  );
 }
 
 function withdrawalTotal(row: CashWithdrawal) {

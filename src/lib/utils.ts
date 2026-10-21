@@ -6,12 +6,17 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatNumberInput(value: number | string) {
-  const text = String(value ?? "").replace(/\s/g, "").replace(/,/g, ".");
+  const text = String(value ?? "")
+    .replace(/\s/g, "")
+    .replace(/,/g, ".");
   if (!text) return "";
   const number = Number(text);
   if (!Number.isFinite(number)) return "";
   const [whole, fraction] = text.split(".");
-  const normalizedWhole = String(Math.trunc(Math.abs(number))).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  const normalizedWhole = String(Math.trunc(Math.abs(number))).replace(
+    /\B(?=(\d{3})+(?!\d))/g,
+    " ",
+  );
   const sign = number < 0 ? "-" : "";
   return fraction !== undefined && fraction.length > 0
     ? `${sign}${normalizedWhole}.${fraction}`

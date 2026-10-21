@@ -1,11 +1,14 @@
 import * as React from "react";
 import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import {
   ArrowLeftRight,
   Bot,
   Building2,
   ChevronDown,
   CreditCard,
+  Download,
   FileSpreadsheet,
   FileText,
   HandCoins,
@@ -28,6 +31,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -103,12 +107,24 @@ type CreditRow = {
   botEnabled: boolean;
   debt: number;
   paid: number;
+  lastPaymentDate?: string;
   totalDebtEver: number;
   dueDate?: string;
   lastDebtDate?: string;
   total: number;
   receipts: CustomerDebtReceipt[];
 };
+
+type CreditExportColumn = "name" | "phone" | "debt" | "paid" | "lastPaymentDate" | "totalDebtEver";
+
+const CREDIT_EXPORT_COLUMNS: { key: CreditExportColumn; label: string }[] = [
+  { key: "name", label: "Mijoz nomi" },
+  { key: "phone", label: "Telefon raqami" },
+  { key: "debt", label: "Joriy qarz" },
+  { key: "paid", label: "To'lagan summasi" },
+  { key: "lastPaymentDate", label: "To'langan sanasi" },
+  { key: "totalDebtEver", label: "Umumiy qarz aylanmasi" },
+];
 
 type LoyalRow = {
   id: string;
@@ -474,6 +490,20 @@ export function MijozlarPage() {
   const [editingCredit, setEditingCredit] = React.useState<CreditCustomer | null>(null);
   const [deletingCredit, setDeletingCredit] = React.useState<CreditCustomer | null>(null);
   const [moneyOpCredit, setMoneyOpCredit] = React.useState<CreditRow | null>(null);
+  const [selectedCreditIds, setSelectedCreditIds] = React.useState<Set<string>>(() => new Set());
+  const [creditExportOpen, setCreditExportOpen] = React.useState(false);
+  const [creditExportFormat, setCreditExportFormat] = React.useState<"excel" | "pdf">("excel");
+  const [creditExportColumns, setCreditExportColumns] = React.useState<Set<CreditExportColumn>>(
+    () => new Set(CREDIT_EXPORT_COLUMNS.map((c) => c.key)),
+  );
+  const toggleCreditExportColumn = (key: CreditExportColumn, checked: boolean) => {
+    setCreditExportColumns((current) => {
+      const next = new Set(current);
+      if (checked) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  };
 
   const [addLoyalOpen, setAddLoyalOpen] = React.useState(false);
   const [editingLoyal, setEditingLoyal] = React.useState<LoyalCustomer | null>(null);
@@ -536,9 +566,13 @@ export function MijozlarPage() {
       const lastDebtDate = (customer.receipts ?? [])
         .filter((receipt) => receipt.type === "sale")
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0]?.date;
-      const paid = (customer.receipts ?? [])
-        .filter((receipt) => receipt.type === "payment")
-        .reduce((sum, receipt) => sum + Math.max(receipt.amount, 0), 0);
+      const paymentReceipts = (customer.receipts ?? []).filter(
+        (receipt) => receipt.type === "payment",
+      );
+      const paid = paymentReceipts.reduce((sum, receipt) => sum + Math.max(receipt.amount, 0), 0);
+      const lastPaymentDate = paymentReceipts.sort(
+        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+      )[0]?.date;
       return {
         id: customer.id,
         name: `${customer.firstName} ${customer.lastName}`.trim(),
@@ -546,6 +580,7 @@ export function MijozlarPage() {
         botEnabled: Boolean(customer.botEnabled),
         debt: customer.currentDebt,
         paid,
+        lastPaymentDate,
         totalDebtEver: customer.currentDebt + paid,
         dueDate: customer.dueDate,
         lastDebtDate,
@@ -579,6 +614,89 @@ export function MijozlarPage() {
     customers: creditRows.length,
     totalDebt: creditRows.reduce((sum, row) => sum + row.debt, 0),
     totalSales: creditRows.reduce((sum, row) => sum + row.total, 0),
+  };
+
+  const toggleCreditSelect = (id: string) => {
+    setSelectedCreditIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const allCreditSelected =
+    creditRows.length > 0 && creditRows.every((row) => selectedCreditIds.has(row.id));
+  const selectAllCredit = () => setSelectedCreditIds(new Set(creditRows.map((row) => row.id)));
+  const clearCreditSelection = () => setSelectedCreditIds(new Set());
+  const selectedCreditRows = React.useMemo(
+    () => creditRows.filter((row) => selectedCreditIds.has(row.id)),
+    [creditRows, selectedCreditIds],
+  );
+  const creditRowsForExport = selectedCreditRows.length > 0 ? selectedCreditRows : creditRows;
+
+  const buildCreditExportRows = () => {
+    const columns = CREDIT_EXPORT_COLUMNS.filter((col) => creditExportColumns.has(col.key));
+    const rows = creditRowsForExport.map((row) =>
+      columns.map((col) => {
+        switch (col.key) {
+          case "name":
+            return row.name;
+          case "phone":
+            return row.phone || "—";
+          case "debt":
+            return formatSom(row.debt);
+          case "paid":
+            return formatSom(row.paid);
+          case "lastPaymentDate":
+            return row.lastPaymentDate
+              ? new Date(row.lastPaymentDate).toLocaleDateString("uz-UZ", {
+                  year: "numeric",
+                  month: "2-digit",
+                  day: "2-digit",
+                })
+              : "—";
+          case "totalDebtEver":
+            return formatSom(row.totalDebtEver);
+          default:
+            return "";
+        }
+      }),
+    );
+    return { columns, rows };
+  };
+
+  const exportCreditToExcel = () => {
+    const { columns, rows } = buildCreditExportRows();
+    const worksheet = XLSX.utils.aoa_to_sheet([columns.map((c) => c.label), ...rows]);
+    worksheet["!cols"] = columns.map(() => ({ wch: 20 }));
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Nasiyachilar qarzi");
+    XLSX.writeFile(
+      workbook,
+      `nasiyachilar-qarz-hisoboti-${new Date().toISOString().slice(0, 10)}.xlsx`,
+    );
+  };
+
+  const exportCreditToPdf = () => {
+    const { columns, rows } = buildCreditExportRows();
+    const doc = new jsPDF({ orientation: "landscape" });
+    autoTable(doc, {
+      head: [columns.map((c) => c.label)],
+      body: rows,
+      styles: { font: "helvetica", fontSize: 9 },
+      headStyles: { fillColor: [34, 44, 59] },
+    });
+    doc.save(`nasiyachilar-qarz-hisoboti-${new Date().toISOString().slice(0, 10)}.pdf`);
+  };
+
+  const handleCreditExportConfirm = () => {
+    if (creditExportColumns.size === 0) {
+      toast.error("Kamida bitta ustunni tanlang");
+      return;
+    }
+    if (creditExportFormat === "excel") exportCreditToExcel();
+    else exportCreditToPdf();
+    setCreditExportOpen(false);
   };
 
   const loyalRows: LoyalRow[] = React.useMemo(() => {
@@ -723,12 +841,6 @@ export function MijozlarPage() {
               onClick={() => setTab("nasiya")}
               icon={<HandCoins className="h-3.5 w-3.5" />}
               label="Nasiyachilar"
-            />
-            <TabButton
-              active={tab === "oddiy"}
-              onClick={() => setTab("oddiy")}
-              icon={<Users className="h-3.5 w-3.5" />}
-              label="Oddiy xaridorlar"
             />
             <TabButton
               active={tab === "sodiq"}
@@ -879,14 +991,69 @@ export function MijozlarPage() {
 
               {filterBar}
 
+              {selectedCreditIds.size > 0 && (
+                <div className="flex items-center justify-between gap-2 rounded-lg border bg-primary/5 px-3 py-2">
+                  <div className="text-sm font-semibold text-primary">
+                    {selectedCreditIds.size} ta nasiyachi tanlandi
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-2"
+                      onClick={() => setCreditExportOpen(true)}
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      Tanlanganlarni yuklab olish
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
+                      onClick={clearCreditSelection}
+                      title="Tanlovni bekor qilish"
+                      aria-label="Tanlovni bekor qilish"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               <Card className="flex min-h-0 flex-1 flex-col">
-                <CardHeader className="border-b py-3">
+                <CardHeader className="flex-row items-center justify-between border-b py-3">
                   <CardTitle className="text-base">Nasiyachilar</CardTitle>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    onClick={() => setCreditExportOpen(true)}
+                    title="Yuklab olish"
+                  >
+                    <Download className="h-4 w-4" />
+                    Yuklab olish
+                  </Button>
                 </CardHeader>
                 <CardContent className="min-h-0 flex-1 overflow-auto p-0">
                   <table className="w-full min-w-[980px] text-sm">
                     <thead className="bg-muted/60 text-xs uppercase tracking-wide text-muted-foreground">
                       <tr>
+                        <th className="w-10 px-4 py-3 text-left">
+                          <Checkbox
+                            checked={
+                              allCreditSelected
+                                ? true
+                                : selectedCreditIds.size > 0
+                                  ? "indeterminate"
+                                  : false
+                            }
+                            onCheckedChange={() =>
+                              allCreditSelected ? clearCreditSelection() : selectAllCredit()
+                            }
+                            title="Barchasini belgilash"
+                            aria-label="Barchasini belgilash"
+                          />
+                        </th>
                         <th className="px-4 py-3 text-left">Mijoz nomi</th>
                         <th className="px-4 py-3 text-left">Telefon raqami</th>
                         <th className="px-4 py-3 text-right">Joriy qarz</th>
@@ -902,6 +1069,13 @@ export function MijozlarPage() {
                         const status = debtStatus(row.debt, row.dueDate);
                         return (
                           <tr key={row.id} className="border-b last:border-b-0 hover:bg-muted/30">
+                            <td className="px-4 py-3">
+                              <Checkbox
+                                checked={selectedCreditIds.has(row.id)}
+                                onCheckedChange={() => toggleCreditSelect(row.id)}
+                                aria-label={`${row.name} tanlash`}
+                              />
+                            </td>
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-2">
                                 <span className="font-semibold">{row.name}</span>
@@ -1026,7 +1200,7 @@ export function MijozlarPage() {
                       })}
                       {creditRows.length === 0 && (
                         <tr>
-                          <td colSpan={8} className="p-8 text-center text-muted-foreground">
+                          <td colSpan={9} className="p-8 text-center text-muted-foreground">
                             Ma'lumot topilmadi
                           </td>
                         </tr>
@@ -1508,6 +1682,72 @@ export function MijozlarPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={creditExportOpen} onOpenChange={setCreditExportOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Download className="h-5 w-5" />
+              Nasiyachilar qarzi hisobotini yuklab olish
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
+              {selectedCreditRows.length > 0
+                ? `${selectedCreditRows.length} ta tanlangan nasiyachi yuklab olinadi`
+                : `Tanlov yo'q — barcha ${creditRows.length} ta nasiyachi yuklab olinadi`}
+            </div>
+            <div className="space-y-2">
+              <Label>Format</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={creditExportFormat === "excel" ? "default" : "outline"}
+                  onClick={() => setCreditExportFormat("excel")}
+                  className="gap-2"
+                >
+                  <FileSpreadsheet className="h-4 w-4" />
+                  Excel
+                </Button>
+                <Button
+                  type="button"
+                  variant={creditExportFormat === "pdf" ? "default" : "outline"}
+                  onClick={() => setCreditExportFormat("pdf")}
+                  className="gap-2"
+                >
+                  <FileText className="h-4 w-4" />
+                  PDF
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Qaysi ustunlar chiqsin?</Label>
+              <div className="grid grid-cols-2 gap-2 rounded-lg border p-3">
+                {CREDIT_EXPORT_COLUMNS.map((col) => (
+                  <label key={col.key} className="flex items-center gap-2 text-sm font-normal">
+                    <Checkbox
+                      checked={creditExportColumns.has(col.key)}
+                      onCheckedChange={(checked) =>
+                        toggleCreditExportColumn(col.key, checked === true)
+                      }
+                    />
+                    {col.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreditExportOpen(false)}>
+              Bekor qilish
+            </Button>
+            <Button onClick={handleCreditExportConfirm} className="gap-2">
+              <Download className="h-4 w-4" />
+              Yuklab olish
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
@@ -1633,9 +1873,9 @@ function EditCreditCustomerDialog({
 
   const canSave = Boolean(
     core.first.trim() &&
-      core.last.trim() &&
-      core.phone.trim() &&
-      (core.kind !== "legal" || (core.company.trim() && core.inn.trim())),
+    core.last.trim() &&
+    core.phone.trim() &&
+    (core.kind !== "legal" || (core.company.trim() && core.inn.trim())),
   );
 
   const save = () => {
@@ -2053,7 +2293,6 @@ function CreditCustomerCoreFields({
               placeholder="Tuman, mahalla, ko'cha yoki mo'ljal"
             />
           </div>
-
         </div>
       )}
 
@@ -2103,9 +2342,9 @@ function AddCreditCustomerDialog({
 
   const canSave = Boolean(
     core.first.trim() &&
-      core.last.trim() &&
-      core.phone.trim() &&
-      (core.kind !== "legal" || (core.company.trim() && core.inn.trim())),
+    core.last.trim() &&
+    core.phone.trim() &&
+    (core.kind !== "legal" || (core.company.trim() && core.inn.trim())),
   );
 
   const save = () => {
@@ -2195,83 +2434,90 @@ function AddCreditCustomerDialog({
         <CustomerKindTabs value={core.kind} onChange={(kind) => setCore({ ...core, kind })} />
 
         <div className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-4">
-        <CreditCustomerCoreFields value={core} onChange={setCore} showValidation={showValidation} />
-        </div>
-
-        <div className="space-y-4">
-        <div>
-          <Label className="mb-1 block text-xs">Bizga qarzi (dastur ishlatishdan oldin)</Label>
-          <Input
-            value={openingDebt}
-            onChange={(e) => setOpeningDebt(formatNumberInput(e.target.value))}
-            inputMode="decimal"
-            placeholder="0"
-          />
-          <p className="mt-1 text-xs text-muted-foreground">
-            Agar mijoz dasturdan foydalanishdan avval ham bizga qarzdor bo'lsa, shu yerga qoldiq
-            summani kiriting
-          </p>
-        </div>
-
-        <label className="flex cursor-pointer items-center justify-between gap-3 rounded-md border px-3 py-2.5">
-          <span className="flex items-center gap-2">
-            <Bot className="h-4 w-4 text-muted-foreground" />
-            <span>
-              <span className="block text-sm font-medium">Botga habar yuborish</span>
-              <span className="block text-xs text-muted-foreground">
-                Nasiya savdo va qarz to'lovlari avtomatik yuboriladi
-              </span>
-            </span>
-          </span>
-          <Switch checked={sendBotUpdate} onCheckedChange={setSendBotUpdate} />
-        </label>
-
-        <div className="rounded-md border p-3">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <Label className="text-sm">Qarz limiti</Label>
-              <div className="text-xs text-muted-foreground">
-                {withLimit ? "Nasiyachiga qarz limiti belgilanadi" : "Limit belgilanmagan"}
-              </div>
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              variant={withLimit ? "default" : "outline"}
-              onClick={() => setWithLimit((value) => !value)}
-            >
-              {withLimit ? "Olib tashlash" : "Limit qo'yish"}
-            </Button>
+          <div className="space-y-4">
+            <CreditCustomerCoreFields
+              value={core}
+              onChange={setCore}
+              showValidation={showValidation}
+            />
           </div>
-          {withLimit && (
-            <div className="mt-3 grid grid-cols-[1fr_120px] gap-2">
-              <div>
-                <Label className="mb-1 block text-xs">Summa</Label>
-                <Input
-                  value={limit}
-                  onChange={(e) => setLimit(formatNumberInput(e.target.value))}
-                  inputMode="decimal"
-                />
-              </div>
-              <div>
-                <Label className="mb-1 block text-xs">Valyuta</Label>
-                <Select value={currency} onValueChange={(value) => setCurrency(value as Currency)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="UZS">UZS</SelectItem>
-                    <SelectItem value="USD">USD</SelectItem>
-                    <SelectItem value="RUB">RUB</SelectItem>
-                    <SelectItem value="EUR">EUR</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+
+          <div className="space-y-4">
+            <div>
+              <Label className="mb-1 block text-xs">Bizga qarzi (dastur ishlatishdan oldin)</Label>
+              <Input
+                value={openingDebt}
+                onChange={(e) => setOpeningDebt(formatNumberInput(e.target.value))}
+                inputMode="decimal"
+                placeholder="0"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Agar mijoz dasturdan foydalanishdan avval ham bizga qarzdor bo'lsa, shu yerga qoldiq
+                summani kiriting
+              </p>
             </div>
-          )}
-        </div>
-        </div>
+
+            <label className="flex cursor-pointer items-center justify-between gap-3 rounded-md border px-3 py-2.5">
+              <span className="flex items-center gap-2">
+                <Bot className="h-4 w-4 text-muted-foreground" />
+                <span>
+                  <span className="block text-sm font-medium">Botga habar yuborish</span>
+                  <span className="block text-xs text-muted-foreground">
+                    Nasiya savdo va qarz to'lovlari avtomatik yuboriladi
+                  </span>
+                </span>
+              </span>
+              <Switch checked={sendBotUpdate} onCheckedChange={setSendBotUpdate} />
+            </label>
+
+            <div className="rounded-md border p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <Label className="text-sm">Qarz limiti</Label>
+                  <div className="text-xs text-muted-foreground">
+                    {withLimit ? "Nasiyachiga qarz limiti belgilanadi" : "Limit belgilanmagan"}
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={withLimit ? "default" : "outline"}
+                  onClick={() => setWithLimit((value) => !value)}
+                >
+                  {withLimit ? "Olib tashlash" : "Limit qo'yish"}
+                </Button>
+              </div>
+              {withLimit && (
+                <div className="mt-3 grid grid-cols-[1fr_120px] gap-2">
+                  <div>
+                    <Label className="mb-1 block text-xs">Summa</Label>
+                    <Input
+                      value={limit}
+                      onChange={(e) => setLimit(formatNumberInput(e.target.value))}
+                      inputMode="decimal"
+                    />
+                  </div>
+                  <div>
+                    <Label className="mb-1 block text-xs">Valyuta</Label>
+                    <Select
+                      value={currency}
+                      onValueChange={(value) => setCurrency(value as Currency)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="UZS">UZS</SelectItem>
+                        <SelectItem value="USD">USD</SelectItem>
+                        <SelectItem value="RUB">RUB</SelectItem>
+                        <SelectItem value="EUR">EUR</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         <DialogFooter>

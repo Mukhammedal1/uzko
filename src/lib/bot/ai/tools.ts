@@ -26,14 +26,22 @@ import {
 // ─── Umumiy yordamchilar ─────────────────────────────────────────────────────
 
 /** ISO "YYYY-MM-DD" (Toshkent kuni) dan davr oralig'ini hisoblaydi — date_to inklyuziv. */
-function resolveDateRange(dateFrom: string, dateTo: string): { start: Date; end: Date; label: string } {
+function resolveDateRange(
+  dateFrom: string,
+  dateTo: string,
+): { start: Date; end: Date; label: string } {
   const { start } = tashkentDayBounds(dateFrom);
   const { end } = tashkentDayBounds(dateTo);
   const label = dateFrom === dateTo ? dateFrom : `${dateFrom} – ${dateTo}`;
   return { start, end, label };
 }
 
-type ToolMeta = { period_label: string; generated_at: string; row_count: number; truncated: boolean };
+type ToolMeta = {
+  period_label: string;
+  generated_at: string;
+  row_count: number;
+  truncated: boolean;
+};
 
 function withMeta<T extends object>(
   data: T,
@@ -71,7 +79,10 @@ function toolGetSalesSummary(args: SalesSummaryArgs) {
       receipts: summary.receiptsCount,
       avg_receipt: summary.avgReceipt,
       profit: summary.profit,
-      compare_prev: { total: prevSummary.total, pct: percentChange(summary.total, prevSummary.total) },
+      compare_prev: {
+        total: prevSummary.total,
+        pct: percentChange(summary.total, prevSummary.total),
+      },
     },
     { periodLabel: range.label, rowCount: 1, truncated: false },
   );
@@ -124,10 +135,22 @@ export type TopProductsArgs = {
 function toolGetTopProducts(args: TopProductsArgs) {
   const range = resolveDateRange(args.date_from, args.date_to);
   const limit = Math.min(args.limit ?? MAX_ROWS.top, MAX_ROWS.top);
-  const rows = getTopProducts(range.start, range.end, { sortBy: args.sort_by, order: args.order, limit });
+  const rows = getTopProducts(range.start, range.end, {
+    sortBy: args.sort_by,
+    order: args.order,
+    limit,
+  });
 
   return withMeta(
-    { rows: rows.map((r) => ({ name: r.name, qty: r.qty, unit: r.unit, revenue: r.revenue, profit: r.profit })) },
+    {
+      rows: rows.map((r) => ({
+        name: r.name,
+        qty: r.qty,
+        unit: r.unit,
+        revenue: r.revenue,
+        profit: r.profit,
+      })),
+    },
     { periodLabel: range.label, rowCount: rows.length, truncated: false },
   );
 }
@@ -277,12 +300,17 @@ const DATE_PROPS = {
 export const TOOL_DECLARATIONS = [
   {
     name: "get_sales_summary",
-    description: "Davr bo'yicha savdo xulosasi: jami, to'langan, nasiya, cheklar soni, foyda, oldingi davr bilan taqqoslash.",
+    description:
+      "Davr bo'yicha savdo xulosasi: jami, to'langan, nasiya, cheklar soni, foyda, oldingi davr bilan taqqoslash.",
     parameters: {
       type: "OBJECT",
       properties: {
         ...DATE_PROPS,
-        sale_type: { type: "STRING", enum: ["all", "paid", "credit"], description: "Savdo turi bo'yicha filtr" },
+        sale_type: {
+          type: "STRING",
+          enum: ["all", "paid", "credit"],
+          description: "Savdo turi bo'yicha filtr",
+        },
       },
       required: ["date_from", "date_to"],
     },
@@ -317,8 +345,13 @@ export const TOOL_DECLARATIONS = [
   },
   {
     name: "get_cash_summary",
-    description: "Davr bo'yicha kassa: to'lov turlari bo'yicha tushum, qarz to'lovlari, xarajatlar, naqd qoldiq.",
-    parameters: { type: "OBJECT", properties: { ...DATE_PROPS }, required: ["date_from", "date_to"] },
+    description:
+      "Davr bo'yicha kassa: to'lov turlari bo'yicha tushum, qarz to'lovlari, xarajatlar, naqd qoldiq.",
+    parameters: {
+      type: "OBJECT",
+      properties: { ...DATE_PROPS },
+      required: ["date_from", "date_to"],
+    },
   },
   {
     name: "get_debts",
@@ -357,7 +390,10 @@ export const TOOL_DECLARATIONS = [
       type: "OBJECT",
       properties: {
         filter: { type: "STRING", enum: ["low", "out", "dead", "all"] },
-        dead_days: { type: "NUMBER", description: "Sotilmayotgan hisoblanadigan kunlar soni: 7, 14 yoki 30" },
+        dead_days: {
+          type: "NUMBER",
+          description: "Sotilmayotgan hisoblanadigan kunlar soni: 7, 14 yoki 30",
+        },
         category: { type: "STRING" },
         limit: { type: "NUMBER", description: "Default 50, max 50" },
       },

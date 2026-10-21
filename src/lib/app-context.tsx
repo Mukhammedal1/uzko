@@ -55,9 +55,9 @@ export const TRANSLATIONS: Record<Lang, Record<string, string>> = {
     supplier_total_debt_goods: "Qarzga olingan tovarlar summasi",
     supplier_paid: "Berganimiz",
     supplier_remaining: "Qolgan qarzimiz",
-    supplier_report_list: "Agentlar bo'yicha hisobot",
+    supplier_report_list: "Yetkazib beruvchilar bo'yicha hisobot",
     date: "Sana",
-    agent: "Agent",
+    supplier: "Yetkazib beruvchi",
     phone: "Raqam",
     products: "Tovarlar",
     total_amount: "Umumiy summa",
@@ -82,8 +82,8 @@ export const TRANSLATIONS: Record<Lang, Record<string, string>> = {
     edit: "Edit",
     delete: "Delete",
     source_details: "Qayerdan keldi",
-    agent_name: "Agent nomi",
-    agent_phone: "Agent raqami",
+    supplier_name: "Yetkazib beruvchi nomi",
+    supplier_phone: "Yetkazib beruvchi raqami",
     paid_now: "Hozir berilgan summa",
     supplier_note: "Izoh",
     discount_amount: "Skidka summasi",
@@ -99,8 +99,8 @@ export const TRANSLATIONS: Record<Lang, Record<string, string>> = {
     custom_period: "Maxsus davr",
     sales_income: "Sotuvdan kirim",
     debt_payment_income: "Qarz so'ndirishdan",
-    supplier_payment_expense: "Agentlarga to'lov",
-    agent_id: "Agent ID",
+    supplier_payment_expense: "Yetkazib beruvchilarga to'lov",
+    supplier_id: "Yetkazib beruvchi ID",
     shelf_location: "Polka raqami",
     stock_count: "Sanoq",
     stock_counted: "Sanoq qilindi",
@@ -154,9 +154,9 @@ export const TRANSLATIONS: Record<Lang, Record<string, string>> = {
     supplier_total_debt_goods: "Қарзга олинган товарлар суммаси",
     supplier_paid: "Берганимиз",
     supplier_remaining: "Қолган қарзимиз",
-    supplier_report_list: "Агентлар бўйича ҳисобот",
+    supplier_report_list: "Етказиб берувчилар бўйича ҳисобот",
     date: "Сана",
-    agent: "Агент",
+    supplier: "Етказиб берувчи",
     phone: "Рақам",
     products: "Товарлар",
     total_amount: "Умумий сумма",
@@ -181,8 +181,8 @@ export const TRANSLATIONS: Record<Lang, Record<string, string>> = {
     edit: "Таҳрир",
     delete: "Ўчириш",
     source_details: "Қаердан келди",
-    agent_name: "Агент номи",
-    agent_phone: "Агент рақами",
+    supplier_name: "Етказиб берувчи номи",
+    supplier_phone: "Етказиб берувчи рақами",
     paid_now: "Ҳозир берилган сумма",
     supplier_note: "Изоҳ",
     discount_amount: "Скидка суммаси",
@@ -198,8 +198,8 @@ export const TRANSLATIONS: Record<Lang, Record<string, string>> = {
     custom_period: "Махсус давр",
     sales_income: "Сотувдан кирим",
     debt_payment_income: "Қарз сўндиришдан",
-    supplier_payment_expense: "Агентларга тўлов",
-    agent_id: "Агент ID",
+    supplier_payment_expense: "Етказиб берувчиларга тўлов",
+    supplier_id: "Етказиб берувчи ID",
     shelf_location: "Полка рақами",
     stock_count: "Саноқ",
     stock_counted: "Саноқ қилинди",
@@ -253,9 +253,9 @@ export const TRANSLATIONS: Record<Lang, Record<string, string>> = {
     supplier_total_debt_goods: "Сумма товаров в долг",
     supplier_paid: "Оплачено",
     supplier_remaining: "Осталось долга",
-    supplier_report_list: "Отчёт по агентам",
+    supplier_report_list: "Отчёт по поставщикам",
     date: "Дата",
-    agent: "Агент",
+    supplier: "Поставщик",
     phone: "Телефон",
     products: "Товары",
     total_amount: "Общая сумма",
@@ -280,8 +280,8 @@ export const TRANSLATIONS: Record<Lang, Record<string, string>> = {
     edit: "Редактировать",
     delete: "Удалить",
     source_details: "Откуда пришло",
-    agent_name: "Имя агента",
-    agent_phone: "Телефон агента",
+    supplier_name: "Имя поставщика",
+    supplier_phone: "Телефон поставщика",
     paid_now: "Оплачено сейчас",
     supplier_note: "Комментарий",
     discount_amount: "Сумма скидки",
@@ -297,8 +297,8 @@ export const TRANSLATIONS: Record<Lang, Record<string, string>> = {
     custom_period: "Свой период",
     sales_income: "Доход от продаж",
     debt_payment_income: "Погашение долга",
-    supplier_payment_expense: "Оплата агентам",
-    agent_id: "ID агента",
+    supplier_payment_expense: "Оплата поставщикам",
+    supplier_id: "ID поставщика",
     shelf_location: "Номер полки",
     stock_count: "Ревизия",
     stock_counted: "Ревизия проведена",
@@ -354,7 +354,7 @@ export const TRANSLATIONS: Record<Lang, Record<string, string>> = {
     supplier_remaining: "Remaining debt",
     supplier_report_list: "Supplier report list",
     date: "Date",
-    agent: "Agent",
+    supplier: "Supplier",
     phone: "Phone",
     products: "Products",
     total_amount: "Total amount",
@@ -379,8 +379,8 @@ export const TRANSLATIONS: Record<Lang, Record<string, string>> = {
     edit: "Edit",
     delete: "Delete",
     source_details: "Source details",
-    agent_name: "Agent name",
-    agent_phone: "Agent phone",
+    supplier_name: "Supplier name",
+    supplier_phone: "Supplier phone",
     paid_now: "Paid now",
     supplier_note: "Note",
     discount_amount: "Discount amount",
@@ -397,7 +397,7 @@ export const TRANSLATIONS: Record<Lang, Record<string, string>> = {
     sales_income: "Sales income",
     debt_payment_income: "Debt payment",
     supplier_payment_expense: "Supplier payments",
-    agent_id: "Agent ID",
+    supplier_id: "Supplier ID",
     shelf_location: "Shelf Number",
     stock_count: "Stock count",
     stock_counted: "Stock counted",
@@ -562,7 +562,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     { id: "ec-5", name: "Remont" },
     { id: "ec-6", name: "Tovar" },
     { id: "ec-7", name: "Kommunal" },
-    { id: "ec-8", name: "Agentlarga to'lov" },
+    { id: "ec-8", name: "Yetkazib beruvchilarga to'lov" },
     { id: "ec-9", name: "Boshqa" },
   ],
   units: [
@@ -842,7 +842,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           shelfLocations: migrateEntries(parsed.shelfLocations, DEFAULT_SETTINGS.shelfLocations),
         };
       }
-    } catch {}
+    } catch {
+      // ignore
+    }
     return DEFAULT_SETTINGS;
   });
 
@@ -876,7 +878,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const next = { ...prev, ...patch };
       try {
         localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify(next));
-      } catch {}
+      } catch {
+        // ignore
+      }
       return next;
     });
   };

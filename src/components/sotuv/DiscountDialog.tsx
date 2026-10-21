@@ -104,7 +104,9 @@ export function DiscountDialog({ open, onOpenChange, subtotal, current, onApply 
 
         <DialogFooter className="gap-2 sm:gap-2">
           {current.type !== "none" && (
-            <Button variant="outline" onClick={remove}>Skidkani olib tashlash</Button>
+            <Button variant="outline" onClick={remove}>
+              Skidkani olib tashlash
+            </Button>
           )}
           <Button onClick={apply}>Qo'llash</Button>
         </DialogFooter>

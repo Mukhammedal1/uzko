@@ -16,7 +16,13 @@ import {
   type ReplyMarkup,
   type TelegramUpdate,
 } from "@/lib/telegram";
-import { escapeHtml, runAiChat, runAiChatFromVoice, type ChatMessage, type ToolCallRecord } from "./ai/agent";
+import {
+  escapeHtml,
+  runAiChat,
+  runAiChatFromVoice,
+  type ChatMessage,
+  type ToolCallRecord,
+} from "./ai/agent";
 import { formatSom } from "./format";
 import {
   formatDateUz,
@@ -38,7 +44,14 @@ import {
   type SaleType,
   type StockFilter,
 } from "./reports";
-import { buildAiChatPdf, buildCashPdf, buildCustomerActPdf, buildDebtsPdf, buildSalesPdf, buildStockPdf } from "./pdf";
+import {
+  buildAiChatPdf,
+  buildCashPdf,
+  buildCustomerActPdf,
+  buildDebtsPdf,
+  buildSalesPdf,
+  buildStockPdf,
+} from "./pdf";
 
 export const ADMIN_MENU_KEYBOARD: ReplyMarkup = {
   keyboard: [
@@ -207,7 +220,10 @@ function buildDebtsView(state: ChatState, now: Date) {
         text: mark(state.debtStatus === s, DEBT_STATUS_LABELS[s]),
         callback_data: `debts:status:${s}`,
       })),
-      [{ text: "🔍 Mijoz qidirish", callback_data: "debts:search" }, { text: "📄 PDF", callback_data: "debts:pdf" }],
+      [
+        { text: "🔍 Mijoz qidirish", callback_data: "debts:search" },
+        { text: "📄 PDF", callback_data: "debts:pdf" },
+      ],
     ],
   };
 
@@ -218,19 +234,27 @@ function buildCustomerCard(customerId: string): { text: string; keyboard?: Reply
   const detail = getCustomerDebt(customerId);
   if (!detail) return { text: "Mijoz topilmadi" };
   const lines = [`👤 <b>${detail.customer}</b>`, `Joriy qarz: ${formatSom(detail.debt)}`];
-  if (detail.lastPurchase) lines.push(`Oxirgi xarid: ${formatDateUz(new Date(detail.lastPurchase))}`);
-  if (detail.lastPayment) lines.push(`Oxirgi to'lov: ${formatDateUz(new Date(detail.lastPayment))}`);
+  if (detail.lastPurchase)
+    lines.push(`Oxirgi xarid: ${formatDateUz(new Date(detail.lastPurchase))}`);
+  if (detail.lastPayment)
+    lines.push(`Oxirgi to'lov: ${formatDateUz(new Date(detail.lastPayment))}`);
   lines.push("", "Oxirgi nasiya savdolar:");
   if (detail.creditSales.length === 0) {
     lines.push("Yo'q");
   } else {
     for (const sale of detail.creditSales) {
-      lines.push(`• ${formatDateUz(new Date(sale.date))} — ${sale.title}: ${formatSom(sale.amount)}`);
+      lines.push(
+        `• ${formatDateUz(new Date(sale.date))} — ${sale.title}: ${formatSom(sale.amount)}`,
+      );
     }
   }
   return {
     text: lines.join("\n"),
-    keyboard: { inline_keyboard: [[{ text: "📄 PDF (akt-sverka)", callback_data: `debts:customerpdf:${customerId}` }]] },
+    keyboard: {
+      inline_keyboard: [
+        [{ text: "📄 PDF (akt-sverka)", callback_data: `debts:customerpdf:${customerId}` }],
+      ],
+    },
   };
 }
 
@@ -267,12 +291,18 @@ function buildStockView(state: ChatState) {
   const keyboard: ReplyMarkup = {
     inline_keyboard: [
       [
-        { text: mark(state.stockFilter === "low", "Tugayotgan"), callback_data: "stock:filter:low" },
+        {
+          text: mark(state.stockFilter === "low", "Tugayotgan"),
+          callback_data: "stock:filter:low",
+        },
         { text: mark(state.stockFilter === "out", "Tugagan"), callback_data: "stock:filter:out" },
       ],
       [
         {
-          text: mark(state.stockFilter === "dead" && state.stockDeadDays === 7, "Sotilmayotgan 7 kun"),
+          text: mark(
+            state.stockFilter === "dead" && state.stockDeadDays === 7,
+            "Sotilmayotgan 7 kun",
+          ),
           callback_data: "stock:filter:dead:7",
         },
         {
@@ -280,7 +310,12 @@ function buildStockView(state: ChatState) {
           callback_data: "stock:filter:dead:30",
         },
       ],
-      [{ text: mark(state.stockFilter === "all", "Barcha qoldiq"), callback_data: "stock:filter:all" }],
+      [
+        {
+          text: mark(state.stockFilter === "all", "Barcha qoldiq"),
+          callback_data: "stock:filter:all",
+        },
+      ],
       [{ text: "📄 PDF", callback_data: "stock:pdf" }],
     ],
   };
@@ -479,7 +514,11 @@ async function deliverAiReply(
 ): Promise<ChatState> {
   const keyboard: ReplyMarkup | undefined =
     usedTools.length > 0
-      ? { inline_keyboard: [[{ text: "📄 PDF", callback_data: `ai:pdf:${cacheAiTools(question, usedTools)}` }]] }
+      ? {
+          inline_keyboard: [
+            [{ text: "📄 PDF", callback_data: `ai:pdf:${cacheAiTools(question, usedTools)}` }],
+          ],
+        }
       : undefined;
   await sendTelegramMessage(token, chatId, `${prefixHtml}${replyHtml}`, keyboard);
 
@@ -503,7 +542,11 @@ async function handleCallback(
   if (ns === "ai" && action === "pdf") {
     const entry = aiToolCache.get(rest.join(":"));
     if (!entry || entry.expiresAt <= Date.now()) {
-      await sendTelegramMessage(token, chatId, "Bu javobning muddati o'tgan, savolni qayta yuboring.");
+      await sendTelegramMessage(
+        token,
+        chatId,
+        "Bu javobning muddati o'tgan, savolni qayta yuboring.",
+      );
       return next;
     }
     await sendPdf(token, chatId, buildAiChatPdf(entry.question, entry.tools));

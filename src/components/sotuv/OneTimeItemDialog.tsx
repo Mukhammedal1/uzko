@@ -146,6 +146,11 @@ export function OneTimeItemDialog({ open, onOpenChange, onAdd }: Props) {
 function safeNumber(value: unknown) {
   const number = typeof value === "number" ? value : Number(value);
   if (Number.isFinite(number)) return number;
-  const parsed = Number(String(value ?? "").replace(/\s/g, "").replace(/,/g, ".").replace(/[^0-9.-]/g, ""));
+  const parsed = Number(
+    String(value ?? "")
+      .replace(/\s/g, "")
+      .replace(/,/g, ".")
+      .replace(/[^0-9.-]/g, ""),
+  );
   return Number.isFinite(parsed) ? parsed : 0;
 }

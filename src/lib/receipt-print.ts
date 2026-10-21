@@ -2,7 +2,11 @@ import { MOCK_PRODUCTS, formatSom, type Receipt } from "@/lib/mock-data";
 import type { ReceiptPrintFormat, ReceiptSettings } from "@/lib/app-context";
 import { escapeHtml } from "@/lib/label-print";
 
-export const RECEIPT_PRINT_FORMAT_OPTIONS: { value: ReceiptPrintFormat; label: string; hint: string }[] = [
+export const RECEIPT_PRINT_FORMAT_OPTIONS: {
+  value: ReceiptPrintFormat;
+  label: string;
+  hint: string;
+}[] = [
   { value: "nakladnoy", label: "Nakladnoy (A4)", hint: "Shtrix kod va artikul bilan" },
   { value: "savdo80", label: "80 mm savdo cheki", hint: "Oddiy kassa cheki" },
 ];
@@ -68,7 +72,9 @@ function buildSavdoHtml(receipt: Receipt, rs: ReceiptSettings): string {
     .map((it) => {
       const product = productOf(it.productId);
       const code =
-        rs.showProductCode && product ? `<div class="small">Kod: ${escapeHtml(product.customCode || product.barcode)}</div>` : "";
+        rs.showProductCode && product
+          ? `<div class="small">Kod: ${escapeHtml(product.customCode || product.barcode)}</div>`
+          : "";
       const note = it.note ? `<div class="small">Izoh: ${escapeHtml(it.note)}</div>` : "";
       return `
         <div class="item">
@@ -85,7 +91,10 @@ function buildSavdoHtml(receipt: Receipt, rs: ReceiptSettings): string {
       ? `<div class="row"><span>Skidka:</span><span>−${escapeHtml(formatSom(receipt.discount))}</span></div>`
       : "";
   const payments = paymentLines(receipt)
-    .map(([label, value]) => `<div class="row small"><span>${label}:</span><span>${escapeHtml(formatSom(value))}</span></div>`)
+    .map(
+      ([label, value]) =>
+        `<div class="row small"><span>${label}:</span><span>${escapeHtml(formatSom(value))}</span></div>`,
+    )
     .join("");
   const debt =
     receipt.customerType === "nasiya" && (receipt.debtAmount ?? 0) > 0
@@ -134,7 +143,10 @@ function buildSavdoHtml(receipt: Receipt, rs: ReceiptSettings): string {
 </html>`;
 }
 
-function buildNakladnoyHtml(receipt: Receipt, { receiptSettings: rs, showImages }: PrintOptions): string {
+function buildNakladnoyHtml(
+  receipt: Receipt,
+  { receiptSettings: rs, showImages }: PrintOptions,
+): string {
   const rows = receipt.items
     .map((it, index) => {
       const product = productOf(it.productId);

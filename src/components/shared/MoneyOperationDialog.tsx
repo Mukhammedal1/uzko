@@ -24,12 +24,24 @@ import { formatNumberInput, parseNumberInput } from "@/lib/utils";
 import { useApp } from "@/lib/app-context";
 import { toast } from "sonner";
 
-type Party = "nasiyachi" | "agent";
-type PayMethod = "naqd" | "karta" | "valyuta";
-type AgentSource = "kassa" | "boshqa";
+type Party = "nasiyachi" | "yetkazib_beruvchi";
+type PayMethod = "naqd" | "karta" | "valyuta" | "otkazma" | "click" | "payme";
+type SupplierSource = "kassa" | "boshqa";
 
 const CARD_TYPES = ["HUMO", "UZCARD", "VISA"] as const;
 const CURRENCIES = ["USD", "RUB", "EUR"] as const;
+
+const NASIYACHI_METHODS: PayMethod[] = ["naqd", "karta", "valyuta"];
+/** Savdo pagedagi barcha to'lov usullari — yetkazib beruvchiga to'lovda ham shu ro'yxat ishlatiladi. */
+const SUPPLIER_METHODS: PayMethod[] = ["naqd", "karta", "valyuta", "otkazma", "click", "payme"];
+const METHOD_LABELS: Record<PayMethod, string> = {
+  naqd: "Naqd",
+  karta: "Karta",
+  valyuta: "Valyuta",
+  otkazma: "O'tkazma",
+  click: "Click",
+  payme: "Payme",
+};
 
 type Target = {
   id: string;
@@ -41,7 +53,7 @@ type Target = {
 type Props = {
   party: Party;
   target: Target | null;
-  /** Joriy qarz balansi: nasiyachi qarzi yoki bizning agentga qarzimiz. */
+  /** Joriy qarz balansi: nasiyachi qarzi yoki bizning yetkazib beruvchiga qarzimiz. */
   currentBalance: number;
   onClose: () => void;
   onDone: () => void;
@@ -53,7 +65,7 @@ export function MoneyOperationDialog({ party, target, currentBalance, onClose, o
   const [method, setMethod] = React.useState<PayMethod>("naqd");
   const [cardType, setCardType] = React.useState<(typeof CARD_TYPES)[number]>("HUMO");
   const [currencyCode, setCurrencyCode] = React.useState<(typeof CURRENCIES)[number]>("USD");
-  const [source, setSource] = React.useState<AgentSource>("kassa");
+  const [source, setSource] = React.useState<SupplierSource>("kassa");
   const [note, setNote] = React.useState("");
 
   React.useEffect(() => {
@@ -71,10 +83,10 @@ export function MoneyOperationDialog({ party, target, currentBalance, onClose, o
 
   const isNasiyachi = party === "nasiyachi";
   const numericAmount = Math.max(0, parseNumberInput(amount));
-  // Nasiyachi: qarz so'ndirish → qarzi kamayadi. Agent: to'lov → bizning qarzimiz kamayadi.
+  // Nasiyachi: qarz so'ndirish → qarzi kamayadi. Yetkazib beruvchi: to'lov → bizning qarzimiz kamayadi.
   const nextBalance = Math.max(0, currentBalance - numericAmount);
   const balanceLabel = isNasiyachi ? "Nasiyachi qarzi" : "Bizning qarzimiz";
-  const title = isNasiyachi ? "Qarz so'ndirish" : "Agentga to'lov";
+  const title = isNasiyachi ? "Qarz so'ndirish" : "Yetkazib beruvchiga to'lov";
   const canSubmit = numericAmount > 0;
 
   const submit = () => {
@@ -162,7 +174,7 @@ export function MoneyOperationDialog({ party, target, currentBalance, onClose, o
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
               {source === "kassa"
-                ? "Summa kassadan chiqim sifatida yoziladi (Agentlarga to'lov)."
+                ? "Summa kassadan chiqim sifatida yoziladi (Yetkazib beruvchilarga to'lov)."
                 : "Kassaga tegilmaydi — to'lov tashqi manbadan qilingan deb belgilanadi."}
             </p>
           </div>
@@ -171,16 +183,16 @@ export function MoneyOperationDialog({ party, target, currentBalance, onClose, o
         <div>
           <Label className="mb-1 block text-xs">To'lov usuli</Label>
           <div className="grid grid-cols-3 gap-2">
-            {(["naqd", "karta", "valyuta"] as PayMethod[]).map((m) => (
+            {(isNasiyachi ? NASIYACHI_METHODS : SUPPLIER_METHODS).map((m) => (
               <Button
                 key={m}
                 type="button"
                 size="sm"
                 variant={method === m ? "default" : "outline"}
                 onClick={() => setMethod(m)}
-                className="h-8 capitalize"
+                className="h-8"
               >
-                {m}
+                {METHOD_LABELS[m]}
               </Button>
             ))}
           </div>

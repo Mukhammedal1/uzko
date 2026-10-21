@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import { resolvePeriod } from "./period";
 import { buildCashPdf, buildDebtsPdf, buildSalesPdf, buildStockPdf } from "./pdf";
 
-const FAR_PAST_RANGE = { start: new Date("2000-01-01"), end: new Date("2100-01-01"), label: "Test" };
+const FAR_PAST_RANGE = {
+  start: new Date("2000-01-01"),
+  end: new Date("2100-01-01"),
+  label: "Test",
+};
 
 describe("PDF generatorlar", () => {
   it("buildSalesPdf — xatosiz PDF blob va nomini qaytaradi", () => {

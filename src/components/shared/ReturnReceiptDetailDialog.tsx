@@ -21,9 +21,9 @@ function fmtDate(value: string) {
 }
 
 export function returnedByLabel(receipt: ReturnReceipt) {
-  if (receipt.customerType === "agent") {
-    const name = receipt.agentName || receipt.customerName || receipt.agentId || "Noma'lum";
-    const meta = ["Agent / taminotchi", receipt.agentId].filter(Boolean).join(" · ");
+  if (receipt.customerType === "yetkazib_beruvchi") {
+    const name = receipt.supplierName || receipt.customerName || receipt.supplierId || "Noma'lum";
+    const meta = ["Yetkazib beruvchi", receipt.supplierId].filter(Boolean).join(" · ");
     return { name, meta };
   }
   const name = receipt.objectName || receipt.customerName || receipt.customerId || "Noma'lum";

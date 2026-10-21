@@ -1,10 +1,6 @@
 import * as React from "react";
 import { Button } from "@/components/ui/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calculator } from "lucide-react";
 
 type Props = {
@@ -59,11 +55,16 @@ export function CalculatorPopover({ trigger, initialValue, onUse }: Props) {
 
   const compute = (a: number, b: number, operator: string): number => {
     switch (operator) {
-      case "+": return a + b;
-      case "-": return a - b;
-      case "×": return a * b;
-      case "÷": return b === 0 ? 0 : a / b;
-      default: return b;
+      case "+":
+        return a + b;
+      case "-":
+        return a - b;
+      case "×":
+        return a * b;
+      case "÷":
+        return b === 0 ? 0 : a / b;
+      default:
+        return b;
     }
   };
 
@@ -94,29 +95,66 @@ export function CalculatorPopover({ trigger, initialValue, onUse }: Props) {
           {display}
         </div>
         <div className="grid grid-cols-4 gap-2">
-          <Button variant="secondary" className={btn} onClick={clear}>C</Button>
-          <Button variant="secondary" className={btn} onClick={() => setDisplay(String(-parseFloat(display)))}>±</Button>
-          <Button variant="secondary" className={btn} onClick={() => setDisplay(String(parseFloat(display) / 100))}>%</Button>
-          <Button variant="default" className={btn} onClick={() => performOp("÷")}>÷</Button>
+          <Button variant="secondary" className={btn} onClick={clear}>
+            C
+          </Button>
+          <Button
+            variant="secondary"
+            className={btn}
+            onClick={() => setDisplay(String(-parseFloat(display)))}
+          >
+            ±
+          </Button>
+          <Button
+            variant="secondary"
+            className={btn}
+            onClick={() => setDisplay(String(parseFloat(display) / 100))}
+          >
+            %
+          </Button>
+          <Button variant="default" className={btn} onClick={() => performOp("÷")}>
+            ÷
+          </Button>
 
-          {["7","8","9"].map(d => <Button key={d} variant="outline" className={btn} onClick={() => inputDigit(d)}>{d}</Button>)}
-          <Button variant="default" className={btn} onClick={() => performOp("×")}>×</Button>
+          {["7", "8", "9"].map((d) => (
+            <Button key={d} variant="outline" className={btn} onClick={() => inputDigit(d)}>
+              {d}
+            </Button>
+          ))}
+          <Button variant="default" className={btn} onClick={() => performOp("×")}>
+            ×
+          </Button>
 
-          {["4","5","6"].map(d => <Button key={d} variant="outline" className={btn} onClick={() => inputDigit(d)}>{d}</Button>)}
-          <Button variant="default" className={btn} onClick={() => performOp("-")}>−</Button>
+          {["4", "5", "6"].map((d) => (
+            <Button key={d} variant="outline" className={btn} onClick={() => inputDigit(d)}>
+              {d}
+            </Button>
+          ))}
+          <Button variant="default" className={btn} onClick={() => performOp("-")}>
+            −
+          </Button>
 
-          {["1","2","3"].map(d => <Button key={d} variant="outline" className={btn} onClick={() => inputDigit(d)}>{d}</Button>)}
-          <Button variant="default" className={btn} onClick={() => performOp("+")}>+</Button>
+          {["1", "2", "3"].map((d) => (
+            <Button key={d} variant="outline" className={btn} onClick={() => inputDigit(d)}>
+              {d}
+            </Button>
+          ))}
+          <Button variant="default" className={btn} onClick={() => performOp("+")}>
+            +
+          </Button>
 
-          <Button variant="outline" className={`${btn} col-span-2`} onClick={() => inputDigit("0")}>0</Button>
-          <Button variant="outline" className={btn} onClick={inputDot}>.</Button>
-          <Button variant="default" className={btn} onClick={equals}>=</Button>
+          <Button variant="outline" className={`${btn} col-span-2`} onClick={() => inputDigit("0")}>
+            0
+          </Button>
+          <Button variant="outline" className={btn} onClick={inputDot}>
+            .
+          </Button>
+          <Button variant="default" className={btn} onClick={equals}>
+            =
+          </Button>
         </div>
         {onUse && (
-          <Button
-            className="mt-3 w-full"
-            onClick={() => onUse(parseFloat(display) || 0)}
-          >
+          <Button className="mt-3 w-full" onClick={() => onUse(parseFloat(display) || 0)}>
             Ishlatish
           </Button>
         )}

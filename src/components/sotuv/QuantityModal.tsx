@@ -30,12 +30,7 @@ export function QuantityModal({ product, open, onOpenChange, onAdd, currency = "
   const [amountMode, setAmountMode] = React.useState<"qty" | "amount">("qty");
   const [selectedPriceMode, setSelectedPriceMode] = React.useState<PriceMode>("retail");
 
-  // Qadoq birligi aniq belgilangan tovar (packUnit) — har doim dona/karobka tanlovi;
-  // eski "dona" + perBox tovarlarda esa faqat optom narxda.
-  const hasBoxOption =
-    !!product &&
-    (product.perBox ?? 0) > 1 &&
-    (!!product.packUnit || (product.unit === "dona" && selectedPriceMode === "wholesale"));
+  const hasBoxOption = !!product && (product.perBox ?? 0) > 1;
   const isWeightUnit = !!product && WEIGHT_UNITS.has(product.unit);
 
   React.useEffect(() => {
@@ -93,6 +88,16 @@ export function QuantityModal({ product, open, onOpenChange, onAdd, currency = "
               className={"font-semibold " + (product.vitrinaQty === 0 ? "text-destructive" : "")}
             >
               {product.vitrinaQty} {product.unit}
+              {hasBoxOption && (
+                <span className="ml-1 font-normal text-muted-foreground">
+                  ({Math.floor(product.vitrinaQty / (product.perBox ?? 1))}{" "}
+                  {product.packUnit ?? "karobka"}
+                  {product.vitrinaQty % (product.perBox ?? 1) > 0
+                    ? ` va ${product.vitrinaQty % (product.perBox ?? 1)} ${product.unit}`
+                    : ""}
+                  )
+                </span>
+              )}
             </span>
           </div>
           {isProductAtLimit(product) && (

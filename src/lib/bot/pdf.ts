@@ -64,7 +64,9 @@ function renderReportPdf(opts: {
     startY: 38,
     head: [opts.columns.map((c) => c.header)],
     body: opts.rows.map((row) => opts.columns.map((c) => String(row[c.key] ?? ""))),
-    foot: opts.totalsRow ? [opts.columns.map((c) => String(opts.totalsRow![c.key] ?? ""))] : undefined,
+    foot: opts.totalsRow
+      ? [opts.columns.map((c) => String(opts.totalsRow![c.key] ?? ""))]
+      : undefined,
     styles: { font: "helvetica", fontSize: 9 },
     headStyles: { fillColor: [34, 44, 59] },
     footStyles: { fillColor: [230, 230, 230], textColor: [20, 20, 20], fontStyle: "bold" },
@@ -256,7 +258,8 @@ export function buildStockPdf(
     lastSoldAt: r.lastSoldAt ? formatDateUz(new Date(`${r.lastSoldAt}T00:00:00+05:00`)) : "—",
     frozenValue: r.frozenValue !== undefined ? formatSom(r.frozenValue) : "—",
   }));
-  const title = filter === "dead" ? `${STOCK_FILTER_TITLE.dead} (${deadDays} kun)` : STOCK_FILTER_TITLE[filter];
+  const title =
+    filter === "dead" ? `${STOCK_FILTER_TITLE.dead} (${deadDays} kun)` : STOCK_FILTER_TITLE[filter];
 
   return {
     blob: renderReportPdf({
@@ -300,7 +303,11 @@ function flattenScalarFields(obj: Record<string, unknown>): [string, string][] {
  * qatorgacha ko'tarilib, qayta chaqiriladi (spec 7-bo'lim). LLM matni PDF'ga
  * kirmaydi — faqat bazadagi (reports.ts orqali kelgan) raqamlar.
  */
-export function buildAiChatPdf(question: string, tools: ToolCallRecord[], now = new Date()): GeneratedPdf {
+export function buildAiChatPdf(
+  question: string,
+  tools: ToolCallRecord[],
+  now = new Date(),
+): GeneratedPdf {
   const doc = new jsPDF();
 
   doc.setFontSize(13);

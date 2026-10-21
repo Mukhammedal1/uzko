@@ -40,10 +40,10 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { CustomerSearch } from "@/components/shared/CustomerSearch";
 import {
-  exportAgentHistoryToExcel,
-  printAgentNakladnoy,
-  printAgentReceipt80mm,
-} from "@/components/agentlar/AgentlarPage";
+  exportSupplierHistoryToExcel,
+  printSupplierNakladnoy,
+  printSupplierReceipt80mm,
+} from "@/components/yetkazib-beruvchilar/YetkazibBeruvchilarPage";
 import {
   MOCK_PRODUCTS,
   MOCK_PRODUCT_HISTORY,
@@ -81,7 +81,7 @@ type ReturnCartItem = {
   note?: string;
 };
 
-type CustomerType = "oddiy" | "nasiya" | "agent";
+type CustomerType = "oddiy" | "nasiya" | "yetkazib_beruvchi";
 
 export const PENDING_RETURN_EXCHANGE_KEY = "uzko_pending_return_exchange";
 
@@ -92,9 +92,9 @@ export type PendingReturnExchange = {
   customerType: CustomerType;
   customerId?: string;
   customerName: string;
-  agentId?: string;
-  agentName?: string;
-  agentPhone?: string;
+  supplierId?: string;
+  supplierName?: string;
+  supplierPhone?: string;
   subtotal: number;
   total: number;
   reason: string;
@@ -143,7 +143,7 @@ export function TovarQaytarish({ exchangeShortcut = false, onExchangeCreated }: 
   const [customerType, setCustomerType] = React.useState<CustomerType>("oddiy");
   const [customerSearch, setCustomerSearch] = React.useState("");
   const [customerId, setCustomerId] = React.useState("");
-  const [agentId, setAgentId] = React.useState("");
+  const [supplierId, setSupplierId] = React.useState("");
   const [manualTotal, setManualTotal] = React.useState<string | null>(null);
   const [comment, setComment] = React.useState("");
   const [routeEnabled, setRouteEnabled] = React.useState(false);
@@ -151,9 +151,8 @@ export function TovarQaytarish({ exchangeShortcut = false, onExchangeCreated }: 
   const [vehiclePlate, setVehiclePlate] = React.useState("");
   const [driverName, setDriverName] = React.useState("");
   const [driverPhone, setDriverPhone] = React.useState("");
-  const [lastAgentReturnReport, setLastAgentReturnReport] = React.useState<SupplierReport | null>(
-    null,
-  );
+  const [lastSupplierReturnReport, setLastSupplierReturnReport] =
+    React.useState<SupplierReport | null>(null);
 
   const matches = React.useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -167,20 +166,20 @@ export function TovarQaytarish({ exchangeShortcut = false, onExchangeCreated }: 
   }, [query]);
 
   const customer = MOCK_CREDIT_CUSTOMERS.find((c) => c.id === customerId);
-  const supplierAgents = buildSupplierAgentOptions(MOCK_SUPPLIER_REPORTS);
-  const selectedAgent = supplierAgents.find((agent) => agent.id === agentId);
+  const supplierList = buildSupplierOptions(MOCK_SUPPLIER_REPORTS);
+  const selectedSupplier = supplierList.find((agent) => agent.id === supplierId);
   const originalReceipt = React.useMemo(() => findReceipt(receiptNumber), [receiptNumber]);
-  const suggestedAgent = React.useMemo(() => {
+  const suggestedSupplier = React.useMemo(() => {
     if (cart.length === 0) return undefined;
-    const agentIds = cart
-      .map((item) => findLatestAgentForProduct(item.product.name)?.agentId)
+    const supplierIds = cart
+      .map((item) => findLatestSupplierForProduct(item.product.name)?.supplierId)
       .filter((id): id is string => Boolean(id));
-    if (agentIds.length === 0) return undefined;
+    if (supplierIds.length === 0) return undefined;
     const counts = new Map<string, number>();
-    agentIds.forEach((id) => counts.set(id, (counts.get(id) ?? 0) + 1));
+    supplierIds.forEach((id) => counts.set(id, (counts.get(id) ?? 0) + 1));
     const [topId] = Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0];
-    return supplierAgents.find((agent) => agent.id === topId);
-  }, [cart, supplierAgents]);
+    return supplierList.find((agent) => agent.id === topId);
+  }, [cart, supplierList]);
   const lineTotal = (item: ReturnCartItem) => safeNumber(item.price) * safeNumber(item.qty);
   const subtotal = cart.reduce((sum, item) => sum + lineTotal(item), 0);
   const normalizedPenaltyPercent = Math.min(100, Math.max(0, noReceiptPenaltyPercent || 0));
@@ -269,8 +268,8 @@ export function TovarQaytarish({ exchangeShortcut = false, onExchangeCreated }: 
       setCustomerSearch("");
       setCustomerId("");
     }
-    if (customerType !== "agent") {
-      setAgentId("");
+    if (customerType !== "yetkazib_beruvchi") {
+      setSupplierId("");
     }
   }, [customerType]);
 
@@ -282,33 +281,33 @@ export function TovarQaytarish({ exchangeShortcut = false, onExchangeCreated }: 
       setCustomerType("nasiya");
       setCustomerId(receiptCustomer?.id ?? "");
       setCustomerSearch(receiptCustomer ? fullCustomerName(receiptCustomer) : "");
-      setAgentId("");
+      setSupplierId("");
       return;
     }
     if (customerType === "nasiya") {
       setCustomerSearch("");
       setCustomerId("");
-      setAgentId("");
+      setSupplierId("");
       return;
     }
-    if (customerType === "agent") {
+    if (customerType === "yetkazib_beruvchi") {
       setCustomerSearch("");
       setCustomerId("");
       return;
     }
     setCustomerSearch("");
     setCustomerId("");
-    setAgentId("");
+    setSupplierId("");
   };
 
   const openFinish = () => {
     if (cart.length === 0) return toast.error("Qaytariladigan tovar tanlang");
     resetFinishCustomer();
-    if (originalReceipt?.customerType !== "nasiya" && suggestedAgent) {
-      setCustomerType("agent");
-      setAgentId(suggestedAgent.id);
-      toast.info(`Agent avtomatik tanlandi: ${suggestedAgent.name}`, {
-        description: "Bu tovarni oxirgi marta shu agent olib kelgan edi.",
+    if (originalReceipt?.customerType !== "nasiya" && suggestedSupplier) {
+      setCustomerType("yetkazib_beruvchi");
+      setSupplierId(suggestedSupplier.id);
+      toast.info(`Yetkazib beruvchi avtomatik tanlandi: ${suggestedSupplier.name}`, {
+        description: "Bu tovarni oxirgi marta shu yetkazib beruvchi olib kelgan edi.",
       });
     }
     setFinishOpen(true);
@@ -328,24 +327,26 @@ export function TovarQaytarish({ exchangeShortcut = false, onExchangeCreated }: 
         ? MOCK_CREDIT_CUSTOMERS.find((item) => item.id === originalReceipt.customerId)
         : undefined;
     const effectiveCustomerType =
-      customerType === "agent" ? "agent" : (originalReceipt?.customerType ?? customerType);
+      customerType === "yetkazib_beruvchi"
+        ? "yetkazib_beruvchi"
+        : (originalReceipt?.customerType ?? customerType);
     const effectiveCustomer =
       effectiveCustomerType === "nasiya" ? (originalReceiptCustomer ?? customer) : undefined;
-    const effectiveAgent =
-      effectiveCustomerType === "agent"
-        ? (selectedAgent ?? supplierAgents.find((item) => item.id === agentId))
+    const effectiveSupplier =
+      effectiveCustomerType === "yetkazib_beruvchi"
+        ? (selectedSupplier ?? supplierList.find((item) => item.id === supplierId))
         : undefined;
     if (effectiveCustomerType === "nasiya" && !effectiveCustomer) {
       toast.error("Nasiyachi mijoz topilmadi");
       return null;
     }
-    if (effectiveCustomerType === "agent" && !effectiveAgent) {
-      toast.error("Agent tanlang");
+    if (effectiveCustomerType === "yetkazib_beruvchi" && !effectiveSupplier) {
+      toast.error("Yetkazib beruvchi tanlang");
       return null;
     }
     const receiptCustomerName =
-      effectiveCustomerType === "agent"
-        ? (effectiveAgent?.name ?? "Taminotchi")
+      effectiveCustomerType === "yetkazib_beruvchi"
+        ? (effectiveSupplier?.name ?? "Taminotchi")
         : originalReceipt?.customerName ||
           (effectiveCustomer?.firstName && effectiveCustomer?.lastName
             ? `${effectiveCustomer.firstName} ${effectiveCustomer.lastName}`
@@ -357,9 +358,9 @@ export function TovarQaytarish({ exchangeShortcut = false, onExchangeCreated }: 
       customerType: effectiveCustomerType,
       customerId: effectiveCustomer?.id,
       customerName: receiptCustomerName,
-      agentId: effectiveAgent?.id,
-      agentName: effectiveAgent?.name,
-      agentPhone: effectiveAgent?.phone,
+      supplierId: effectiveSupplier?.id,
+      supplierName: effectiveSupplier?.name,
+      supplierPhone: effectiveSupplier?.phone,
       items: cart.map((item) => ({
         productId: item.product.id,
         name: item.product.name,
@@ -372,19 +373,19 @@ export function TovarQaytarish({ exchangeShortcut = false, onExchangeCreated }: 
       reason: `${reason}${receiptNumber.trim() ? ` · Asl chek: ${receiptNumber.trim()}` : " · Asl chek kiritilmadi"}${noReceiptDiscount > 0 ? ` · ${normalizedPenaltyPercent}% jarima/skidka: ${formatSom(noReceiptDiscount)}` : ""}`,
       comment: comment.trim() || undefined,
       vehicleName:
-        effectiveCustomerType === "agent" && routeEnabled
+        effectiveCustomerType === "yetkazib_beruvchi" && routeEnabled
           ? vehicleName.trim() || undefined
           : undefined,
       vehiclePlate:
-        effectiveCustomerType === "agent" && routeEnabled
+        effectiveCustomerType === "yetkazib_beruvchi" && routeEnabled
           ? vehiclePlate.trim() || undefined
           : undefined,
       driverName:
-        effectiveCustomerType === "agent" && routeEnabled
+        effectiveCustomerType === "yetkazib_beruvchi" && routeEnabled
           ? driverName.trim() || undefined
           : undefined,
       driverPhone:
-        effectiveCustomerType === "agent" && routeEnabled
+        effectiveCustomerType === "yetkazib_beruvchi" && routeEnabled
           ? driverPhone.trim() || undefined
           : undefined,
       receiptNumber: receiptNumber.trim() || undefined,
@@ -400,7 +401,9 @@ export function TovarQaytarish({ exchangeShortcut = false, onExchangeCreated }: 
     if (mode === "exchange") {
       try {
         localStorage.setItem(PENDING_RETURN_EXCHANGE_KEY, JSON.stringify(pendingReturn));
-      } catch {}
+      } catch {
+        // ignore
+      }
       setFinishOpen(false);
       onExchangeCreated?.(pendingReturn);
       toast.success("Qaytarish savdo oynasiga o'tkazildi", {
@@ -429,7 +432,7 @@ export function TovarQaytarish({ exchangeShortcut = false, onExchangeCreated }: 
       description: `${pendingReturn.items.length} xil tovar: ${formatSom(refundTotal)}`,
     });
     if (createdReport.supplierReport) {
-      setLastAgentReturnReport(createdReport.supplierReport);
+      setLastSupplierReturnReport(createdReport.supplierReport);
     }
   };
 
@@ -925,7 +928,7 @@ export function TovarQaytarish({ exchangeShortcut = false, onExchangeCreated }: 
                   setCustomerType("oddiy");
                   setCustomerId("");
                   setCustomerSearch("");
-                  setAgentId("");
+                  setSupplierId("");
                 }}
                 className={`rounded-xl border p-4 text-left transition hover:bg-muted ${customerType === "oddiy" ? "border-primary bg-primary/5" : ""}`}
               >
@@ -938,7 +941,7 @@ export function TovarQaytarish({ exchangeShortcut = false, onExchangeCreated }: 
                 type="button"
                 onClick={() => {
                   setCustomerType("nasiya");
-                  setAgentId("");
+                  setSupplierId("");
                 }}
                 className={`rounded-xl border p-4 text-left transition hover:bg-muted ${customerType === "nasiya" ? "border-primary bg-primary/5" : ""}`}
               >
@@ -950,19 +953,20 @@ export function TovarQaytarish({ exchangeShortcut = false, onExchangeCreated }: 
               <button
                 type="button"
                 onClick={() => {
-                  setCustomerType("agent");
+                  setCustomerType("yetkazib_beruvchi");
                   setCustomerId("");
                   setCustomerSearch("");
                 }}
-                className={`rounded-xl border p-4 text-left transition hover:bg-muted ${customerType === "agent" ? "border-primary bg-primary/5" : ""}`}
+                className={`rounded-xl border p-4 text-left transition hover:bg-muted ${customerType === "yetkazib_beruvchi" ? "border-primary bg-primary/5" : ""}`}
               >
-                <b>Agent / taminotchi</b>
+                <b>Yetkazib beruvchi</b>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Tovar agentga qaytariladi, qaytarish agent hisob-kitobiga yoziladi.
+                  Tovar yetkazib beruvchiga qaytariladi, qaytarish yetkazib beruvchi hisob-kitobiga
+                  yoziladi.
                 </p>
-                {suggestedAgent && customerType !== "agent" && (
+                {suggestedSupplier && customerType !== "yetkazib_beruvchi" && (
                   <p className="mt-1.5 text-[11px] font-semibold text-primary">
-                    Taklif: {suggestedAgent.name} (shu tovarni u olib kelgan)
+                    Taklif: {suggestedSupplier.name} (shu tovarni u olib kelgan)
                   </p>
                 )}
               </button>
@@ -990,28 +994,28 @@ export function TovarQaytarish({ exchangeShortcut = false, onExchangeCreated }: 
               </div>
             )}
 
-            {customerType === "agent" && (
+            {customerType === "yetkazib_beruvchi" && (
               <div className="rounded-xl border bg-muted/20 p-3">
                 <div className="flex items-center justify-between gap-2">
                   <Label className="mb-1 block text-xs font-semibold">
-                    Agent / taminotchi tanlash
+                    Yetkazib beruvchi tanlash
                   </Label>
                   <span className="text-[11px] text-muted-foreground">
-                    {supplierAgents.length} ta yozuv
+                    {supplierList.length} ta yozuv
                   </span>
                 </div>
-                {suggestedAgent && agentId === suggestedAgent.id && (
+                {suggestedSupplier && supplierId === suggestedSupplier.id && (
                   <div className="mb-2 rounded-md bg-primary/10 px-2 py-1 text-[11px] font-semibold text-primary">
-                    Avtomatik tanlandi: shu tovarni oxirgi marta {suggestedAgent.name} olib kelgan
-                    edi
+                    Avtomatik tanlandi: shu tovarni oxirgi marta {suggestedSupplier.name} olib
+                    kelgan edi
                   </div>
                 )}
-                <Select value={agentId} onValueChange={setAgentId}>
+                <Select value={supplierId} onValueChange={setSupplierId}>
                   <SelectTrigger className="h-10">
-                    <SelectValue placeholder="Agentni ro'yxatdan tanlang" />
+                    <SelectValue placeholder="Yetkazib beruvchini ro'yxatdan tanlang" />
                   </SelectTrigger>
                   <SelectContent>
-                    {supplierAgents.map((agent) => (
+                    {supplierList.map((agent) => (
                       <SelectItem key={agent.id} value={agent.id}>
                         <div className="flex flex-col py-0.5">
                           <span className="font-semibold">
@@ -1025,25 +1029,25 @@ export function TovarQaytarish({ exchangeShortcut = false, onExchangeCreated }: 
                     ))}
                   </SelectContent>
                 </Select>
-                {selectedAgent && (
+                {selectedSupplier && (
                   <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
                     <div className="rounded-md bg-background p-2 text-muted-foreground">
                       Hozirgi qoldiq
                       <div className="text-sm font-bold text-foreground">
-                        {formatSom(selectedAgent.remainingDebt)}
+                        {formatSom(selectedSupplier.remainingDebt)}
                       </div>
                     </div>
                     <div className="rounded-md bg-background p-2 text-muted-foreground">
                       Qaytarishdan keyin
                       <div className="text-sm font-bold text-primary">
-                        {formatSom(selectedAgent.remainingDebt - refundTotal)}
+                        {formatSom(selectedSupplier.remainingDebt - refundTotal)}
                       </div>
                     </div>
                   </div>
                 )}
-                {supplierAgents.length === 0 && (
+                {supplierList.length === 0 && (
                   <div className="mt-2 text-xs text-destructive">
-                    Agent topilmadi. Avval agentlar ro'yxatini to'ldiring.
+                    Yetkazib beruvchi topilmadi. Avval yetkazib beruvchilar ro'yxatini to'ldiring.
                   </div>
                 )}
 
@@ -1122,8 +1126,8 @@ export function TovarQaytarish({ exchangeShortcut = false, onExchangeCreated }: 
       </Dialog>
 
       <Dialog
-        open={!!lastAgentReturnReport}
-        onOpenChange={(open) => !open && setLastAgentReturnReport(null)}
+        open={!!lastSupplierReturnReport}
+        onOpenChange={(open) => !open && setLastSupplierReturnReport(null)}
       >
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -1132,12 +1136,12 @@ export function TovarQaytarish({ exchangeShortcut = false, onExchangeCreated }: 
               Qaytarish hujjatini yuklab olish
             </DialogTitle>
           </DialogHeader>
-          {lastAgentReturnReport && (
+          {lastSupplierReturnReport && (
             <div className="space-y-3">
               <div className="rounded-lg border bg-muted/30 p-3 text-sm">
-                <div className="font-semibold">{lastAgentReturnReport.agentName}</div>
+                <div className="font-semibold">{lastSupplierReturnReport.supplierName}</div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  Qaytarish summasi: {formatSom(Math.abs(lastAgentReturnReport.totalAmount))}
+                  Qaytarish summasi: {formatSom(Math.abs(lastSupplierReturnReport.totalAmount))}
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -1146,10 +1150,10 @@ export function TovarQaytarish({ exchangeShortcut = false, onExchangeCreated }: 
                   variant="outline"
                   className="gap-2"
                   onClick={() =>
-                    exportAgentHistoryToExcel(
-                      [lastAgentReturnReport],
-                      lastAgentReturnReport.agentId,
-                      lastAgentReturnReport.agentName,
+                    exportSupplierHistoryToExcel(
+                      [lastSupplierReturnReport],
+                      lastSupplierReturnReport.supplierId,
+                      lastSupplierReturnReport.supplierName,
                     )
                   }
                 >
@@ -1161,11 +1165,11 @@ export function TovarQaytarish({ exchangeShortcut = false, onExchangeCreated }: 
                   variant="outline"
                   className="gap-2"
                   onClick={() =>
-                    printAgentNakladnoy(
-                      [lastAgentReturnReport],
-                      lastAgentReturnReport.agentId,
-                      lastAgentReturnReport.agentName,
-                      lastAgentReturnReport.agentPhone,
+                    printSupplierNakladnoy(
+                      [lastSupplierReturnReport],
+                      lastSupplierReturnReport.supplierId,
+                      lastSupplierReturnReport.supplierName,
+                      lastSupplierReturnReport.supplierPhone,
                       settings.receiptSettings.storeName,
                       settings.receiptSettings.phone,
                     )
@@ -1179,8 +1183,8 @@ export function TovarQaytarish({ exchangeShortcut = false, onExchangeCreated }: 
                   variant="outline"
                   className="gap-2"
                   onClick={() =>
-                    printAgentReceipt80mm(
-                      lastAgentReturnReport,
+                    printSupplierReceipt80mm(
+                      lastSupplierReturnReport,
                       settings.receiptSettings.storeName,
                       settings.receiptSettings.phone,
                     )
@@ -1193,7 +1197,7 @@ export function TovarQaytarish({ exchangeShortcut = false, onExchangeCreated }: 
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setLastAgentReturnReport(null)}>
+            <Button variant="outline" onClick={() => setLastSupplierReturnReport(null)}>
               Yopish
             </Button>
           </DialogFooter>
@@ -1215,9 +1219,9 @@ export function finalizePendingReturnExchange(pendingReturn: PendingReturnExchan
       ? MOCK_CREDIT_CUSTOMERS.find((item) => item.id === pendingReturn.customerId)
       : undefined;
   const agent =
-    pendingReturn.customerType === "agent" && pendingReturn.agentId
-      ? buildSupplierAgentOptions(MOCK_SUPPLIER_REPORTS).find(
-          (item) => item.id === pendingReturn.agentId,
+    pendingReturn.customerType === "yetkazib_beruvchi" && pendingReturn.supplierId
+      ? buildSupplierOptions(MOCK_SUPPLIER_REPORTS).find(
+          (item) => item.id === pendingReturn.supplierId,
         )
       : undefined;
 
@@ -1254,9 +1258,9 @@ export function finalizePendingReturnExchange(pendingReturn: PendingReturnExchan
   if (agent) {
     supplierReport = recordSupplierReturn({
       cashier: pendingReturn.cashier,
-      agentId: agent.id,
-      agentName: agent.name,
-      agentPhone: agent.phone,
+      supplierId: agent.id,
+      supplierName: agent.name,
+      supplierPhone: agent.phone,
       totalAmount: pendingReturn.total,
       note: [pendingReturn.reason, pendingReturn.comment].filter(Boolean).join(" · "),
       vehicleName: pendingReturn.vehicleName,
@@ -1279,9 +1283,9 @@ export function finalizePendingReturnExchange(pendingReturn: PendingReturnExchan
     customerType: pendingReturn.customerType,
     customerId: pendingReturn.customerId,
     customerName: pendingReturn.customerName,
-    agentId: pendingReturn.agentId,
-    agentName: pendingReturn.agentName,
-    agentPhone: pendingReturn.agentPhone,
+    supplierId: pendingReturn.supplierId,
+    supplierName: pendingReturn.supplierName,
+    supplierPhone: pendingReturn.supplierPhone,
     items: pendingReturn.items,
     subtotal: pendingReturn.subtotal,
     total: pendingReturn.total,
@@ -1345,33 +1349,33 @@ function fullCustomerNameById(customerId: string) {
   return customer ? fullCustomerName(customer) : customerId;
 }
 
-function findLatestAgentForProduct(productName: string) {
+function findLatestSupplierForProduct(productName: string) {
   const normalized = productName.trim().toLowerCase();
   if (!normalized) return undefined;
   return MOCK_PRODUCT_HISTORY.filter(
-    (entry) => Boolean(entry.agentId) && entry.productName.trim().toLowerCase() === normalized,
+    (entry) => Boolean(entry.supplierId) && entry.productName.trim().toLowerCase() === normalized,
   ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
 }
 
-function buildSupplierAgentOptions(reports: typeof MOCK_SUPPLIER_REPORTS) {
+function buildSupplierOptions(reports: typeof MOCK_SUPPLIER_REPORTS) {
   const map = new Map<
     string,
     { id: string; name: string; phone?: string; botEnabled: boolean; remainingDebt: number }
   >();
 
   reports.forEach((report) => {
-    if (!report.agentId) return;
-    const current = map.get(report.agentId) ?? {
-      id: report.agentId,
-      name: report.agentName || "Nomsiz agent",
-      phone: report.agentPhone,
+    if (!report.supplierId) return;
+    const current = map.get(report.supplierId) ?? {
+      id: report.supplierId,
+      name: report.supplierName || "Nomsiz yetkazib beruvchi",
+      phone: report.supplierPhone,
       botEnabled: false,
       remainingDebt: 0,
     };
     current.botEnabled = current.botEnabled || Boolean(report.botEnabled);
     current.remainingDebt += report.remainingDebt ?? 0;
-    if (!current.phone && report.agentPhone) current.phone = report.agentPhone;
-    map.set(report.agentId, current);
+    if (!current.phone && report.supplierPhone) current.phone = report.supplierPhone;
+    map.set(report.supplierId, current);
   });
 
   return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
@@ -1383,17 +1387,15 @@ function dispatchReturnReceipt(
   customer: CreditCustomer | undefined,
   agent?: { id: string; name: string; phone?: string; botEnabled?: boolean } | undefined,
 ) {
-  if (receipt.customerType === "agent") {
+  if (receipt.customerType === "yetkazib_beruvchi") {
     const target =
       agent ??
-      (receipt.agentId
-        ? buildSupplierAgentOptions(MOCK_SUPPLIER_REPORTS).find(
-            (item) => item.id === receipt.agentId,
-          )
+      (receipt.supplierId
+        ? buildSupplierOptions(MOCK_SUPPLIER_REPORTS).find((item) => item.id === receipt.supplierId)
         : undefined);
     if (!target?.botEnabled) return;
     dispatchReceiptMessage({
-      recipientCategory: "agent",
+      recipientCategory: "yetkazib_beruvchi",
       recipientId: target.id,
       recipientName: target.name,
       phone: target.phone,

@@ -222,12 +222,11 @@ function UiScaleCard() {
     <Card>
       <CardHeader title="Ekran o'lchami (masshtab)" icon={ScanEye} />
       <p className="mb-4 text-xs text-muted-foreground">
-        Dastur ekran o'lchamiga avtomatik moslashadi. Kerak bo'lsa quyidan qo'lda
-        kattalashtiring yoki kichiklashtiring — sozlama shu qurilmada saqlanadi.
-        Klaviaturada <kbd className="rounded border px-1">Ctrl</kbd> +{" "}
-        <kbd className="rounded border px-1">+</kbd> /{" "}
-        <kbd className="rounded border px-1">−</kbd> /{" "}
-        <kbd className="rounded border px-1">0</kbd>.
+        Dastur ekran o'lchamiga avtomatik moslashadi. Kerak bo'lsa quyidan qo'lda kattalashtiring
+        yoki kichiklashtiring — sozlama shu qurilmada saqlanadi. Klaviaturada{" "}
+        <kbd className="rounded border px-1">Ctrl</kbd> +{" "}
+        <kbd className="rounded border px-1">+</kbd> / <kbd className="rounded border px-1">−</kbd>{" "}
+        / <kbd className="rounded border px-1">0</kbd>.
       </p>
 
       <div className="flex items-center gap-3">
@@ -327,7 +326,6 @@ function ThemeCard({
     </button>
   );
 }
-
 
 function LanguageSection() {
   const { settings, updateSettings, t } = useApp();

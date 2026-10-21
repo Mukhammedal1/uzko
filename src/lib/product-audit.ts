@@ -48,7 +48,7 @@ export type ProductPrixodRow = {
   costPrice: number;
   amount: number;
   warehouse: string;
-  agentName: string;
+  supplierName: string;
 };
 
 export type PrixodChangeRow = {
@@ -240,7 +240,7 @@ export function getProductAudit(opts: {
       costPrice: entry.costPrice,
       amount: entry.qty * entry.costPrice,
       warehouse: entry.warehouse,
-      agentName: entry.agentName ?? "—",
+      supplierName: entry.supplierName ?? "—",
     }))
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 

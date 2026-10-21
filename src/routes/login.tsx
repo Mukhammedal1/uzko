@@ -128,130 +128,130 @@ function LoginPage() {
           </div>
 
           <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 space-y-5" noValidate>
-            <FormField
-              control={form.control}
-              name="phone"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-sm font-medium text-foreground">
-                    Telefon raqami
-                  </FormLabel>
-                  <FormControl>
-                    <div className="relative">
-                      <PhoneIcon className="pointer-events-none absolute left-3.5 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-muted-foreground" />
-                      <Input
-                        {...field}
-                        type="tel"
-                        inputMode="tel"
-                        autoComplete="tel"
-                        autoFocus
-                        placeholder="+998 90 123 45 67"
-                        className={FIELD}
-                      />
-                    </div>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="password"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-sm font-medium text-foreground">Parol</FormLabel>
-                  <FormControl>
-                    <div className="relative">
-                      <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-muted-foreground" />
-                      <Input
-                        {...field}
-                        type={showPassword ? "text" : "password"}
-                        autoComplete="current-password"
-                        placeholder="Parolingizni kiriting"
-                        className={`${FIELD} pr-11`}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword((v) => !v)}
-                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors duration-200 hover:text-foreground"
-                        aria-label={showPassword ? "Parolni yashirish" : "Parolni ko'rsatish"}
-                        tabIndex={-1}
-                      >
-                        {showPassword ? (
-                          <EyeOff className="h-[18px] w-[18px]" />
-                        ) : (
-                          <Eye className="h-[18px] w-[18px]" />
-                        )}
-                      </button>
-                    </div>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <div className="flex items-center justify-between">
+            <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 space-y-5" noValidate>
               <FormField
                 control={form.control}
-                name="rememberMe"
+                name="phone"
                 render={({ field }) => (
-                  <FormItem className="flex flex-row items-center space-y-0">
-                    <FormControl>
-                      <Checkbox
-                        checked={field.value}
-                        onCheckedChange={(checked) => field.onChange(checked === true)}
-                        id="rememberMe"
-                        className="transition-colors duration-200 data-[state=checked]:border-primary data-[state=checked]:bg-primary"
-                      />
-                    </FormControl>
-                    <FormLabel
-                      htmlFor="rememberMe"
-                      className="ml-2 cursor-pointer text-sm font-normal text-muted-foreground"
-                    >
-                      Meni eslab qolish
+                  <FormItem>
+                    <FormLabel className="text-sm font-medium text-foreground">
+                      Telefon raqami
                     </FormLabel>
+                    <FormControl>
+                      <div className="relative">
+                        <PhoneIcon className="pointer-events-none absolute left-3.5 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          {...field}
+                          type="tel"
+                          inputMode="tel"
+                          autoComplete="tel"
+                          autoFocus
+                          placeholder="+998 90 123 45 67"
+                          className={FIELD}
+                        />
+                      </div>
+                    </FormControl>
+                    <FormMessage />
                   </FormItem>
                 )}
               />
-              <Link
-                to="/login"
-                onClick={(e) => {
-                  e.preventDefault();
-                  toast.info("Parolni tiklash uchun administratorga murojaat qiling");
-                }}
-                className="text-sm font-medium text-primary transition-colors duration-200 hover:text-primary/80 hover:underline"
-              >
-                Parolni unutdingizmi?
-              </Link>
+
+              <FormField
+                control={form.control}
+                name="password"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-sm font-medium text-foreground">Parol</FormLabel>
+                    <FormControl>
+                      <div className="relative">
+                        <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          {...field}
+                          type={showPassword ? "text" : "password"}
+                          autoComplete="current-password"
+                          placeholder="Parolingizni kiriting"
+                          className={`${FIELD} pr-11`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword((v) => !v)}
+                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors duration-200 hover:text-foreground"
+                          aria-label={showPassword ? "Parolni yashirish" : "Parolni ko'rsatish"}
+                          tabIndex={-1}
+                        >
+                          {showPassword ? (
+                            <EyeOff className="h-[18px] w-[18px]" />
+                          ) : (
+                            <Eye className="h-[18px] w-[18px]" />
+                          )}
+                        </button>
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <div className="flex items-center justify-between">
+                <FormField
+                  control={form.control}
+                  name="rememberMe"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center space-y-0">
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={(checked) => field.onChange(checked === true)}
+                          id="rememberMe"
+                          className="transition-colors duration-200 data-[state=checked]:border-primary data-[state=checked]:bg-primary"
+                        />
+                      </FormControl>
+                      <FormLabel
+                        htmlFor="rememberMe"
+                        className="ml-2 cursor-pointer text-sm font-normal text-muted-foreground"
+                      >
+                        Meni eslab qolish
+                      </FormLabel>
+                    </FormItem>
+                  )}
+                />
+                <Link
+                  to="/login"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    toast.info("Parolni tiklash uchun administratorga murojaat qiling");
+                  }}
+                  className="text-sm font-medium text-primary transition-colors duration-200 hover:text-primary/80 hover:underline"
+                >
+                  Parolni unutdingizmi?
+                </Link>
+              </div>
+
+              <Button type="submit" className={PRIMARY_BUTTON} disabled={submitting}>
+                {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                Kirish
+              </Button>
+            </form>
+          </Form>
+
+          <div className="relative my-6">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t border-border" />
             </div>
-
-            <Button type="submit" className={PRIMARY_BUTTON} disabled={submitting}>
-              {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-              Kirish
-            </Button>
-          </form>
-        </Form>
-
-        <div className="relative my-6">
-          <div className="absolute inset-0 flex items-center">
-            <span className="w-full border-t border-border" />
+            <div className="relative flex justify-center">
+              <span className="bg-card px-3 text-xs text-muted-foreground">Hisobingiz yo'qmi?</span>
+            </div>
           </div>
-          <div className="relative flex justify-center">
-            <span className="bg-card px-3 text-xs text-muted-foreground">Hisobingiz yo'qmi?</span>
-          </div>
-        </div>
 
-        <Button asChild className={OUTLINE_BUTTON}>
-          <Link to="/register">Ro'yxatdan o'tish</Link>
-        </Button>
+          <Button asChild className={OUTLINE_BUTTON}>
+            <Link to="/register">Ro'yxatdan o'tish</Link>
+          </Button>
 
-        <p className="mt-6 text-center text-xs text-muted-foreground">
-          &copy; {new Date().getFullYear()} UZKO.
-          <br />
-          Barcha huquqlar himoyalangan.
-        </p>
+          <p className="mt-6 text-center text-xs text-muted-foreground">
+            &copy; {new Date().getFullYear()} UZKO.
+            <br />
+            Barcha huquqlar himoyalangan.
+          </p>
         </div>
       </div>
 

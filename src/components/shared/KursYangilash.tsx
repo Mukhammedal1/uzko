@@ -174,8 +174,8 @@ export function KursYangilash() {
           <div className="rounded-xl border border-primary/20 bg-primary/5 p-5 text-sm">
             <div className="font-semibold text-primary">Avtomatik hisoblash</div>
             <p className="mt-2 text-muted-foreground">
-              Kursni qo'llaganda valyutada tan narxga ega tovarlarning sotuv narxi avtomatik yangilanadi.
-              UZS asosiy kurs bo'lgani uchun o'chirilmaydi.
+              Kursni qo'llaganda valyutada tan narxga ega tovarlarning sotuv narxi avtomatik
+              yangilanadi. UZS asosiy kurs bo'lgani uchun o'chirilmaydi.
             </p>
           </div>
         </div>

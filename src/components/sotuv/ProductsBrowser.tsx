@@ -1,7 +1,14 @@
 import * as React from "react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
-import { AlertTriangle, ChevronRight, Layers, Search } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { AlertTriangle, Banknote, ChevronRight, Columns3, Layers, Search } from "lucide-react";
 import {
   MOCK_PRODUCTS,
   formatMoney,
@@ -12,6 +19,89 @@ import {
 } from "@/lib/mock-data";
 import type { Product, ProductVariant } from "@/lib/mock-data";
 import type { OneTimeItemInput, PriceMode } from "./types";
+
+type OptionalColumn = "costPrice" | "wholesale" | "margin" | "boxQty" | "unit";
+
+const OPTIONAL_COLUMNS: { key: OptionalColumn; label: string }[] = [
+  { key: "costPrice", label: "Tan narx" },
+  { key: "wholesale", label: "Optom narx" },
+  { key: "margin", label: "Marja %" },
+  { key: "boxQty", label: "O'ram bo'yicha qoldiq" },
+  { key: "unit", label: "Birlik" },
+];
+
+const HIDDEN_COLUMNS_STORAGE_KEY = "uzko-sotuv-hidden-columns";
+
+function readHiddenColumns(): Set<OptionalColumn> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = JSON.parse(window.localStorage.getItem(HIDDEN_COLUMNS_STORAGE_KEY) ?? "[]");
+    return new Set(
+      (Array.isArray(raw) ? raw : []).filter((key): key is OptionalColumn =>
+        OPTIONAL_COLUMNS.some((col) => col.key === key),
+      ),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+/** Tan narxga nisbatan qo'yilgan marjani foizda qaytaradi (tan narx bo'lmasa null). */
+function computeMarginPercent(price?: number, costPrice?: number): number | null {
+  if (!price || !costPrice || costPrice <= 0) return null;
+  return ((price - costPrice) / costPrice) * 100;
+}
+
+/** Narx katakchasi yonida ko'rinadigan kichik, minimalistik marja % yorlig'i. */
+function MarginTag({ price, costPrice }: { price?: number; costPrice?: number }) {
+  const pct = computeMarginPercent(price, costPrice);
+  if (pct === null) return null;
+  const rounded = Math.round(pct);
+  return (
+    <span
+      className={`ml-1 text-[10px] font-semibold ${
+        rounded >= 0 ? "text-emerald-600" : "text-red-600"
+      }`}
+    >
+      ({rounded >= 0 ? "+" : ""}
+      {rounded}%)
+    </span>
+  );
+}
+
+/** Umumiy sonni (masalan 83 dona) o'ram birligi (karobka/pallet/quti) bo'yicha
+ * "4 karobka va 3 dona" ko'rinishida taqsimlab ko'rsatadi. perBox bo'lmasa null. */
+function formatBoxBreakdown(
+  qty: number,
+  perBox?: number,
+  packUnit?: string,
+  unit?: string,
+): string | null {
+  if (!perBox || perBox <= 1) return null;
+  const boxLabel = packUnit ?? "karobka";
+  const unitLabel = unit ?? "dona";
+  const boxes = Math.floor(qty / perBox);
+  const rest = qty % perBox;
+  if (boxes <= 0) return `${rest} ${unitLabel}`;
+  if (rest <= 0) return `${boxes} ${boxLabel}`;
+  return `${boxes} ${boxLabel} va ${rest} ${unitLabel}`;
+}
+
+function BoxBreakdownCell({
+  qty,
+  perBox,
+  packUnit,
+  unit,
+}: {
+  qty: number;
+  perBox?: number;
+  packUnit?: string;
+  unit?: string;
+}) {
+  const breakdown = formatBoxBreakdown(qty, perBox, packUnit, unit);
+  if (!breakdown) return <span className="text-[11px] italic text-muted-foreground">—</span>;
+  return <span className="text-[11px] font-medium text-muted-foreground">{breakdown}</span>;
+}
 
 type Props = {
   onPick: (p: Product) => void;
@@ -47,13 +137,41 @@ export function ProductsBrowser({
   const [query, setQuery] = React.useState("");
   const [activeIdx, setActiveIdx] = React.useState(0);
   const [expanded, setExpanded] = React.useState<Set<string>>(() => new Set());
+  const [hiddenColumns, setHiddenColumns] = React.useState<Set<OptionalColumn>>(readHiddenColumns);
+  const [priceOnlyMode, setPriceOnlyMode] = React.useState(false);
+
+  const toggleColumnVisibility = (key: OptionalColumn, visible: boolean) => {
+    setHiddenColumns((current) => {
+      const next = new Set(current);
+      if (visible) next.delete(key);
+      else next.add(key);
+      try {
+        window.localStorage.setItem(HIDDEN_COLUMNS_STORAGE_KEY, JSON.stringify([...next]));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
 
   const numericQuery = React.useMemo(() => parseQueryNumber(query), [query]);
 
   const products = React.useMemo(() => {
+    if (priceOnlyMode) {
+      if (numericQuery === null) return [];
+      return MOCK_PRODUCTS.filter((p) => {
+        if (salePrice(p, priceMode) === numericQuery) return true;
+        return (
+          productHasVariants(p) &&
+          p.variants.some(
+            (variant) => salePrice(resolveVariant(p, variant), priceMode) === numericQuery,
+          )
+        );
+      });
+    }
     const q = query.trim().toLowerCase();
+    if (!q) return MOCK_PRODUCTS;
     return MOCK_PRODUCTS.filter((p) => {
-      if (!q) return true;
       const matchesText =
         p.name.toLowerCase().includes(q) ||
         p.barcode.includes(q) ||
@@ -63,7 +181,7 @@ export function ProductsBrowser({
       const matchesPrice = numericQuery !== null && salePrice(p, priceMode) === numericQuery;
       return matchesText || matchesVariant || matchesPrice;
     });
-  }, [query, priceMode, numericQuery]);
+  }, [query, priceMode, numericQuery, priceOnlyMode]);
 
   // Qidiruvda variant nomi mos kelsa, o'sha guruh avtomatik ochiladi.
   const autoExpanded = React.useMemo(() => {
@@ -142,13 +260,28 @@ export function ProductsBrowser({
     <div className="flex h-full min-h-0 flex-col">
       <div className="border-b bg-card p-2">
         <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            size="icon"
+            variant={priceOnlyMode ? "default" : "outline"}
+            className="h-8 w-8 shrink-0"
+            title="Faqat narx bo'yicha qidirish"
+            aria-label="Faqat narx bo'yicha qidirish"
+            onClick={() => setPriceOnlyMode((v) => !v)}
+          >
+            <Banknote className="h-3.5 w-3.5" />
+          </Button>
           <div className="relative min-w-[240px] flex-1">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={handleKey}
-              placeholder="Mahsulotni nomi, shtrix kodi yoki maxsus kodi orqali toping..."
+              placeholder={
+                priceOnlyMode
+                  ? "Faqat narx bo'yicha qidirish..."
+                  : "Mahsulotni nomi, shtrix kodi yoki maxsus kodi orqali toping..."
+              }
               className="h-8 pl-8 text-xs"
               autoFocus
             />
@@ -175,9 +308,49 @@ export function ProductsBrowser({
             <thead className="sticky top-0 z-10 bg-muted/80 backdrop-blur">
               <tr className="border-b text-[11px] uppercase tracking-wide text-muted-foreground">
                 <th className="px-3 py-1.5 text-left font-semibold">Nomi</th>
+                {!hiddenColumns.has("costPrice") && (
+                  <th className="px-3 py-1.5 text-right font-semibold">Tan narx</th>
+                )}
                 <th className="px-3 py-1.5 text-right font-semibold">Narxi</th>
+                {!hiddenColumns.has("wholesale") && (
+                  <th className="px-3 py-1.5 text-right font-semibold">Optom narx</th>
+                )}
                 <th className="px-3 py-1.5 text-right font-semibold">Vitrinada</th>
-                <th className="px-3 py-1.5 text-left font-semibold">Birlik</th>
+                {!hiddenColumns.has("boxQty") && (
+                  <th className="px-3 py-1.5 text-left font-semibold">O'ram bo'yicha</th>
+                )}
+                {!hiddenColumns.has("unit") && (
+                  <th className="px-3 py-1.5 text-left font-semibold">Birlik</th>
+                )}
+                <th className="w-8 px-2 py-1.5 text-right font-semibold">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6"
+                        title="Ustunlarni sozlash"
+                        aria-label="Ustunlarni sozlash"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Columns3 className="h-3 w-3" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-52 normal-case tracking-normal">
+                      {OPTIONAL_COLUMNS.map((col) => (
+                        <DropdownMenuCheckboxItem
+                          key={col.key}
+                          checked={!hiddenColumns.has(col.key)}
+                          onCheckedChange={(checked) => toggleColumnVisibility(col.key, checked)}
+                          onSelect={(e) => e.preventDefault()}
+                        >
+                          {col.label}
+                        </DropdownMenuCheckboxItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -214,13 +387,46 @@ export function ProductsBrowser({
                         </div>
                         <div className="pl-5 text-[11px] text-muted-foreground">{p.customCode}</div>
                       </td>
+                      {!hiddenColumns.has("costPrice") && (
+                        <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
+                          {formatMoney(p.costPrice, currency)}
+                        </td>
+                      )}
                       <td className="px-3 py-1.5 text-right font-medium tabular-nums text-muted-foreground">
                         {formatMoney(salePrice(p, priceMode), currency)}
+                        {!hiddenColumns.has("margin") && (
+                          <MarginTag price={p.price} costPrice={p.costPrice} />
+                        )}
                       </td>
+                      {!hiddenColumns.has("wholesale") && (
+                        <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
+                          {p.wholesalePrice ? (
+                            formatMoney(p.wholesalePrice, currency)
+                          ) : (
+                            <span className="text-[11px] italic text-muted-foreground">—</span>
+                          )}
+                          {!hiddenColumns.has("margin") && (
+                            <MarginTag price={p.wholesalePrice} costPrice={p.costPrice} />
+                          )}
+                        </td>
+                      )}
                       <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
                         {totalQty}
                       </td>
-                      <td className="px-3 py-1.5 text-muted-foreground">{p.unit}</td>
+                      {!hiddenColumns.has("boxQty") && (
+                        <td className="px-3 py-1.5">
+                          <BoxBreakdownCell
+                            qty={totalQty}
+                            perBox={p.perBox}
+                            packUnit={p.packUnit}
+                            unit={p.unit}
+                          />
+                        </td>
+                      )}
+                      {!hiddenColumns.has("unit") && (
+                        <td className="px-3 py-1.5 text-muted-foreground">{p.unit}</td>
+                      )}
+                      <td className="px-2 py-1.5"></td>
                     </tr>
                   );
                 }
@@ -254,9 +460,32 @@ export function ProductsBrowser({
                           {variant.customCode ?? parent.customCode}
                         </div>
                       </td>
+                      {!hiddenColumns.has("costPrice") && (
+                        <td className="px-3 py-1.5 text-right tabular-nums">
+                          {formatMoney(resolved.costPrice, currency)}
+                        </td>
+                      )}
                       <td className="px-3 py-1.5 text-right font-medium tabular-nums">
                         {formatMoney(salePrice(resolved, priceMode), currency)}
+                        {!hiddenColumns.has("margin") && (
+                          <MarginTag price={resolved.price} costPrice={resolved.costPrice} />
+                        )}
                       </td>
+                      {!hiddenColumns.has("wholesale") && (
+                        <td className="px-3 py-1.5 text-right tabular-nums">
+                          {resolved.wholesalePrice ? (
+                            formatMoney(resolved.wholesalePrice, currency)
+                          ) : (
+                            <span className="text-[11px] italic text-muted-foreground">—</span>
+                          )}
+                          {!hiddenColumns.has("margin") && (
+                            <MarginTag
+                              price={resolved.wholesalePrice}
+                              costPrice={resolved.costPrice}
+                            />
+                          )}
+                        </td>
+                      )}
                       <td className="px-3 py-1.5 text-right tabular-nums">
                         <span
                           className={
@@ -266,7 +495,20 @@ export function ProductsBrowser({
                           {variant.vitrinaQty}
                         </span>
                       </td>
-                      <td className="px-3 py-1.5 text-muted-foreground">{parent.unit}</td>
+                      {!hiddenColumns.has("boxQty") && (
+                        <td className="px-3 py-1.5">
+                          <BoxBreakdownCell
+                            qty={variant.vitrinaQty}
+                            perBox={variant.perBox ?? parent.perBox}
+                            packUnit={parent.packUnit}
+                            unit={parent.unit}
+                          />
+                        </td>
+                      )}
+                      {!hiddenColumns.has("unit") && (
+                        <td className="px-3 py-1.5 text-muted-foreground">{parent.unit}</td>
+                      )}
+                      <td className="px-2 py-1.5"></td>
                     </tr>
                   );
                 }
@@ -294,15 +536,48 @@ export function ProductsBrowser({
                       </div>
                       <div className="text-[11px] text-muted-foreground">{p.customCode}</div>
                     </td>
+                    {!hiddenColumns.has("costPrice") && (
+                      <td className="px-3 py-1.5 text-right tabular-nums">
+                        {formatMoney(p.costPrice, currency)}
+                      </td>
+                    )}
                     <td className="px-3 py-1.5 text-right font-medium tabular-nums">
                       {formatMoney(salePrice(p, priceMode), currency)}
+                      {!hiddenColumns.has("margin") && (
+                        <MarginTag price={p.price} costPrice={p.costPrice} />
+                      )}
                     </td>
+                    {!hiddenColumns.has("wholesale") && (
+                      <td className="px-3 py-1.5 text-right tabular-nums">
+                        {p.wholesalePrice ? (
+                          formatMoney(p.wholesalePrice, currency)
+                        ) : (
+                          <span className="text-[11px] italic text-muted-foreground">—</span>
+                        )}
+                        {!hiddenColumns.has("margin") && (
+                          <MarginTag price={p.wholesalePrice} costPrice={p.costPrice} />
+                        )}
+                      </td>
+                    )}
                     <td className="px-3 py-1.5 text-right tabular-nums">
                       <span className={p.vitrinaQty < 10 ? "font-semibold text-destructive" : ""}>
                         {p.vitrinaQty}
                       </span>
                     </td>
-                    <td className="px-3 py-1.5 text-muted-foreground">{p.unit}</td>
+                    {!hiddenColumns.has("boxQty") && (
+                      <td className="px-3 py-1.5">
+                        <BoxBreakdownCell
+                          qty={p.vitrinaQty}
+                          perBox={p.perBox}
+                          packUnit={p.packUnit}
+                          unit={p.unit}
+                        />
+                      </td>
+                    )}
+                    {!hiddenColumns.has("unit") && (
+                      <td className="px-3 py-1.5 text-muted-foreground">{p.unit}</td>
+                    )}
+                    <td className="px-2 py-1.5"></td>
                   </tr>
                 );
               })}

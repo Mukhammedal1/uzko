@@ -31,6 +31,9 @@ export type FinalizeSaleDetails = {
   customerId?: string;
   customerName?: string;
   customerPhone?: string;
+  /** Savdoni yakunlagan xodim — tasdiqlash kodi orqali aniqlanadi. */
+  employeeId?: string;
+  employeeName?: string;
   /** Savdo yakunida karta/tel/ism orqali aniqlangan sodiq mijoz (bo'lsa). */
   loyalCustomerId?: string;
   loyalCardNumber?: string;

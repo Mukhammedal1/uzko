@@ -15,7 +15,7 @@ import {
   MOCK_SUPPLIER_REPORTS,
   MOCK_WITHDRAWALS,
   costInSom,
-  nextAgentId,
+  nextSupplierId,
   nextInvoiceNumber,
   type CreditCustomer,
   type CustomerDebtReceipt,
@@ -48,6 +48,8 @@ export type DebtPaymentInput = {
 
 export type AddSaleReceiptInput = {
   cashier: string;
+  employeeId?: string;
+  employeeName?: string;
   customerType: CustomerType;
   customerId?: string;
   customerName?: string;
@@ -154,6 +156,8 @@ export function addSaleReceipt(input: AddSaleReceiptInput) {
     id: nextReceiptId(),
     date,
     cashier: input.cashier,
+    employeeId: input.employeeId,
+    employeeName: input.employeeName,
     customerType: input.customerType,
     customerId: input.customerId,
     customerName: input.customerName,
@@ -303,8 +307,8 @@ export function recordDebtPayment(input: DebtPaymentInput) {
 }
 
 export type MoneyOperationInput = {
-  /** "nasiyachi" — mijoz bizga qarzdor (qarz so'ndirish); "agent" — biz agentga qarzdormiz (to'lov) */
-  party: "nasiyachi" | "agent";
+  /** "nasiyachi" — mijoz bizga qarzdor (qarz so'ndirish); "yetkazib_beruvchi" — biz yetkazib beruvchiga qarzdormiz (to'lov) */
+  party: "nasiyachi" | "yetkazib_beruvchi";
   partyId: string;
   partyName: string;
   partyPhone?: string;
@@ -313,14 +317,14 @@ export type MoneyOperationInput = {
   method: DebtPayment["method"];
   cardType?: string;
   currencyCode?: string;
-  /** Faqat agent uchun: "kassa" — kassadan chiqim; "boshqa" — ixtiyoriy tashqi manba. */
+  /** Faqat yetkazib beruvchi uchun: "kassa" — kassadan chiqim; "boshqa" — ixtiyoriy tashqi manba. */
   source?: "kassa" | "boshqa";
   note?: string;
   cashier?: string;
 };
 
-function agentRemainingDebt(agentId: string) {
-  return MOCK_SUPPLIER_REPORTS.filter((report) => report.agentId === agentId).reduce(
+function supplierRemainingDebt(supplierId: string) {
+  return MOCK_SUPPLIER_REPORTS.filter((report) => report.supplierId === supplierId).reduce(
     (sum, report) => sum + report.remainingDebt,
     0,
   );
@@ -331,11 +335,14 @@ function moneyMethodLabel(
 ) {
   if (input.method === "naqd") return "Naqd pul";
   if (input.method === "karta") return `Karta (${input.cardType ?? "karta"})`;
-  return `Valyuta (${input.currencyCode ?? "valyuta"})`;
+  if (input.method === "valyuta") return `Valyuta (${input.currencyCode ?? "valyuta"})`;
+  if (input.method === "otkazma") return "Bank orqali o'tkazma";
+  if (input.method === "click") return "Click";
+  return "Payme";
 }
 
 /**
- * Nasiyachi yoki agent bilan bitta pul operatsiyasini bajaradi:
+ * Nasiyachi yoki yetkazib beruvchi bilan bitta pul operatsiyasini bajaradi:
  * tegishli qarz balansini yangilaydi, kassaga yozuv qo'shadi (chiqim/kirim),
  * shaxsning cheklar tarixiga yozadi va `MOCK_MONEY_OPERATIONS` ga saqlaydi.
  */
@@ -345,10 +352,10 @@ export function recordMoneyOperation(input: MoneyOperationInput) {
   const date = new Date().toISOString();
   const note = input.note?.trim() || undefined;
   const methodLabel = moneyMethodLabel(input);
-  // Nasiyachi to'lovi — kassaga kirim; agentga to'lov — chiqim.
+  // Nasiyachi to'lovi — kassaga kirim; yetkazib beruvchiga to'lov — chiqim.
   const direction: MoneyOperation["direction"] = input.party === "nasiyachi" ? "in" : "out";
   const source: MoneyOperation["source"] =
-    input.party === "agent" ? (input.source ?? "kassa") : undefined;
+    input.party === "yetkazib_beruvchi" ? (input.source ?? "kassa") : undefined;
 
   let balanceAfter = 0;
 
@@ -384,15 +391,15 @@ export function recordMoneyOperation(input: MoneyOperationInput) {
       note,
     });
   } else {
-    // agent — faqat to'lov (chiqim); bizning qarzimiz kamayadi
+    // yetkazib beruvchi — faqat to'lov (chiqim); bizning qarzimiz kamayadi
     MOCK_SUPPLIER_REPORTS.unshift({
       id: `sr-pay-${Date.now()}`,
       date,
       addedBy: cashier,
       type: "payment",
-      agentId: input.partyId,
-      agentName: input.partyName,
-      agentPhone: input.partyPhone ?? "",
+      supplierId: input.partyId,
+      supplierName: input.partyName,
+      supplierPhone: input.partyPhone ?? "",
       botEnabled: Boolean(input.botEnabled),
       items: [],
       totalAmount: 0,
@@ -402,20 +409,20 @@ export function recordMoneyOperation(input: MoneyOperationInput) {
         .filter(Boolean)
         .join(" · "),
     });
-    balanceAfter = agentRemainingDebt(input.partyId);
+    balanceAfter = supplierRemainingDebt(input.partyId);
 
     if (source === "kassa") {
       MOCK_WITHDRAWALS.push({
         id: `WD-${Date.now()}`,
         date,
         cashier,
-        category: "Agentlarga to'lov",
+        category: "Yetkazib beruvchilarga to'lov",
         cash: input.method === "naqd" ? amount : 0,
         cardAmount: input.method === "karta" ? amount : 0,
         currencies:
           input.method === "valyuta" ? [{ code: input.currencyCode ?? "USD", amount }] : [],
-        note: [`Agent: ${input.partyName}`, note].filter(Boolean).join(" · "),
-        agentId: input.partyId,
+        note: [`Yetkazib beruvchi: ${input.partyName}`, note].filter(Boolean).join(" · "),
+        supplierId: input.partyId,
       });
     }
   }
@@ -441,12 +448,12 @@ export function recordMoneyOperation(input: MoneyOperationInput) {
 
   if (input.botEnabled && input.partyPhone?.trim()) {
     dispatchReceiptMessage({
-      recipientCategory: input.party === "nasiyachi" ? "nasiya" : "agent",
+      recipientCategory: input.party === "nasiyachi" ? "nasiya" : "yetkazib_beruvchi",
       recipientId: input.partyId,
       recipientName: input.partyName,
       phone: input.partyPhone,
       receiptId: operation.id,
-      title: input.party === "nasiyachi" ? "Qarz so'ndirildi" : "Agentga to'lov",
+      title: input.party === "nasiyachi" ? "Qarz so'ndirildi" : "Yetkazib beruvchiga to'lov",
       total: amount,
       note: [methodLabel, `Balans: ${formatPlainSom(balanceAfter)}`, note]
         .filter(Boolean)
@@ -501,18 +508,18 @@ export function dispatchRegularSaleReceipt(
 export function dispatchSupplierReceipt(input: {
   report: Pick<
     SupplierReport,
-    "agentId" | "agentName" | "agentPhone" | "totalAmount" | "paidAmount" | "remainingDebt"
+    "supplierId" | "supplierName" | "supplierPhone" | "totalAmount" | "paidAmount" | "remainingDebt"
   >;
   receiptId?: string;
   note?: string;
 }) {
   return dispatchReceiptMessage({
-    recipientCategory: "agent",
-    recipientId: input.report.agentId,
-    recipientName: input.report.agentName,
-    phone: input.report.agentPhone,
-    receiptId: input.receiptId ?? `AGENT-${Date.now()}`,
-    title: "Agent hisob-kitob cheki",
+    recipientCategory: "yetkazib_beruvchi",
+    recipientId: input.report.supplierId,
+    recipientName: input.report.supplierName,
+    phone: input.report.supplierPhone,
+    receiptId: input.receiptId ?? `SUPPLIER-${Date.now()}`,
+    title: "Yetkazib beruvchi hisob-kitob cheki",
     total: input.report.totalAmount,
     note:
       `Berilgan: ${formatPlainSom(input.report.paidAmount)} · ` +
@@ -523,9 +530,9 @@ export function dispatchSupplierReceipt(input: {
 
 export function recordSupplierReturn(input: {
   cashier?: string;
-  agentId: string;
-  agentName: string;
-  agentPhone?: string;
+  supplierId: string;
+  supplierName: string;
+  supplierPhone?: string;
   items: { productName: string; qty: number; unit: string; amount: number }[];
   totalAmount: number;
   note?: string;
@@ -535,7 +542,7 @@ export function recordSupplierReturn(input: {
   driverPhone?: string;
 }) {
   const botEnabled = MOCK_SUPPLIER_REPORTS.some(
-    (report) => report.agentId === input.agentId && Boolean(report.botEnabled),
+    (report) => report.supplierId === input.supplierId && Boolean(report.botEnabled),
   );
 
   const report: SupplierReport = {
@@ -543,9 +550,9 @@ export function recordSupplierReturn(input: {
     date: new Date().toISOString(),
     addedBy: input.cashier ?? "Joriy foydalanuvchi",
     type: "return",
-    agentId: input.agentId,
-    agentName: input.agentName,
-    agentPhone: input.agentPhone ?? "",
+    supplierId: input.supplierId,
+    supplierName: input.supplierName,
+    supplierPhone: input.supplierPhone ?? "",
     botEnabled,
     items: input.items,
     totalAmount: -Math.abs(input.totalAmount),
@@ -564,16 +571,16 @@ export function recordSupplierReturn(input: {
 
 export type SupplierSource = {
   enabled: boolean;
-  agentId: string;
-  agentName: string;
-  agentPhone: string;
+  supplierId: string;
+  supplierName: string;
+  supplierPhone: string;
   paidAmount: string;
   note: string;
   sendBotUpdate: boolean;
 };
 
 /**
- * Tovar qabuli tarixiga yozuv qo'shadi va agent ko'rsatilgan bo'lsa, unga
+ * Tovar qabuli tarixiga yozuv qo'shadi va yetkazib beruvchi ko'rsatilgan bo'lsa, unga
  * qarz sifatida `MOCK_SUPPLIER_REPORTS` ga yozuv qo'shadi.
  */
 export function recordProductAddition(input: {
@@ -587,7 +594,7 @@ export function recordProductAddition(input: {
   addedBy: string;
   source?: SupplierSource;
 }) {
-  const sourceEnabled = Boolean(input.source?.enabled && input.source.agentName.trim());
+  const sourceEnabled = Boolean(input.source?.enabled && input.source.supplierName.trim());
   const totalAmount = input.qty * input.costPrice;
   const paidAmount = sourceEnabled ? Math.max(0, Number(input.source?.paidAmount) || 0) : undefined;
   const invoiceNumber = nextInvoiceNumber();
@@ -603,22 +610,22 @@ export function recordProductAddition(input: {
     costPrice: input.costPrice,
     warehouse: input.warehouse,
     shelfLocation: input.shelfLocation,
-    agentName: sourceEnabled ? input.source?.agentName.trim() : undefined,
-    agentId: sourceEnabled ? input.source?.agentId || nextAgentId() : undefined,
-    agentPhone: sourceEnabled ? input.source?.agentPhone.trim() : undefined,
+    supplierName: sourceEnabled ? input.source?.supplierName.trim() : undefined,
+    supplierId: sourceEnabled ? input.source?.supplierId || nextSupplierId() : undefined,
+    supplierPhone: sourceEnabled ? input.source?.supplierPhone.trim() : undefined,
     paidAmount,
     remainingDebt: sourceEnabled ? Math.max(0, totalAmount - (paidAmount ?? 0)) : undefined,
     totalAmount: sourceEnabled ? totalAmount : undefined,
     note: sourceEnabled ? input.source?.note.trim() : undefined,
   });
-  if (input.source?.enabled && input.source.agentName.trim()) {
+  if (input.source?.enabled && input.source.supplierName.trim()) {
     MOCK_SUPPLIER_REPORTS.unshift({
       id: `sr${Date.now()}-${Math.random()}`,
       date: new Date().toISOString(),
       addedBy: input.addedBy,
-      agentId: input.source.agentId || nextAgentId(),
-      agentName: input.source.agentName.trim(),
-      agentPhone: input.source.agentPhone.trim(),
+      supplierId: input.source.supplierId || nextSupplierId(),
+      supplierName: input.source.supplierName.trim(),
+      supplierPhone: input.source.supplierPhone.trim(),
       botEnabled: input.source.sendBotUpdate,
       items: [
         { productName: input.productName, qty: input.qty, unit: input.unit, amount: totalAmount },
@@ -632,14 +639,14 @@ export function recordProductAddition(input: {
   return { invoiceNumber };
 }
 
-export type MergeProductsWithAgentInput = {
+export type MergeProductsWithSupplierInput = {
   products: Product[];
-  agentId?: string;
-  agentName: string;
-  agentPhone?: string;
+  supplierId?: string;
+  supplierName: string;
+  supplierPhone?: string;
   botEnabled?: boolean;
   /**
-   * "current-stock" — joriy qoldiq tan narxda hisoblanib, agentga qarz sifatida yoziladi.
+   * "current-stock" — joriy qoldiq tan narxda hisoblanib, yetkazib beruvchiga qarz sifatida yoziladi.
    * "zero-debt" — qarzsiz birlashtiriladi, faqat keyingi qabullardan boshlab qarz hisoblanadi.
    */
   mode: "current-stock" | "zero-debt";
@@ -648,17 +655,17 @@ export type MergeProductsWithAgentInput = {
 };
 
 /**
- * Tanlangan tovarlarni bitta agentga bog'laydi. `current-stock` rejimida joriy
- * qoldiq tan narxi bo'yicha agentga qarz yoziladi; `zero-debt` rejimida qarz
- * 0 dan boshlanadi — biroq tovar tarixiga agent yozilgani uchun shu tovar
- * keyingi safar qabul qilinganda (TovarQoshish) agent avtomatik aniqlanib,
+ * Tanlangan tovarlarni bitta yetkazib beruvchiga bog'laydi. `current-stock` rejimida joriy
+ * qoldiq tan narxi bo'yicha yetkazib beruvchiga qarz yoziladi; `zero-debt` rejimida qarz
+ * 0 dan boshlanadi — biroq tovar tarixiga yetkazib beruvchi yozilgani uchun shu tovar
+ * keyingi safar qabul qilinganda (TovarQoshish) yetkazib beruvchi avtomatik aniqlanib,
  * o'sha qabuldan boshlab qarz hisoblana boshlaydi.
  */
-export function mergeProductsWithAgent(input: MergeProductsWithAgentInput) {
+export function mergeProductsWithSupplier(input: MergeProductsWithSupplierInput) {
   const date = new Date().toISOString();
-  const agentId = input.agentId || nextAgentId();
-  const agentName = input.agentName.trim();
-  const agentPhone = input.agentPhone?.trim() ?? "";
+  const supplierId = input.supplierId || nextSupplierId();
+  const supplierName = input.supplierName.trim();
+  const supplierPhone = input.supplierPhone?.trim() ?? "";
   const isDebtMode = input.mode === "current-stock";
 
   const items: { productName: string; qty: number; unit: string; amount: number }[] = [];
@@ -685,17 +692,17 @@ export function mergeProductsWithAgent(input: MergeProductsWithAgentInput) {
       costPrice,
       warehouse: product.warehouse,
       shelfLocation: product.shelfLocation,
-      agentName,
-      agentId,
-      agentPhone,
+      supplierName,
+      supplierId,
+      supplierPhone,
       paidAmount,
       remainingDebt,
       totalAmount: amount,
       note:
         input.note?.trim() ||
         (isDebtMode
-          ? "Joriy qoldiq bo'yicha agentga birlashtirildi"
-          : "0 qarz bilan agentga birlashtirildi"),
+          ? "Joriy qoldiq bo'yicha yetkazib beruvchiga birlashtirildi"
+          : "0 qarz bilan yetkazib beruvchiga birlashtirildi"),
     });
   });
 
@@ -703,9 +710,9 @@ export function mergeProductsWithAgent(input: MergeProductsWithAgentInput) {
     id: `sr-merge-${Date.now()}`,
     date,
     addedBy: input.addedBy,
-    agentId,
-    agentName,
-    agentPhone,
+    supplierId,
+    supplierName,
+    supplierPhone,
     botEnabled: Boolean(input.botEnabled),
     items,
     totalAmount,
@@ -714,8 +721,8 @@ export function mergeProductsWithAgent(input: MergeProductsWithAgentInput) {
     note:
       input.note?.trim() ||
       (isDebtMode
-        ? "Tovarlar joriy qoldiq bo'yicha agentga birlashtirildi"
-        : "Tovarlar 0 qarz bilan agentga birlashtirildi"),
+        ? "Tovarlar joriy qoldiq bo'yicha yetkazib beruvchiga birlashtirildi"
+        : "Tovarlar 0 qarz bilan yetkazib beruvchiga birlashtirildi"),
   };
 
   MOCK_SUPPLIER_REPORTS.unshift(report);

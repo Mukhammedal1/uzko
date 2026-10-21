@@ -53,7 +53,12 @@ export function AdminBotRuntime() {
         for (const update of res.result) {
           offset = update.update_id + 1;
           try {
-            state.current = await handleAdminBotUpdate(update, adminToken, adminChatId, state.current);
+            state.current = await handleAdminBotUpdate(
+              update,
+              adminToken,
+              adminChatId,
+              state.current,
+            );
           } catch {
             // Bitta update ishlov berishda xato bo'lsa ham navbat davom etadi.
           }

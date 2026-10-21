@@ -169,6 +169,9 @@ export type Receipt = {
   id: string; // chek raqami
   date: string; // ISO datetime
   cashier: string;
+  /** Savdoni yakunlagan xodim (kod orqali tasdiqlangan) — sotuv hisobotlari uchun. */
+  employeeId?: string;
+  employeeName?: string;
   customerType: "oddiy" | "nasiya";
   customerId?: string;
   customerName?: string;
@@ -243,7 +246,7 @@ export type CashWithdrawal = {
   cardAmount: number;
   currencies: { code: Currency; amount: number }[];
   note?: string;
-  agentId?: string;
+  supplierId?: string;
   employeeId?: string;
   employeeName?: string;
 };
@@ -261,6 +264,8 @@ export type Employee = {
   phone2?: string;
   birthDate: string;
   passport?: string;
+  /** Ishga kirgan sana — "faoliyat muddati" shundan hisoblanadi. */
+  hireDate?: string;
   monthlySalary: number;
   workDays?: number;
   workHoursPerDay?: number;
@@ -269,7 +274,51 @@ export type Employee = {
   source: "device" | "manual";
   deviceLogin?: string;
   devicePassword?: string;
+  /** Savdoni yakunlashda kiritiladigan tasdiqlash kodi — shu orqali sotuv xodimga biriktiriladi. */
+  code?: string;
 };
+
+// ─── Xodimga pul operatsiyasi (oylik / avans / bonus / jarima) ─────────────
+
+export type EmployeePaymentKind = "Oylik" | "Avans" | "Bonus" | "Jarima";
+
+export type EmployeePayment = {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  kind: EmployeePaymentKind;
+  amount: number;
+  date: string; // ISO datetime
+  note?: string;
+  cashier: string;
+  /** kassa — summa kassadan chiqim sifatida yoziladi; boshqa — kassaga tegilmaydi. */
+  source: "kassa" | "boshqa";
+};
+
+export const MOCK_EMPLOYEE_PAYMENTS: EmployeePayment[] = [
+  {
+    id: "EP-0001",
+    employeeId: "X-001",
+    employeeName: "Akmal Karimov",
+    kind: "Bonus",
+    amount: 250000,
+    date: new Date("2026-05-03T18:30:00").toISOString(),
+    note: "Reja bajarilgani uchun",
+    cashier: "Sardor",
+    source: "kassa",
+  },
+  {
+    id: "EP-0002",
+    employeeId: "X-002",
+    employeeName: "Madina Sobirova",
+    kind: "Avans",
+    amount: 300000,
+    date: new Date("2026-05-06T12:05:00").toISOString(),
+    note: "Avans",
+    cashier: "Aziz",
+    source: "kassa",
+  },
+];
 
 // ─── Modul ruxsatlari (qurilma → xodim) ─────────────────────────────────────
 
@@ -331,7 +380,7 @@ export type DebtPayment = {
   customerId: string;
   customerName: string;
   amount: number;
-  method: "naqd" | "karta" | "valyuta";
+  method: "naqd" | "karta" | "valyuta" | "otkazma" | "click" | "payme";
   cardType?: string;
   currencyCode?: string;
   note?: string;
@@ -340,9 +389,9 @@ export type DebtPayment = {
 };
 
 /**
- * Nasiyachi yoki agent bilan qilingan pul operatsiyasi.
+ * Nasiyachi yoki yetkazib beruvchi bilan qilingan pul operatsiyasi.
  * Nasiyachi uchun — faqat qarz so'ndirish (kassaga kirim).
- * Agent uchun — faqat to'lov (kassadan yoki ixtiyoriy manbadan chiqim).
+ * Yetkazib beruvchi uchun — faqat to'lov (kassadan yoki ixtiyoriy manbadan chiqim).
  * Har bir operatsiya shu yerda saqlanadi va lupa ("cheklarni ko'rish") oynasida
  * tarix sifatida ko'rsatiladi.
  */
@@ -350,20 +399,20 @@ export type MoneyOperation = {
   id: string;
   date: string;
   cashier: string;
-  party: "nasiyachi" | "agent";
+  party: "nasiyachi" | "yetkazib_beruvchi";
   partyId: string;
   partyName: string;
   partyPhone?: string;
-  /** in — pul kassaga kirdi (nasiyachi to'lovi), out — chiqim (agentga to'lov) */
+  /** in — pul kassaga kirdi (nasiyachi to'lovi), out — chiqim (yetkazib beruvchiga to'lov) */
   direction: "in" | "out";
-  /** agent uchun: "kassa" — kassadan chiqim; "boshqa" — ixtiyoriy tashqi manba */
+  /** yetkazib beruvchi uchun: "kassa" — kassadan chiqim; "boshqa" — ixtiyoriy tashqi manba */
   source?: "kassa" | "boshqa";
   amount: number;
-  method: "naqd" | "karta" | "valyuta";
+  method: "naqd" | "karta" | "valyuta" | "otkazma" | "click" | "payme";
   cardType?: string;
   currencyCode?: string;
   note?: string;
-  /** Operatsiyadan keyingi qarz balansi (nasiyachi qarzi yoki bizning agentga qarzimiz) */
+  /** Operatsiyadan keyingi qarz balansi (nasiyachi qarzi yoki bizning yetkazib beruvchiga qarzimiz) */
   balanceAfter: number;
 };
 
@@ -373,12 +422,12 @@ export type ReturnReceipt = {
   id: string;
   date: string;
   cashier: string;
-  customerType: "oddiy" | "nasiya" | "agent";
+  customerType: "oddiy" | "nasiya" | "yetkazib_beruvchi";
   customerId?: string;
   customerName: string;
-  agentId?: string;
-  agentName?: string;
-  agentPhone?: string;
+  supplierId?: string;
+  supplierName?: string;
+  supplierPhone?: string;
   objectId?: string;
   objectName?: string;
   items: ReceiptItem[];
@@ -437,7 +486,7 @@ export function loyalDiscountAppliesTo(customer: LoyalCustomer, productId: strin
 export type ReceiptDispatchLog = {
   id: string;
   date: string;
-  recipientCategory: "oddiy" | "nasiya" | "agent";
+  recipientCategory: "oddiy" | "nasiya" | "yetkazib_beruvchi";
   recipientId?: string;
   recipientName: string;
   phone: string;
@@ -615,12 +664,12 @@ export const MOCK_WITHDRAWALS: CashWithdrawal[] = [
     id: "CH-0002",
     date: new Date("2026-05-07T15:40:00").toISOString(),
     cashier: "Aziz",
-    category: "Agentlarga to'lov",
+    category: "Yetkazib beruvchilarga to'lov",
     cash: 500000,
     cardAmount: 0,
     currencies: [],
-    note: "Agent qarzi qisman yopildi",
-    agentId: "AG-0001",
+    note: "Yetkazib beruvchi qarzi qisman yopildi",
+    supplierId: "YB-0001",
   },
   {
     id: "CH-0003",
@@ -680,6 +729,8 @@ export const MOCK_EMPLOYEES: Employee[] = [
     birthDate: "1996-04-12",
     monthlySalary: 3500000,
     source: "manual",
+    code: "1234",
+    hireDate: "2023-03-10",
   },
   {
     id: "X-002",
@@ -690,6 +741,8 @@ export const MOCK_EMPLOYEES: Employee[] = [
     birthDate: "1998-09-03",
     monthlySalary: 4200000,
     source: "manual",
+    code: "2345",
+    hireDate: "2022-07-01",
   },
   {
     id: "X-003",
@@ -700,6 +753,8 @@ export const MOCK_EMPLOYEES: Employee[] = [
     birthDate: "1994-01-24",
     monthlySalary: 3000000,
     source: "manual",
+    code: "3456",
+    hireDate: "2024-01-15",
   },
   {
     id: "X-004",
@@ -710,6 +765,8 @@ export const MOCK_EMPLOYEES: Employee[] = [
     birthDate: "1992-11-18",
     monthlySalary: 5200000,
     source: "manual",
+    code: "4567",
+    hireDate: "2021-05-20",
   },
   {
     id: "X-005",
@@ -809,7 +866,7 @@ export const EXPENSE_CATEGORIES = [
   "Kommunal",
   "Transport",
   "Tovar qaytarish",
-  "Agentlarga to'lov",
+  "Yetkazib beruvchilarga to'lov",
   "Boshqa",
 ];
 
@@ -860,1334 +917,190 @@ export const MOCK_PRODUCTS: Product[] = [
     customCode: "QM001",
     unit: "qop",
     warehouse: "Quruq aralashmalar",
-    vitrinaQty: 80,
+    vitrinaQty: 83,
     omborQty: 420,
     perBox: 20,
+    packUnit: "pallet",
     salesHistory: genHistory(60, 2),
   },
   {
     id: "p2",
-    name: "Sement M500 50kg",
-    price: 72000,
-    costPrice: 60000,
+    name: "Plitka kley 25kg",
+    price: 54000,
+    costPrice: 42000,
     costCurrency: "UZS",
     barcode: "4781000000002",
     customCode: "QM002",
     unit: "qop",
     warehouse: "Quruq aralashmalar",
-    vitrinaQty: 60,
-    omborQty: 360,
-    perBox: 20,
+    vitrinaQty: 46,
+    omborQty: 180,
+    perBox: 40,
+    packUnit: "pallet",
     salesHistory: genHistory(60, 3),
   },
   {
     id: "p3",
-    name: "Shpaklovka start 25kg",
-    image: "/products/shpaklovka.webp",
-    price: 58000,
-    costPrice: 45000,
-    costCurrency: "UZS",
-    barcode: "4781000000003",
-    customCode: "QM003",
-    unit: "qop",
-    warehouse: "Quruq aralashmalar",
-    vitrinaQty: 45,
-    omborQty: 220,
-    perBox: 10,
-    salesHistory: genHistory(60, 4),
-  },
-  {
-    id: "p4",
-    name: "Shpaklovka finish 25kg",
-    price: 64000,
-    costPrice: 50000,
-    costCurrency: "UZS",
-    barcode: "4781000000004",
-    customCode: "QM004",
-    unit: "qop",
-    warehouse: "Quruq aralashmalar",
-    vitrinaQty: 40,
-    omborQty: 200,
-    perBox: 10,
-    salesHistory: genHistory(60, 5),
-  },
-  {
-    id: "p5",
-    name: "Gips Rotband 30kg",
-    image: "/products/knauf.webp",
-    price: 78000,
-    costPrice: 62000,
-    costCurrency: "UZS",
-    barcode: "4781000000005",
-    customCode: "QM005",
-    unit: "qop",
-    warehouse: "Quruq aralashmalar",
-    vitrinaQty: 35,
-    omborQty: 160,
-    perBox: 10,
-    salesHistory: genHistory(60, 6),
-  },
-  {
-    id: "p6",
-    name: "PVA kley 1kg",
-    image: "/products/pva-kley-1kg.webp",
-    price: 18000,
-    costPrice: 12000,
-    costCurrency: "UZS",
-    barcode: "4781000000006",
-    customCode: "QM006",
-    unit: "dona",
-    warehouse: "Bo\'yoq ombori",
-    vitrinaQty: 50,
-    omborQty: 240,
-    perBox: 12,
-    salesHistory: genHistory(60, 7),
-  },
-  {
-    id: "p8",
-    name: "Kraska emulsiya oq 25kg",
-    minStockAlert: 20,
-    price: 215000,
-    costPrice: 170000,
-    costCurrency: "UZS",
-    barcode: "4781000000008",
-    customCode: "QM008",
-    unit: "dona",
-    warehouse: "Bo\'yoq ombori",
-    vitrinaQty: 18,
-    omborQty: 70,
-    perBox: 4,
-    salesHistory: genHistory(60, 9),
-  },
-  {
-    id: "p9",
-    name: "Kraska emulsiya 10kg",
-    price: 98000,
-    costPrice: 76000,
-    costCurrency: "UZS",
-    barcode: "4781000000009",
-    customCode: "QM009",
-    unit: "dona",
-    warehouse: "Bo\'yoq ombori",
-    vitrinaQty: 40,
-    omborQty: 150,
-    perBox: 4,
-    salesHistory: genHistory(60, 10),
-    variants: [
-      {
-        id: "oq",
-        label: "Oq",
-        attrs: { Rang: "Oq" },
-        barcode: "4781000000091",
-        customCode: "QM009-OQ",
-        vitrinaQty: 22,
-        omborQty: 85,
-      },
-      {
-        id: "bej",
-        label: "Bej",
-        attrs: { Rang: "Bej" },
-        barcode: "4781000000092",
-        customCode: "QM009-BJ",
-        price: 102000,
-        vitrinaQty: 12,
-        omborQty: 45,
-      },
-      {
-        id: "kulrang",
-        label: "Kulrang",
-        attrs: { Rang: "Kulrang" },
-        barcode: "4781000000093",
-        customCode: "QM009-KL",
-        price: 102000,
-        vitrinaQty: 6,
-        omborQty: 20,
-      },
-    ],
-  },
-  {
-    id: "p-weber-fuga",
-    name: "Weber fuga 3kg",
-    minStockAlert: 6,
-    price: 45000,
-    costPrice: 34000,
-    costCurrency: "UZS",
-    barcode: "4781000000200",
-    customCode: "QM200",
-    unit: "dona",
-    warehouse: "Bo\'yoq ombori",
-    vitrinaQty: 16,
-    omborQty: 55,
-    perBox: 6,
-    salesHistory: genHistory(60, 5),
-    variants: [
-      {
-        id: "oq",
-        label: "Oq",
-        attrs: { Rang: "Oq" },
-        barcode: "4781000000201",
-        customCode: "QM200-OQ",
-        vitrinaQty: 12,
-        omborQty: 40,
-      },
-      {
-        id: "qora",
-        label: "Qora",
-        attrs: { Rang: "Qora" },
-        barcode: "4781000000202",
-        customCode: "QM200-QR",
-        vitrinaQty: 4,
-        omborQty: 15,
-      },
-      {
-        id: "sariq",
-        label: "Sariq",
-        attrs: { Rang: "Sariq" },
-        barcode: "4781000000203",
-        customCode: "QM200-SR",
-        price: 47000,
-        vitrinaQty: 0,
-        omborQty: 0,
-      },
-    ],
-  },
-  {
-    id: "p10",
-    name: "Gruntovka 10L",
-    minStockAlert: 25,
-    price: 85000,
-    costPrice: 65000,
-    costCurrency: "UZS",
-    barcode: "4781000000010",
-    customCode: "QM010",
-    unit: "dona",
-    warehouse: "Bo\'yoq ombori",
-    vitrinaQty: 20,
-    omborQty: 90,
-    perBox: 4,
-    salesHistory: genHistory(60, 11),
-  },
-  {
-    id: "p11",
-    name: "Kirsaka 25kg",
-    price: 52000,
-    costPrice: 41000,
-    costCurrency: "UZS",
-    barcode: "4781000000011",
-    customCode: "QM011",
-    unit: "qop",
-    warehouse: "Quruq aralashmalar",
-    vitrinaQty: 38,
-    omborQty: 180,
-    perBox: 10,
-    salesHistory: genHistory(60, 12),
-  },
-  {
-    id: "p12",
-    name: "Plitka kley 25kg",
-    price: 61000,
-    costPrice: 48000,
-    costCurrency: "UZS",
-    barcode: "4781000000012",
-    customCode: "QM012",
-    unit: "qop",
-    warehouse: "Quruq aralashmalar",
-    vitrinaQty: 55,
-    omborQty: 260,
-    perBox: 10,
-    salesHistory: genHistory(60, 1),
-  },
-  {
-    id: "p13",
-    name: "Gipsokarton 12.5mm",
-    minStockAlert: 32,
-    price: 69000,
-    costPrice: 54000,
-    costCurrency: "UZS",
-    barcode: "4781000000013",
-    customCode: "QM013",
-    unit: "dona",
-    warehouse: "Asosiy ombor",
-    vitrinaQty: 30,
-    omborQty: 140,
-    perBox: 20,
-    salesHistory: genHistory(60, 2),
-  },
-  {
-    id: "p14",
-    name: "Gipsokarton namga chidamli",
-    price: 88000,
-    costPrice: 70000,
-    costCurrency: "UZS",
-    barcode: "4781000000014",
-    customCode: "QM014",
-    unit: "dona",
-    warehouse: "Asosiy ombor",
-    vitrinaQty: 22,
-    omborQty: 100,
-    perBox: 20,
-    salesHistory: genHistory(60, 3),
-  },
-  {
-    id: "p15",
-    name: "Profil UD 3m",
-    price: 26000,
-    costPrice: 19000,
-    costCurrency: "UZS",
-    barcode: "4781000000015",
-    customCode: "QM015",
-    unit: "dona",
-    warehouse: "Asosiy ombor",
-    vitrinaQty: 80,
-    omborQty: 350,
-    perBox: 50,
-    salesHistory: genHistory(60, 4),
-  },
-  {
-    id: "p16",
-    name: "Profil CD 3m",
-    price: 32000,
-    costPrice: 24000,
-    costCurrency: "UZS",
-    barcode: "4781000000016",
-    customCode: "QM016",
-    unit: "dona",
-    warehouse: "Asosiy ombor",
-    vitrinaQty: 75,
-    omborQty: 320,
-    perBox: 50,
-    salesHistory: genHistory(60, 5),
-  },
-  {
-    id: "p17",
-    name: "Samorez 25mm 1000 dona",
-    price: 45000,
-    costPrice: 32000,
-    costCurrency: "UZS",
-    barcode: "4781000000017",
-    customCode: "QM017",
-    unit: "quti",
-    warehouse: "Asosiy ombor",
-    vitrinaQty: 25,
-    omborQty: 110,
-    perBox: 10,
-    salesHistory: genHistory(60, 6),
-  },
-  {
-    id: "p18",
-    name: "Dyubel 6x40 100 dona",
-    price: 18000,
-    costPrice: 12000,
-    costCurrency: "UZS",
-    barcode: "4781000000018",
-    customCode: "QM018",
-    unit: "quti",
-    warehouse: "Asosiy ombor",
-    vitrinaQty: 40,
-    omborQty: 200,
-    perBox: 20,
-    salesHistory: genHistory(60, 7),
-  },
-  {
-    id: "p19",
-    name: "Armatura 12mm",
-    price: 92000,
-    costPrice: 76000,
-    costCurrency: "UZS",
-    barcode: "4781000000019",
-    customCode: "QM019",
-    unit: "metr",
-    warehouse: "Armatura ombori",
-    vitrinaQty: 120,
-    omborQty: 800,
-    perBox: 100,
-    salesHistory: genHistory(60, 8),
-  },
-  {
-    id: "p20",
-    name: "Armatura 10mm",
-    price: 76000,
-    costPrice: 63000,
-    costCurrency: "UZS",
-    barcode: "4781000000020",
-    customCode: "QM020",
-    unit: "metr",
-    warehouse: "Armatura ombori",
-    vitrinaQty: 140,
-    omborQty: 900,
-    perBox: 100,
-    salesHistory: genHistory(60, 9),
-  },
-  {
-    id: "p21",
-    name: "Armatura 8mm",
-    price: 58000,
-    costPrice: 47000,
-    costCurrency: "UZS",
-    barcode: "4781000000021",
-    customCode: "QM021",
-    unit: "metr",
-    warehouse: "Armatura ombori",
-    vitrinaQty: 150,
-    omborQty: 950,
-    perBox: 100,
-    salesHistory: genHistory(60, 10),
-  },
-  {
-    id: "p22",
-    name: "Katanka 6mm",
-    price: 42000,
-    costPrice: 34000,
-    costCurrency: "UZS",
-    barcode: "4781000000022",
-    customCode: "QM022",
-    unit: "metr",
-    warehouse: "Armatura ombori",
-    vitrinaQty: 160,
-    omborQty: 1000,
-    perBox: 100,
-    salesHistory: genHistory(60, 11),
-  },
-  {
-    id: "p23",
-    name: "Setka rabitsa 1.5m",
-    price: 185000,
-    costPrice: 145000,
-    costCurrency: "UZS",
-    barcode: "4781000000023",
-    customCode: "QM023",
-    unit: "rulon",
-    warehouse: "Armatura ombori",
-    vitrinaQty: 12,
-    omborQty: 55,
-    salesHistory: genHistory(60, 12),
-  },
-  {
-    id: "p24",
-    name: "Setka кладочная 2x1m",
-    price: 42000,
-    costPrice: 32000,
-    costCurrency: "UZS",
-    barcode: "4781000000024",
-    customCode: "QM024",
-    unit: "dona",
-    warehouse: "Armatura ombori",
-    vitrinaQty: 60,
-    omborQty: 240,
-    perBox: 20,
-    salesHistory: genHistory(60, 1),
-  },
-  {
-    id: "p25",
     name: "Qum yuvilgan",
     price: 180000,
     costPrice: 140000,
     costCurrency: "UZS",
-    barcode: "4781000000025",
-    customCode: "QM025",
-    unit: "m3",
-    warehouse: "Tashqi maydon",
-    vitrinaQty: 10,
-    omborQty: 60,
-    salesHistory: genHistory(60, 2),
+    barcode: "4781000000003",
+    customCode: "QM003",
+    unit: "kub",
+    warehouse: "Asosiy ombor",
+    vitrinaQty: 24,
+    omborQty: 96,
+    salesHistory: genHistory(60, 1),
   },
   {
-    id: "p26",
-    name: "Sheben 5-20",
-    price: 230000,
-    costPrice: 185000,
+    id: "p4",
+    name: "Armatura 12mm",
+    price: 14500,
+    costPrice: 12200,
     costCurrency: "UZS",
-    barcode: "4781000000026",
-    customCode: "QM026",
-    unit: "m3",
-    warehouse: "Tashqi maydon",
-    vitrinaQty: 8,
-    omborQty: 45,
-    salesHistory: genHistory(60, 3),
+    barcode: "4781000000004",
+    customCode: "QM004",
+    unit: "kg",
+    warehouse: "Metall ombori",
+    vitrinaQty: 640,
+    omborQty: 2400,
+    salesHistory: genHistory(60, 15),
   },
   {
-    id: "p27",
-    name: "Gisht qizil",
-    price: 1450,
-    costPrice: 1050,
+    id: "p5",
+    name: "Keramogranit 60x60",
+    image: "/products/keramogranit.webp",
+    price: 92000,
+    costPrice: 74000,
     costCurrency: "UZS",
-    barcode: "4781000000027",
-    customCode: "QM027",
-    unit: "dona",
-    warehouse: "Tashqi maydon",
-    vitrinaQty: 500,
-    omborQty: 9000,
-    perBox: 1000,
+    barcode: "4781000000005",
+    customCode: "QM005",
+    unit: "kv.m",
+    warehouse: "Kafel ombori",
+    vitrinaQty: 58,
+    omborQty: 210,
     salesHistory: genHistory(60, 4),
   },
   {
-    id: "p28",
-    name: "Gisht oq silikat",
-    price: 1850,
-    costPrice: 1350,
+    id: "p6",
+    name: "Truba PPR 20mm",
+    price: 16500,
+    costPrice: 12500,
     costCurrency: "UZS",
-    barcode: "4781000000028",
-    customCode: "QM028",
-    unit: "dona",
-    warehouse: "Tashqi maydon",
-    vitrinaQty: 400,
-    omborQty: 7000,
-    perBox: 1000,
-    salesHistory: genHistory(60, 5),
-  },
-  {
-    id: "p29",
-    name: "Gazoblok 600x300x200",
-    price: 26000,
-    costPrice: 20500,
-    costCurrency: "UZS",
-    barcode: "4781000000029",
-    customCode: "QM029",
-    unit: "dona",
-    warehouse: "Tashqi maydon",
-    vitrinaQty: 120,
-    omborQty: 800,
-    perBox: 60,
+    barcode: "4781000000006",
+    customCode: "SN006",
+    unit: "metr",
+    warehouse: "Santexnika ombori",
+    vitrinaQty: 310,
+    omborQty: 940,
     salesHistory: genHistory(60, 6),
   },
   {
-    id: "p30",
-    name: "Penoblok 600x300x200",
-    price: 24000,
-    costPrice: 19000,
+    id: "p7",
+    name: "Kran sharli 20mm",
+    minStockAlert: 15,
+    price: 38000,
+    costPrice: 29000,
     costCurrency: "UZS",
-    barcode: "4781000000030",
-    customCode: "QM030",
+    barcode: "4781000000007",
+    customCode: "SN007",
     unit: "dona",
-    warehouse: "Tashqi maydon",
-    vitrinaQty: 110,
-    omborQty: 760,
-    perBox: 60,
-    salesHistory: genHistory(60, 7),
+    warehouse: "Santexnika ombori",
+    vitrinaQty: 27,
+    omborQty: 95,
+    salesHistory: genHistory(60, 3),
   },
   {
-    id: "p31",
-    name: "OSB plita 9mm",
-    price: 175000,
-    costPrice: 138000,
-    costCurrency: "UZS",
-    barcode: "4781000000031",
-    customCode: "QM031",
-    unit: "dona",
-    warehouse: "Asosiy ombor",
-    vitrinaQty: 20,
-    omborQty: 80,
-    perBox: 10,
-    salesHistory: genHistory(60, 8),
-  },
-  {
-    id: "p32",
-    name: "Fanera 10mm",
+    id: "p8",
+    name: "Smesitel oshxona",
+    image: "/products/smesitel.webp",
     price: 165000,
     costPrice: 128000,
     costCurrency: "UZS",
-    barcode: "4781000000032",
-    customCode: "QM032",
-    unit: "dona",
-    warehouse: "Asosiy ombor",
-    vitrinaQty: 18,
-    omborQty: 70,
-    perBox: 10,
-    salesHistory: genHistory(60, 9),
-  },
-  {
-    id: "p33",
-    name: "Laminat 8mm",
-    price: 118000,
-    costPrice: 92000,
-    costCurrency: "UZS",
-    barcode: "4781000000033",
-    customCode: "QM033",
-    unit: "m2",
-    warehouse: "Asosiy ombor",
-    vitrinaQty: 60,
-    omborQty: 300,
-    perBox: 10,
-    salesHistory: genHistory(60, 10),
-  },
-  {
-    id: "p34",
-    name: "Plintus plastik",
-    price: 18000,
-    costPrice: 12500,
-    costCurrency: "UZS",
-    barcode: "4781000000034",
-    customCode: "QM034",
-    unit: "dona",
-    warehouse: "Asosiy ombor",
-    vitrinaQty: 90,
-    omborQty: 400,
-    perBox: 50,
-    salesHistory: genHistory(60, 11),
-  },
-  {
-    id: "p35",
-    name: "Keramogranit 60x60",
-    price: 145000,
-    costPrice: 110000,
-    costCurrency: "UZS",
-    barcode: "4781000000035",
-    customCode: "QM035",
-    unit: "m2",
-    warehouse: "Asosiy ombor",
-    vitrinaQty: 45,
-    omborQty: 220,
-    perBox: 5,
-    salesHistory: genHistory(60, 12),
-  },
-  {
-    id: "p36",
-    name: "Kafel devor 25x40",
-    price: 95000,
-    costPrice: 72000,
-    costCurrency: "UZS",
-    barcode: "4781000000036",
-    customCode: "QM036",
-    unit: "m2",
-    warehouse: "Asosiy ombor",
-    vitrinaQty: 55,
-    omborQty: 250,
-    perBox: 5,
-    salesHistory: genHistory(60, 1),
-  },
-  {
-    id: "p37",
-    name: "Fuga oq 2kg",
-    price: 26000,
-    costPrice: 18000,
-    costCurrency: "UZS",
-    barcode: "4781000000037",
-    customCode: "QM037",
-    unit: "dona",
-    warehouse: "Quruq aralashmalar",
-    vitrinaQty: 45,
-    omborQty: 180,
-    perBox: 12,
-    salesHistory: genHistory(60, 2),
-  },
-  {
-    id: "p38",
-    name: "Silikon oq",
-    price: 34000,
-    costPrice: 24000,
-    costCurrency: "UZS",
-    barcode: "4781000000038",
-    customCode: "QM038",
-    unit: "dona",
-    warehouse: "Asosiy ombor",
-    vitrinaQty: 35,
-    omborQty: 160,
-    perBox: 12,
-    salesHistory: genHistory(60, 3),
-  },
-  {
-    id: "p39",
-    name: "Ko'pik montaj",
-    price: 42000,
-    costPrice: 31000,
-    costCurrency: "UZS",
-    barcode: "4781000000039",
-    customCode: "QM039",
-    unit: "dona",
-    warehouse: "Asosiy ombor",
-    vitrinaQty: 38,
-    omborQty: 170,
-    perBox: 12,
-    salesHistory: genHistory(60, 4),
-  },
-  {
-    id: "p40",
-    name: "Izolenta",
-    price: 7000,
-    costPrice: 4500,
-    costCurrency: "UZS",
-    barcode: "4781000000040",
-    customCode: "QM040",
-    unit: "dona",
-    warehouse: "Elektr ombori",
-    vitrinaQty: 80,
-    omborQty: 400,
-    perBox: 20,
-    salesHistory: genHistory(60, 5),
-  },
-  {
-    id: "p41",
-    name: "Kabel VVG 2x2.5",
-    price: 13500,
-    costPrice: 9500,
-    costCurrency: "UZS",
-    barcode: "4781000000041",
-    customCode: "QM041",
-    unit: "metr",
-    warehouse: "Elektr ombori",
-    vitrinaQty: 300,
-    omborQty: 1800,
-    perBox: 100,
-    salesHistory: genHistory(60, 6),
-  },
-  {
-    id: "p42",
-    name: "Kabel VVG 3x2.5",
-    price: 18500,
-    costPrice: 13500,
-    costCurrency: "UZS",
-    barcode: "4781000000042",
-    customCode: "QM042",
-    unit: "metr",
-    warehouse: "Elektr ombori",
-    vitrinaQty: 260,
-    omborQty: 1500,
-    perBox: 100,
-    salesHistory: genHistory(60, 7),
-  },
-  {
-    id: "p43",
-    name: "Rozetka ichki",
-    price: 22000,
-    costPrice: 15000,
-    costCurrency: "UZS",
-    barcode: "4781000000043",
-    customCode: "QM043",
-    unit: "dona",
-    warehouse: "Elektr ombori",
-    vitrinaQty: 70,
-    omborQty: 280,
-    perBox: 20,
-    salesHistory: genHistory(60, 8),
-  },
-  {
-    id: "p44",
-    name: "Viklyuchatel 1 klavish",
-    price: 18000,
-    costPrice: 12500,
-    costCurrency: "UZS",
-    barcode: "4781000000044",
-    customCode: "QM044",
-    unit: "dona",
-    warehouse: "Elektr ombori",
-    vitrinaQty: 65,
-    omborQty: 250,
-    perBox: 20,
-    salesHistory: genHistory(60, 9),
-  },
-  {
-    id: "p45",
-    name: "Avtomat 16A",
-    price: 52000,
-    costPrice: 39000,
-    costCurrency: "UZS",
-    barcode: "4781000000045",
-    customCode: "QM045",
-    unit: "dona",
-    warehouse: "Elektr ombori",
-    vitrinaQty: 30,
-    omborQty: 120,
-    perBox: 10,
-    salesHistory: genHistory(60, 10),
-  },
-  {
-    id: "p46",
-    name: "LED lampa 12W",
-    price: 19000,
-    costPrice: 12500,
-    costCurrency: "UZS",
-    barcode: "4781000000046",
-    customCode: "QM046",
-    unit: "dona",
-    warehouse: "Elektr ombori",
-    vitrinaQty: 90,
-    omborQty: 360,
-    perBox: 20,
-    salesHistory: genHistory(60, 11),
-  },
-  {
-    id: "p47",
-    name: "Truba PPR 20mm",
-    price: 11500,
-    costPrice: 7800,
-    costCurrency: "UZS",
-    barcode: "4781000000047",
-    customCode: "QM047",
-    unit: "metr",
-    warehouse: "Santexnika ombori",
-    vitrinaQty: 220,
-    omborQty: 1200,
-    perBox: 100,
-    salesHistory: genHistory(60, 12),
-  },
-  {
-    id: "p48",
-    name: "Truba PPR 25mm",
-    price: 16500,
-    costPrice: 11500,
-    costCurrency: "UZS",
-    barcode: "4781000000048",
-    customCode: "QM048",
-    unit: "metr",
-    warehouse: "Santexnika ombori",
-    vitrinaQty: 180,
-    omborQty: 950,
-    perBox: 100,
-    salesHistory: genHistory(60, 1),
-  },
-  {
-    id: "p49",
-    name: "Ugolok PPR 20mm",
-    price: 3500,
-    costPrice: 2200,
-    costCurrency: "UZS",
-    barcode: "4781000000049",
-    customCode: "QM049",
+    barcode: "4781000000008",
+    customCode: "SN008",
     unit: "dona",
     warehouse: "Santexnika ombori",
-    vitrinaQty: 150,
-    omborQty: 700,
-    perBox: 50,
-    salesHistory: genHistory(60, 2),
-  },
-  {
-    id: "p50",
-    name: "Mufta PPR 20mm",
-    price: 3000,
-    costPrice: 1900,
-    costCurrency: "UZS",
-    barcode: "4781000000050",
-    customCode: "QM050",
-    unit: "dona",
-    warehouse: "Santexnika ombori",
-    vitrinaQty: 160,
-    omborQty: 800,
-    perBox: 50,
-    salesHistory: genHistory(60, 3),
-  },
-  {
-    id: "p51",
-    name: "Kran sharli 20mm",
-    price: 28000,
-    costPrice: 21000,
-    costCurrency: "UZS",
-    barcode: "4781000000051",
-    customCode: "QM051",
-    unit: "dona",
-    warehouse: "Santexnika ombori",
-    vitrinaQty: 45,
-    omborQty: 180,
-    perBox: 10,
-    salesHistory: genHistory(60, 4),
-  },
-  {
-    id: "p52",
-    name: "Smesitel oshxona",
-    price: 245000,
-    costPrice: 185000,
-    costCurrency: "UZS",
-    barcode: "4781000000052",
-    customCode: "QM052",
-    unit: "dona",
-    warehouse: "Santexnika ombori",
-    vitrinaQty: 12,
-    omborQty: 45,
-    perBox: 4,
-    salesHistory: genHistory(60, 5),
-  },
-  {
-    id: "p53",
-    name: "Unitaz komplekt",
-    price: 680000,
-    costPrice: 540000,
-    costCurrency: "UZS",
-    barcode: "4781000000053",
-    customCode: "QM053",
-    unit: "dona",
-    warehouse: "Santexnika ombori",
-    vitrinaQty: 6,
-    omborQty: 22,
-    salesHistory: genHistory(60, 6),
-  },
-  {
-    id: "p54",
-    name: "Rakovina 50cm",
-    price: 310000,
-    costPrice: 245000,
-    costCurrency: "UZS",
-    barcode: "4781000000054",
-    customCode: "QM054",
-    unit: "dona",
-    warehouse: "Santexnika ombori",
-    vitrinaQty: 8,
-    omborQty: 30,
-    salesHistory: genHistory(60, 7),
-  },
-  {
-    id: "p55",
-    name: "Eshik MDF",
-    price: 950000,
-    costPrice: 760000,
-    costCurrency: "UZS",
-    barcode: "4781000000055",
-    customCode: "QM055",
-    unit: "dona",
-    warehouse: "Asosiy ombor",
-    vitrinaQty: 5,
-    omborQty: 24,
-    salesHistory: genHistory(60, 8),
-  },
-  {
-    id: "p56",
-    name: "Deraza profil 1m",
-    price: 125000,
-    costPrice: 98000,
-    costCurrency: "UZS",
-    barcode: "4781000000056",
-    customCode: "QM056",
-    unit: "metr",
-    warehouse: "Asosiy ombor",
-    vitrinaQty: 30,
-    omborQty: 150,
-    perBox: 10,
-    salesHistory: genHistory(60, 9),
-  },
-  {
-    id: "p57",
-    name: "Hammer kraska 2.2kg",
-    image: "/products/hammer-kraska-2-2kg.webp",
-    price: 62000,
-    costPrice: 48000,
-    costCurrency: "UZS",
-    barcode: "4781000000057",
-    customCode: "QM057",
-    unit: "dona",
-    warehouse: "Bo\'yoq ombori",
-    vitrinaQty: 22,
-    omborQty: 80,
-    perBox: 6,
-    salesHistory: genHistory(60, 4),
-  },
-  {
-    id: "p58",
-    name: "Hayat fasad bo'yog'i 25kg (qizil)",
-    image: "/products/hayat-fasad-25kg-qizil.webp",
-    price: 385000,
-    costPrice: 310000,
-    costCurrency: "UZS",
-    barcode: "4781000000058",
-    customCode: "QM058",
-    unit: "paqir",
-    warehouse: "Bo\'yoq ombori",
-    vitrinaQty: 14,
-    omborQty: 45,
-    perBox: 1,
-    salesHistory: genHistory(60, 3),
-  },
-  {
-    id: "p59",
-    name: "Hayat moyshik 15kg",
-    image: "/products/hayat-moyshik-15kg.webp",
-    price: 175000,
-    costPrice: 138000,
-    costCurrency: "UZS",
-    barcode: "4781000000059",
-    customCode: "QM059",
-    unit: "dona",
-    warehouse: "Bo\'yoq ombori",
-    vitrinaQty: 18,
-    omborQty: 60,
-    perBox: 1,
-    salesHistory: genHistory(60, 4),
-  },
-  {
-    id: "p60",
-    name: "Hayat oq kraska 115 3kg",
-    image: "/products/hayat-oq-kraska-115-3kg.webp",
-    price: 96000,
-    costPrice: 76000,
-    costCurrency: "UZS",
-    barcode: "4781000000060",
-    customCode: "QM060",
-    unit: "dona",
-    warehouse: "Bo\'yoq ombori",
-    vitrinaQty: 26,
-    omborQty: 90,
-    perBox: 6,
-    salesHistory: genHistory(60, 5),
-  },
-  {
-    id: "p61",
-    name: "Panda valik 44sm",
-    image: "/products/panda-valik-44sm.webp",
-    price: 32000,
-    costPrice: 24000,
-    costCurrency: "UZS",
-    barcode: "4781000000061",
-    customCode: "QM061",
-    unit: "dona",
-    warehouse: "Bo\'yoq ombori",
-    vitrinaQty: 35,
-    omborQty: 120,
-    perBox: 10,
-    salesHistory: genHistory(60, 6),
-  },
-  {
-    id: "p62",
-    name: "Yuda cho'tka",
-    image: "/products/yuda-chotka.webp",
-    price: 14000,
-    costPrice: 9000,
-    costCurrency: "UZS",
-    barcode: "4781000000062",
-    customCode: "QM062",
-    unit: "dona",
-    warehouse: "Bo\'yoq ombori",
-    vitrinaQty: 40,
-    omborQty: 150,
-    perBox: 20,
-    salesHistory: genHistory(60, 7),
-  },
-  {
-    id: "p63",
-    name: "Makita drel M45-5",
-    image: "/products/makita-drel-m45-5.webp",
-    minStockAlert: 3,
-    price: 620000,
-    costPrice: 490000,
-    costCurrency: "UZS",
-    barcode: "4781000000063",
-    customCode: "QM063",
-    unit: "dona",
-    warehouse: "Asboblar ombori",
-    vitrinaQty: 8,
-    omborQty: 20,
-    perBox: 1,
-    salesHistory: genHistory(60, 1),
-  },
-  {
-    id: "p64",
-    name: "Makita bolg'ador (bog'o'radigan) M125-K2",
-    image: "/products/makita-bolgarka-m125-k2.webp",
-    minStockAlert: 3,
-    price: 540000,
-    costPrice: 420000,
-    costCurrency: "UZS",
-    barcode: "4781000000064",
-    customCode: "QM064",
-    unit: "dona",
-    warehouse: "Asboblar ombori",
-    vitrinaQty: 6,
-    omborQty: 15,
-    perBox: 1,
-    salesHistory: genHistory(60, 1),
-  },
-  {
-    id: "p65",
-    name: "Tolsen stepler",
-    image: "/products/tolsen-stepler.webp",
-    price: 68000,
-    costPrice: 52000,
-    costCurrency: "UZS",
-    barcode: "4781000000065",
-    customCode: "QM065",
-    unit: "dona",
-    warehouse: "Asboblar ombori",
-    vitrinaQty: 15,
-    omborQty: 40,
-    perBox: 5,
-    salesHistory: genHistory(60, 2),
-  },
-  {
-    id: "p66",
-    name: "Tolsen trishotka 12758",
-    image: "/products/tolsen-trishotka-12758.webp",
-    price: 45000,
-    costPrice: 34000,
-    costCurrency: "UZS",
-    barcode: "4781000000066",
-    customCode: "QM066",
-    unit: "dona",
-    warehouse: "Asboblar ombori",
-    vitrinaQty: 12,
-    omborQty: 36,
-    perBox: 6,
-    salesHistory: genHistory(60, 2),
-  },
-  {
-    id: "p67",
-    name: "Tolsen klyuch nabor 12-42",
-    image: "/products/tolsen-klyuch-nabor-12-42.webp",
-    price: 285000,
-    costPrice: 220000,
-    costCurrency: "UZS",
-    barcode: "4781000000067",
-    customCode: "QM067",
-    unit: "nabor",
-    warehouse: "Asboblar ombori",
-    vitrinaQty: 9,
-    omborQty: 24,
-    perBox: 4,
-    salesHistory: genHistory(60, 2),
-  },
-  {
-    id: "p68",
-    name: "Hi-Tech lyustra H10-B2",
-    image: "/products/hi-tech-lyustra-h10-b2.webp",
-    price: 465000,
-    costPrice: 365000,
-    costCurrency: "UZS",
-    barcode: "4781000000068",
-    customCode: "QM068",
-    unit: "dona",
-    warehouse: "Elektr ombori",
-    vitrinaQty: 7,
-    omborQty: 22,
-    perBox: 1,
-    salesHistory: genHistory(60, 2),
-  },
-  {
-    id: "p69",
-    name: "Uzled lyustra M400 6500K",
-    image: "/products/uzled-lyustra-m400-6500k.webp",
-    price: 215000,
-    costPrice: 168000,
-    costCurrency: "UZS",
-    barcode: "4781000000069",
-    customCode: "QM069",
-    unit: "dona",
-    warehouse: "Elektr ombori",
-    vitrinaQty: 11,
-    omborQty: 30,
-    perBox: 1,
-    salesHistory: genHistory(60, 3),
-  },
-  {
-    id: "p70",
-    name: "Uzled lyustra M852 4000K",
-    image: "/products/uzled-lyustra-m852-4000k.webp",
-    price: 340000,
-    costPrice: 265000,
-    costCurrency: "UZS",
-    barcode: "4781000000070",
-    customCode: "QM070",
-    unit: "dona",
-    warehouse: "Elektr ombori",
-    vitrinaQty: 8,
-    omborQty: 20,
-    perBox: 1,
-    salesHistory: genHistory(60, 2),
-  },
-  {
-    id: "p71",
-    name: "Zanjira Ottacento 5kg",
-    image: "/products/zanjira-ottacento-5kg.webp",
-    price: 285000,
-    costPrice: 225000,
-    costCurrency: "UZS",
-    barcode: "4781000000071",
-    customCode: "QM071",
-    unit: "dona",
-    warehouse: "Quruq aralashmalar",
-    vitrinaQty: 10,
-    omborQty: 28,
-    perBox: 4,
-    salesHistory: genHistory(60, 2),
-  },
-  {
-    id: "p72",
-    name: "All Germetika",
-    image: "/products/all-germetika.webp",
-    price: 32000,
-    costPrice: 24000,
-    costCurrency: "UZS",
-    barcode: "4781000000072",
-    customCode: "QM072",
-    unit: "dona",
-    warehouse: "Asosiy ombor",
-    vitrinaQty: 28,
-    omborQty: 85,
-    perBox: 12,
-    salesHistory: genHistory(60, 4),
-  },
-  {
-    id: "p73",
-    name: "Gipsokarton tom va fasad uchun",
-    image: "/products/gipsokarton-tom-fasad.webp",
-    price: 92000,
-    costPrice: 72000,
-    costCurrency: "UZS",
-    barcode: "4781000000073",
-    customCode: "QM073",
-    unit: "dona",
-    warehouse: "Asosiy ombor",
-    vitrinaQty: 20,
-    omborQty: 60,
-    perBox: 1,
-    salesHistory: genHistory(60, 3),
-  },
-  {
-    id: "p74",
-    name: "Greenc katyol (Xitoy)",
-    image: "/products/greenc-katyol-xitoy.webp",
-    price: 24000,
-    costPrice: 17000,
-    costCurrency: "UZS",
-    barcode: "4781000000074",
-    customCode: "QM074",
-    unit: "dona",
-    warehouse: "Bo\'yoq ombori",
-    vitrinaQty: 30,
-    omborQty: 100,
-    perBox: 20,
-    salesHistory: genHistory(60, 5),
-  },
-  {
-    id: "p75",
-    name: "Nero oboi pichog'i NR-25",
-    image: "/products/nero-oboi-pichoq-nr25.webp",
-    price: 16000,
-    costPrice: 11000,
-    costCurrency: "UZS",
-    barcode: "4781000000075",
-    customCode: "QM075",
-    unit: "dona",
-    warehouse: "Asboblar ombori",
-    vitrinaQty: 25,
-    omborQty: 70,
-    perBox: 10,
-    salesHistory: genHistory(60, 3),
-  },
-  {
-    id: "p76",
-    name: "Kafel g'ishtli",
-    image: "/products/kafel-gishtli.webp",
-    price: 78000,
-    costPrice: 60000,
-    costCurrency: "UZS",
-    barcode: "4781000000076",
-    customCode: "QM076",
-    unit: "m2",
-    warehouse: "Asosiy ombor",
     vitrinaQty: 16,
-    omborQty: 50,
-    perBox: 1,
-    salesHistory: genHistory(60, 4),
-  },
-  {
-    id: "p77",
-    name: "Nero filter F45K",
-    image: "/products/nero-filter-f45k.webp",
-    price: 21000,
-    costPrice: 15000,
-    costCurrency: "UZS",
-    barcode: "4781000000077",
-    customCode: "QM077",
-    unit: "dona",
-    warehouse: "Asboblar ombori",
-    vitrinaQty: 18,
-    omborQty: 55,
-    perBox: 10,
-    salesHistory: genHistory(60, 3),
-  },
-  {
-    id: "p78",
-    name: "Nero metr NR-3M",
-    image: "/products/nero-metr-nr3m.webp",
-    price: 19000,
-    costPrice: 13000,
-    costCurrency: "UZS",
-    barcode: "4781000000078",
-    customCode: "QM078",
-    unit: "dona",
-    warehouse: "Asboblar ombori",
-    vitrinaQty: 22,
-    omborQty: 65,
-    perBox: 10,
-    salesHistory: genHistory(60, 3),
-  },
-  {
-    id: "p79",
-    name: "Samsung katyol",
-    image: "/products/samsung-katyol.webp",
-    price: 22000,
-    costPrice: 16000,
-    costCurrency: "UZS",
-    barcode: "4781000000079",
-    customCode: "QM079",
-    unit: "dona",
-    warehouse: "Bo\'yoq ombori",
-    vitrinaQty: 28,
-    omborQty: 90,
-    perBox: 20,
-    salesHistory: genHistory(60, 4),
-  },
-  {
-    id: "p80",
-    name: "Turkiya katyol",
-    image: "/products/turkiya-katyol.webp",
-    price: 27000,
-    costPrice: 19000,
-    costCurrency: "UZS",
-    barcode: "4781000000080",
-    customCode: "QM080",
-    unit: "dona",
-    warehouse: "Bo\'yoq ombori",
-    vitrinaQty: 24,
-    omborQty: 80,
-    perBox: 20,
-    salesHistory: genHistory(60, 4),
-  },
-  {
-    id: "p81",
-    name: "Waserman WR-10R",
-    image: "/products/waserman-wr-10r.webp",
-    minStockAlert: 3,
-    price: 310000,
-    costPrice: 240000,
-    costCurrency: "UZS",
-    barcode: "4781000000081",
-    customCode: "QM081",
-    unit: "dona",
-    warehouse: "Asboblar ombori",
-    vitrinaQty: 9,
-    omborQty: 26,
-    perBox: 1,
+    omborQty: 40,
     salesHistory: genHistory(60, 2),
   },
   {
-    id: "p82",
-    quick: true,
-    name: "Nikel qulfli ruchka",
-    image: "/products/nikel-qulfli-ruchka.webp",
-    price: 38000,
-    costPrice: 27000,
+    id: "p9",
+    name: "Unitaz komplekt",
+    image: "/products/unitaz.webp",
+    minStockAlert: 5,
+    price: 890000,
+    costPrice: 710000,
     costCurrency: "UZS",
-    barcode: "4781000000082",
-    customCode: "QM082",
+    barcode: "4781000000009",
+    customCode: "SN009",
     unit: "dona",
-    warehouse: "Asosiy ombor",
-    vitrinaQty: 20,
-    omborQty: 60,
-    perBox: 10,
-    salesHistory: genHistory(60, 4),
+    warehouse: "Santexnika ombori",
+    vitrinaQty: 9,
+    omborQty: 22,
+    salesHistory: genHistory(60, 1),
   },
   {
-    id: "p83",
-    quick: true,
-    name: "Oshiq-moshiq J458-5",
-    image: "/products/oshiq-moshiq-j458-5.webp",
-    price: 26000,
-    costPrice: 18000,
+    id: "p10",
+    name: "Samorez mix (turli o'lcham)",
+    price: 42000,
+    costPrice: 32000,
     costCurrency: "UZS",
-    barcode: "4781000000083",
-    customCode: "QM083",
-    unit: "dona",
+    barcode: "4781000000010",
+    customCode: "QM010",
+    unit: "kg",
     warehouse: "Asosiy ombor",
-    vitrinaQty: 24,
-    omborQty: 70,
-    perBox: 12,
-    salesHistory: genHistory(60, 4),
+    vitrinaQty: 98,
+    omborQty: 410,
+    salesHistory: genHistory(60, 6),
+    variants: [
+      {
+        id: "v25",
+        label: "25mm",
+        barcode: "4781000000011",
+        customCode: "QM010-25",
+        price: 42000,
+        wholesalePrice: 38640,
+        costPrice: 32000,
+        vitrinaQty: 26,
+        omborQty: 110,
+      },
+      {
+        id: "v35",
+        label: "35mm",
+        barcode: "4781000000012",
+        customCode: "QM010-35",
+        price: 44000,
+        wholesalePrice: 40480,
+        costPrice: 33500,
+        vitrinaQty: 24,
+        omborQty: 100,
+      },
+      {
+        id: "v45",
+        label: "45mm",
+        barcode: "4781000000013",
+        customCode: "QM010-45",
+        price: 47000,
+        wholesalePrice: 43240,
+        costPrice: 36000,
+        vitrinaQty: 28,
+        omborQty: 115,
+      },
+      {
+        id: "v50",
+        label: "50mm",
+        barcode: "4781000000014",
+        customCode: "QM010-50",
+        price: 49000,
+        wholesalePrice: 45080,
+        costPrice: 37500,
+        vitrinaQty: 20,
+        omborQty: 85,
+      },
+    ],
   },
 ].map((product: Product, index: number) => ({
   ...product,
@@ -2203,27 +1116,27 @@ export const MOCK_PRODUCTS: Product[] = [
     ).padStart(2, "0")}`,
 }));
 
-/** Demo ta'minotchi agentlar — tovarlarni agent bo'yicha filtrlash uchun. */
-const DEMO_SUPPLY_AGENTS = ["Bekzod Agent", "Sardor Ta'minot", "Jasur Logistika"];
+/** Demo ta'minotchi yetkazib beruvchilar — tovarlarni yetkazib beruvchi bo'yicha filtrlash uchun. */
+const DEMO_SUPPLY_SUPPLIERS = ["Bekzod Ta'minot", "Sardor Ta'minot", "Jasur Logistika"];
 
 /**
- * Tovar nomi bo'yicha uni yetkazib bergan agentni qaytaradi: avval haqiqiy
+ * Tovar nomi bo'yicha uni yetkazib bergan yetkazib beruvchini qaytaradi: avval haqiqiy
  * prixod/ta'minot tarixidan, topilmasa — nom bo'yicha barqaror demo taqsimoti.
  */
-export function getAgentForProductName(productName: string): string {
+export function getSupplierForProductName(productName: string): string {
   for (const entry of MOCK_PRODUCT_HISTORY) {
-    if (entry.productName === productName && entry.agentName) return entry.agentName;
+    if (entry.productName === productName && entry.supplierName) return entry.supplierName;
   }
   for (const report of MOCK_SUPPLIER_REPORTS) {
-    if (report.agentName && report.items.some((item) => item.productName === productName)) {
-      return report.agentName;
+    if (report.supplierName && report.items.some((item) => item.productName === productName)) {
+      return report.supplierName;
     }
   }
   let hash = 0;
   for (let i = 0; i < productName.length; i += 1) {
     hash = (hash * 31 + productName.charCodeAt(i)) | 0;
   }
-  return DEMO_SUPPLY_AGENTS[Math.abs(hash) % DEMO_SUPPLY_AGENTS.length];
+  return DEMO_SUPPLY_SUPPLIERS[Math.abs(hash) % DEMO_SUPPLY_SUPPLIERS.length];
 }
 
 export const MOCK_MASTERS: Master[] = [
@@ -2415,19 +1328,21 @@ export type SupplierReport = {
   date: string;
   addedBy: string;
   type?: "receipt" | "return" | "payment";
-  agentId: string;
-  agentName: string;
-  agentPhone: string;
+  supplierId: string;
+  supplierName: string;
+  supplierPhone: string;
   /** Qo'shimcha (ikkinchi) telefon raqami — eski format. */
-  agentAltPhone?: string;
+  supplierAltPhone?: string;
   /** Qo'shimcha telefon raqamlari (istalgancha). */
-  agentAltPhones?: string[];
-  /** Agent rasmi — data URL yoki tashqi havola. */
-  agentPhoto?: string;
+  supplierAltPhones?: string[];
+  /** Yetkazib beruvchi rasmi — data URL yoki tashqi havola. */
+  supplierPhoto?: string;
   /** Tashkilot / firma nomi. */
   companyName?: string;
   /** Tashkilot STIR (INN) raqami. */
   inn?: string;
+  /** Korxona hisob raqami (bank hisobi). */
+  accountNumber?: string;
   /** Manzil yoki mo'ljal. */
   address?: string;
   botEnabled?: boolean;
@@ -2455,9 +1370,9 @@ export type ProductHistory = {
   costPrice: number;
   warehouse: string;
   shelfLocation?: string;
-  agentName?: string;
-  agentId?: string;
-  agentPhone?: string;
+  supplierName?: string;
+  supplierId?: string;
+  supplierPhone?: string;
   paidAmount?: number;
   remainingDebt?: number;
   note?: string;
@@ -2524,9 +1439,9 @@ export const MOCK_SUPPLIER_REPORTS: SupplierReport[] = [
     id: "sr1",
     date: new Date("2026-05-05T11:20:00").toISOString(),
     addedBy: "Admin",
-    agentId: "AG-0001",
-    agentName: "Bekzod Agent",
-    agentPhone: "+998901112233",
+    supplierId: "YB-0001",
+    supplierName: "Bekzod Ta'minot",
+    supplierPhone: "+998901112233",
     items: [
       { productName: "Sement M400 50kg", qty: 40, unit: "dona", amount: 320000 },
       { productName: "Shpaklovka start 25kg", qty: 30, unit: "dona", amount: 195000 },
@@ -2577,9 +1492,9 @@ export const MOCK_PRODUCT_HISTORY: ProductHistory[] = [
     price: 12000,
     costPrice: 8000,
     warehouse: "Asosiy ombor",
-    agentName: "Bekzod Agent",
-    agentId: "AG-0001",
-    agentPhone: "+998901112233",
+    supplierName: "Bekzod Ta'minot",
+    supplierId: "YB-0001",
+    supplierPhone: "+998901112233",
     paidAmount: 100000,
     remainingDebt: 92000,
     totalAmount: 192000,
@@ -3067,7 +1982,7 @@ const DEMO_REGULAR_CUSTOMER_NAMES = [
   "Sevinch To'xtayeva",
 ];
 
-const DEMO_AGENT_NAMES = [
+const DEMO_SUPPLIER_NAMES = [
   "Bunyod Qurilish Ta'minot",
   "Grand Sement Servis",
   "Mega Profil Savdo",
@@ -3266,7 +2181,7 @@ function generateDemoCreditCustomers(): CreditCustomer[] {
 }
 
 function generateDemoSupplierReports(): SupplierReport[] {
-  return DEMO_AGENT_NAMES.map((name, index) => {
+  return DEMO_SUPPLIER_NAMES.map((name, index) => {
     const productA = MOCK_PRODUCTS[(index * 5) % MOCK_PRODUCTS.length];
     const productB = MOCK_PRODUCTS[(index * 5 + 9) % MOCK_PRODUCTS.length];
     const amountA = (productA?.costPrice ?? 45000) * (12 + (index % 9) * 3);
@@ -3278,9 +2193,9 @@ function generateDemoSupplierReports(): SupplierReport[] {
       id: `sr-demo-${String(index + 1).padStart(3, "0")}`,
       date: demoDate(1 + (index % 7), 8 + (index % 9), (index * 11) % 60),
       addedBy: index % 2 === 0 ? "Admin" : "Omborchi",
-      agentId: `AG-${String(index + 2).padStart(4, "0")}`,
-      agentName: name,
-      agentPhone: demoPhone(index + 130, 95 + (index % 4)),
+      supplierId: `YB-${String(index + 2).padStart(4, "0")}`,
+      supplierName: name,
+      supplierPhone: demoPhone(index + 130, 95 + (index % 4)),
       botEnabled: index % 3 === 0,
       items: [
         {
@@ -3299,7 +2214,7 @@ function generateDemoSupplierReports(): SupplierReport[] {
       totalAmount,
       paidAmount,
       remainingDebt,
-      note: "Ertangi taqdimot uchun demo agent prixodi",
+      note: "Ertangi taqdimot uchun demo yetkazib beruvchi prixodi",
     };
   });
 }
@@ -3421,10 +2336,6 @@ function generateDemoReceipts(count: number) {
 }
 
 function seedPresentationDemoData() {
-  const productIds = new Set(MOCK_PRODUCTS.map((product) => product.id));
-  const demoProducts = generateDemoProducts().filter((product) => !productIds.has(product.id));
-  MOCK_PRODUCTS.push(...demoProducts);
-
   const employeeIds = new Set(MOCK_EMPLOYEES.map((employee) => employee.id));
   MOCK_EMPLOYEES.push(
     ...generateDemoEmployees().filter((employee) => !employeeIds.has(employee.id)),
@@ -3467,25 +2378,25 @@ function seedPresentationDemoData() {
         (report.items[0]?.amount ?? report.totalAmount) / Math.max(1, report.items[0]?.qty ?? 1),
       ),
       warehouse: MOCK_PRODUCTS[index % MOCK_PRODUCTS.length]?.warehouse ?? "Asosiy ombor",
-      agentName: report.agentName,
-      agentId: report.agentId,
-      agentPhone: report.agentPhone,
+      supplierName: report.supplierName,
+      supplierId: report.supplierId,
+      supplierPhone: report.supplierPhone,
       paidAmount: report.paidAmount,
       remainingDebt: report.remainingDebt,
       totalAmount: report.totalAmount,
-      note: "Demo agent kirim tarixi",
+      note: "Demo yetkazib beruvchi kirim tarixi",
     });
 
     if (report.botEnabled) {
       MOCK_RECEIPT_DISPATCHES.unshift({
-        id: `msg-agent-demo-${index + 1}`,
+        id: `msg-supplier-demo-${index + 1}`,
         date: report.date,
-        recipientCategory: "agent",
-        recipientId: report.agentId,
-        recipientName: report.agentName,
-        phone: report.agentPhone,
+        recipientCategory: "yetkazib_beruvchi",
+        recipientId: report.supplierId,
+        recipientName: report.supplierName,
+        phone: report.supplierPhone,
         receiptId: report.id,
-        title: "Agent hisob-kitob cheki",
+        title: "Yetkazib beruvchi hisob-kitob cheki",
         total: report.totalAmount,
         note: "Demo bot yuborilgan chek",
       });
@@ -3500,7 +2411,11 @@ function seedPresentationDemoData() {
       customerId: customer.id,
       customerName: `${customer.firstName} ${customer.lastName}`,
       amount: 180000 + index * 65000,
-      method: index % 3 === 0 ? "karta" : index % 3 === 1 ? "naqd" : "valyuta",
+      method: (index % 3 === 0
+        ? "karta"
+        : index % 3 === 1
+          ? "naqd"
+          : "valyuta") as DebtPayment["method"],
       cardType: index % 3 === 0 ? "HUMO" : undefined,
       currencyCode: index % 3 === 2 ? "USD" : undefined,
       note: "Demo qarz so'ndirish",
@@ -3529,12 +2444,12 @@ function seedPresentationDemoData() {
       id: `CH-AG-DEMO-${String(index + 1).padStart(3, "0")}`,
       date: demoDate(2 + (index % 6), 14 + (index % 4), (index * 13) % 60),
       cashier: "Admin",
-      category: "Agentlarga to'lov",
+      category: "Yetkazib beruvchilarga to'lov",
       cash: 250000 + index * 85000,
       cardAmount: index % 2 === 0 ? 120000 + index * 35000 : 0,
       currencies: [],
-      note: `${report.agentName} uchun demo to'lov`,
-      agentId: report.agentId,
+      note: `${report.supplierName} uchun demo to'lov`,
+      supplierId: report.supplierId,
     })),
   );
 }
@@ -3617,19 +2532,21 @@ export function maxAllowedCartDiscount(
 
 /** Tan narxni berilgan valyutaga o'girib, ustiga foiz qo'shib narx hisoblaydi.
  * Masalan tan narx 1 USD, maqsad valyuta UZS, foiz 5% bo'lsa:
- * 1 * 12650 = 12650 so'm, + 5% = 13282.5 -> UZS uchun 1000 so'mgacha yaxlitlanadi. */
+ * 1 * 12650 = 12650 so'm, + 5% = 13282.5 -> UZS uchun 1000 so'mgacha yaxlitlanadi.
+ * `exact: true` berilsa — UZS uchun ham 1000 so'mgacha yaxlitlanmaydi, aniq
+ * (butun so'mgacha) qiymat qaytariladi. */
 export function computeMarkupPrice(
   costPrice: number,
   costCurrency: Currency,
   targetCurrency: Currency,
   percent: number,
+  exact = false,
 ): number {
   const costInTarget =
     (costPrice * (MOCK_RATES[costCurrency] ?? 1)) / (MOCK_RATES[targetCurrency] ?? 1);
   const withMarkup = costInTarget * (1 + percent / 100);
-  return targetCurrency === "UZS"
-    ? Math.round(withMarkup / 1000) * 1000
-    : Math.round(withMarkup * 100) / 100;
+  if (targetCurrency !== "UZS") return Math.round(withMarkup * 100) / 100;
+  return exact ? Math.round(withMarkup) : Math.round(withMarkup / 1000) * 1000;
 }
 
 /** Tovar bir nechta variantga (rang/razmer/SKU) egami? */
@@ -3678,7 +2595,7 @@ export function isProductAtLimit(product: Pick<Product, "vitrinaQty" | "minStock
     : false;
 }
 
-export type AgentSummary = {
+export type SupplierSummary = {
   id: string;
   name: string;
   phone: string;
@@ -3688,16 +2605,16 @@ export type AgentSummary = {
   remainingDebt: number;
 };
 
-/** Agentlarni MOCK_SUPPLIER_REPORTS asosida jamlab, ro'yxat sifatida qaytaradi. */
-export function getAgentsList(): AgentSummary[] {
-  const map = new Map<string, AgentSummary>();
+/** Yetkazib beruvchilarni MOCK_SUPPLIER_REPORTS asosida jamlab, ro'yxat sifatida qaytaradi. */
+export function getSuppliersList(): SupplierSummary[] {
+  const map = new Map<string, SupplierSummary>();
   MOCK_SUPPLIER_REPORTS.forEach((row) => {
-    if (!row.agentId) return;
-    const current = map.get(row.agentId);
-    map.set(row.agentId, {
-      id: row.agentId,
-      name: row.agentName || "Nomsiz agent",
-      phone: row.agentPhone || "",
+    if (!row.supplierId) return;
+    const current = map.get(row.supplierId);
+    map.set(row.supplierId, {
+      id: row.supplierId,
+      name: row.supplierName || "Nomsiz yetkazib beruvchi",
+      phone: row.supplierPhone || "",
       botEnabled: (current?.botEnabled ?? false) || Boolean(row.botEnabled),
       totalAmount: (current?.totalAmount ?? 0) + row.totalAmount,
       paidAmount: (current?.paidAmount ?? 0) + row.paidAmount,
@@ -3707,9 +2624,9 @@ export function getAgentsList(): AgentSummary[] {
   return Array.from(map.values());
 }
 
-/** Yangi agent uchun keyingi navbatdagi ID, masalan `AG-0007`. */
-export function nextAgentId(): string {
-  return `AG-${String(MOCK_SUPPLIER_REPORTS.length + 1).padStart(4, "0")}`;
+/** Yangi yetkazib beruvchi uchun keyingi navbatdagi ID, masalan `YB-0007`. */
+export function nextSupplierId(): string {
+  return `YB-${String(MOCK_SUPPLIER_REPORTS.length + 1).padStart(4, "0")}`;
 }
 
 /** Har bir prixod uchun keyingi navbatdagi unikal nakladnoy raqami, masalan `PRX-000123`. */

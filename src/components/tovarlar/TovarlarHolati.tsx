@@ -1,6 +1,12 @@
 import * as React from "react";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Boxes, TrendingUp } from "lucide-react";
 import {
   ReturnReceiptDetailDialog,
@@ -41,19 +47,19 @@ function soldQty(product: Product) {
 }
 
 function statsForWarehouse(warehouse: string): Stat[] {
-  return MOCK_PRODUCTS
-    .filter((product) => warehouse === ALL_WAREHOUSES || product.warehouse === warehouse)
-    .map((product) => {
-      const qty = stockQty(product);
-      return {
-        product,
-        qty,
-        soldQty: soldQty(product),
-        vitrinaQty: product.vitrinaQty,
-        omborQty: product.omborQty,
-        cost: qty * costInSom(product),
-      };
-    });
+  return MOCK_PRODUCTS.filter(
+    (product) => warehouse === ALL_WAREHOUSES || product.warehouse === warehouse,
+  ).map((product) => {
+    const qty = stockQty(product);
+    return {
+      product,
+      qty,
+      soldQty: soldQty(product),
+      vitrinaQty: product.vitrinaQty,
+      omborQty: product.omborQty,
+      cost: qty * costInSom(product),
+    };
+  });
 }
 
 function categorize(stats: Stat[], mode: GroupMode) {
@@ -136,10 +142,7 @@ export function TovarlarHolati() {
           <div className="flex flex-wrap items-center gap-2 border-b bg-card px-3 py-2">
             <div className="flex items-center gap-2">
               <span className="text-xs font-semibold text-muted-foreground">Ombor:</span>
-              <Select
-                value={warehouse}
-                onValueChange={setWarehouse}
-              >
+              <Select value={warehouse} onValueChange={setWarehouse}>
                 <SelectTrigger className="h-7 w-52 text-xs">
                   <SelectValue />
                 </SelectTrigger>
@@ -168,7 +171,11 @@ export function TovarlarHolati() {
                 isSalesMode ? "Sotuv bo'yicha guruhlangan" : "Zaxira bo'yicha guruhlangan"
               }
             >
-              {isSalesMode ? <TrendingUp className="h-3.5 w-3.5" /> : <Boxes className="h-3.5 w-3.5" />}
+              {isSalesMode ? (
+                <TrendingUp className="h-3.5 w-3.5" />
+              ) : (
+                <Boxes className="h-3.5 w-3.5" />
+              )}
               <span key={groupMode} data-no-translate>
                 {isSalesMode ? "Sotuv" : "Zaxira"}
               </span>
@@ -176,15 +183,8 @@ export function TovarlarHolati() {
           </div>
 
           <div className="grid grid-cols-2 gap-2 border-b bg-muted/20 px-3 py-2">
-            <InventoryKpi
-              label="Bazadagi jami mahsulot soni"
-              value={String(totals.qty)}
-            />
-            <InventoryKpi
-              label="Tan narxdagi umumiy summa"
-              value={formatSom(totals.cost)}
-              accent
-            />
+            <InventoryKpi label="Bazadagi jami mahsulot soni" value={String(totals.qty)} />
+            <InventoryKpi label="Tan narxdagi umumiy summa" value={formatSom(totals.cost)} accent />
           </div>
 
           <div className="grid min-h-0 flex-1 grid-cols-3 gap-2 overflow-hidden p-2">
@@ -228,7 +228,11 @@ function InventoryKpi({
   return (
     <div className="rounded-md border bg-card px-3 py-2">
       <div className="text-[10px] uppercase text-muted-foreground">{label}</div>
-      <div className={"mt-1 text-lg font-bold leading-tight tabular-nums " + (accent ? "text-primary" : "")}>
+      <div
+        className={
+          "mt-1 text-lg font-bold leading-tight tabular-nums " + (accent ? "text-primary" : "")
+        }
+      >
         {value}
       </div>
     </div>
@@ -299,7 +303,9 @@ function Bucket({
                 <span className="text-right font-bold tabular-nums">
                   {mode === "sales" ? stat.soldQty : stat.qty}
                 </span>
-                <span className="break-words text-right font-bold leading-snug tabular-nums">{formatSom(stat.cost)}</span>
+                <span className="break-words text-right font-bold leading-snug tabular-nums">
+                  {formatSom(stat.cost)}
+                </span>
               </div>
             ))}
           </div>
@@ -320,8 +326,7 @@ function ReturnedGoodsReport() {
     () =>
       MOCK_RETURN_RECEIPTS.filter(
         (receipt) =>
-          (!from || receipt.date.slice(0, 10) >= from) &&
-          (!to || receipt.date.slice(0, 10) <= to),
+          (!from || receipt.date.slice(0, 10) >= from) && (!to || receipt.date.slice(0, 10) <= to),
       ),
     [from, to],
   );
@@ -394,7 +399,9 @@ function ReturnedGoodsReport() {
                   <td className="px-3 py-2">{receipt.cashier}</td>
                   <td className="px-3 py-2">
                     <div className="max-w-[320px] truncate">
-                      {receipt.items.map((item) => `${item.name} (${item.qty} ${item.unit})`).join(", ")}
+                      {receipt.items
+                        .map((item) => `${item.name} (${item.qty} ${item.unit})`)
+                        .join(", ")}
                     </div>
                     <div className="text-xs text-muted-foreground">{receipt.reason || "-"}</div>
                   </td>

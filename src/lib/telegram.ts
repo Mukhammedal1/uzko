@@ -60,7 +60,9 @@ export function getBotInfo(token: string) {
 
 /** Ovozli xabar (yoki boshqa fayl)ning yuklab olish yo'lini (`file_path`) topadi. */
 export function getTelegramFile(token: string, fileId: string) {
-  return callTelegramApi<{ file_id: string; file_path?: string }>(token, "getFile", { file_id: fileId });
+  return callTelegramApi<{ file_id: string; file_path?: string }>(token, "getFile", {
+    file_id: fileId,
+  });
 }
 
 /** `getTelegramFile`dan kelgan `file_path` bo'yicha faylning xom baytlarini yuklaydi. */
@@ -126,7 +128,10 @@ export function editTelegramMessageText(
 }
 
 export function answerTelegramCallback(token: string, callbackQueryId: string, text?: string) {
-  return callTelegramApi(token, "answerCallbackQuery", { callback_query_id: callbackQueryId, text });
+  return callTelegramApi(token, "answerCallbackQuery", {
+    callback_query_id: callbackQueryId,
+    text,
+  });
 }
 
 export function sendTelegramChatAction(token: string, chatId: string | number, action: string) {

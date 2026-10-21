@@ -1,13 +1,7 @@
 import * as React from "react";
 import { CalculatorPopover } from "./CalculatorPopover";
 import { MOCK_RATES } from "@/lib/mock-data";
-import {
-  Calculator,
-  CalendarDays,
-  DollarSign,
-  Maximize,
-  Minimize,
-} from "lucide-react";
+import { Calculator, CalendarDays, DollarSign, Maximize, Minimize } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";

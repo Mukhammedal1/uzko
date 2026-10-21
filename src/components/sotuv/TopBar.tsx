@@ -12,6 +12,7 @@ import {
   SlidersHorizontal,
   Truck,
   UserRound,
+  Users,
   Wallet,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -52,7 +53,8 @@ export function TopBar() {
     { to: "/kassa", label: t("kassa"), Icon: Wallet },
     { to: "/tovarlar", label: t("tovarlar"), Icon: Boxes },
     { to: "/mijozlar", label: "Mijozlar", Icon: UserRound },
-    { to: "/agentlar", label: "Agentlar", Icon: Truck },
+    { to: "/yetkazib-beruvchilar", label: "Yetkazib beruvchilar", Icon: Truck },
+    { to: "/xodimlar", label: "Xodimlar", Icon: Users },
     { to: "/umumiy", label: t("umumiy"), Icon: BarChart3 },
     { to: "/boshqaruv", label: t("boshqaruv"), Icon: SlidersHorizontal },
   ];

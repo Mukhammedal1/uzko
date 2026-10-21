@@ -95,7 +95,9 @@ function loadUsers(): AuthUser[] {
 function saveUsers(users: AuthUser[]) {
   try {
     localStorage.setItem(USERS_KEY, JSON.stringify(users));
-  } catch {}
+  } catch {
+    // ignore
+  }
 }
 
 function readSession(): { userId: string } | null {
@@ -104,7 +106,9 @@ function readSession(): { userId: string } | null {
     if (fromLocal) return JSON.parse(fromLocal) as { userId: string };
     const fromSession = sessionStorage.getItem(SESSION_KEY);
     if (fromSession) return JSON.parse(fromSession) as { userId: string };
-  } catch {}
+  } catch {
+    // ignore
+  }
   return null;
 }
 
@@ -118,14 +122,18 @@ function writeSession(userId: string, rememberMe: boolean) {
       sessionStorage.setItem(SESSION_KEY, payload);
       localStorage.removeItem(SESSION_KEY);
     }
-  } catch {}
+  } catch {
+    // ignore
+  }
 }
 
 function clearSession() {
   try {
     localStorage.removeItem(SESSION_KEY);
     sessionStorage.removeItem(SESSION_KEY);
-  } catch {}
+  } catch {
+    // ignore
+  }
 }
 
 function makeId() {

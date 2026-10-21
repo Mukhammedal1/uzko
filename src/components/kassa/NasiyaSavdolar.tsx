@@ -66,23 +66,24 @@ function customerForReceipt(receipt: Receipt) {
 }
 
 function makeRows(): NasiyaSaleRow[] {
-  return MOCK_RECEIPTS
-    .filter((receipt) => receipt.customerType === "nasiya")
-    .map((receipt) => {
-      const customer = customerForReceipt(receipt);
-      const paid = MOCK_DEBT_PAYMENTS
-        .filter((p) => p.customerId === customer?.id || p.customerName === receipt.customerName)
-        .reduce((sum, payment) => sum + payment.amount, 0);
-      const debtPaidAmount = Math.min(receipt.total, paid);
-      const debtStatus = debtPaidAmount >= receipt.total ? "paid" : debtPaidAmount > 0 ? "partial" : "unpaid";
-      return {
-        ...receipt,
-        customerName: receipt.customerName ?? (customer ? `${customer.firstName} ${customer.lastName}` : "Noma'lum nasiyachi"),
-        customerPhone: customer?.phone,
-        debtPaidAmount,
-        debtStatus,
-      };
-    });
+  return MOCK_RECEIPTS.filter((receipt) => receipt.customerType === "nasiya").map((receipt) => {
+    const customer = customerForReceipt(receipt);
+    const paid = MOCK_DEBT_PAYMENTS.filter(
+      (p) => p.customerId === customer?.id || p.customerName === receipt.customerName,
+    ).reduce((sum, payment) => sum + payment.amount, 0);
+    const debtPaidAmount = Math.min(receipt.total, paid);
+    const debtStatus =
+      debtPaidAmount >= receipt.total ? "paid" : debtPaidAmount > 0 ? "partial" : "unpaid";
+    return {
+      ...receipt,
+      customerName:
+        receipt.customerName ??
+        (customer ? `${customer.firstName} ${customer.lastName}` : "Noma'lum nasiyachi"),
+      customerPhone: customer?.phone,
+      debtPaidAmount,
+      debtStatus,
+    };
+  });
 }
 
 function statusLabel(status: NasiyaSaleRow["debtStatus"]) {
@@ -118,14 +119,19 @@ export function NasiyaSavdolar() {
         row.customerName,
         row.customerPhone,
         statusLabel(row.debtStatus),
-      ].join(" ").toLowerCase();
+      ]
+        .join(" ")
+        .toLowerCase();
       const phoneMatch = phoneQ.length > 0 && normalizePhone(row.customerPhone).includes(phoneQ);
       return text.includes(q) || phoneMatch;
     });
   }, [from, period, query, rows, to]);
 
   const total = filtered.reduce((sum, row) => sum + row.total, 0);
-  const unpaid = filtered.reduce((sum, row) => sum + Math.max(0, row.total - row.debtPaidAmount), 0);
+  const unpaid = filtered.reduce(
+    (sum, row) => sum + Math.max(0, row.total - row.debtPaidAmount),
+    0,
+  );
 
   const reset = () => {
     setQuery("");
@@ -240,14 +246,21 @@ export function NasiyaSavdolar() {
                   <td className="px-3 py-2 font-medium">{row.cashier}</td>
                   <td className="px-3 py-2 font-medium">{row.customerName}</td>
                   <td className="px-3 py-2 font-mono text-xs">{row.customerPhone ?? "—"}</td>
-                  <td className="px-3 py-2 text-right font-semibold tabular-nums">{formatSom(row.total)}</td>
+                  <td className="px-3 py-2 text-right font-semibold tabular-nums">
+                    {formatSom(row.total)}
+                  </td>
                   <td className="px-3 py-2 text-center">
                     <Badge variant="outline" className={statusClass(row.debtStatus)}>
                       {statusLabel(row.debtStatus)}
                     </Badge>
                   </td>
                   <td className="px-3 py-2 text-center">
-                    <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => printRow(row)}>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
+                      onClick={() => printRow(row)}
+                    >
                       <Printer className="h-4 w-4" />
                     </Button>
                   </td>

@@ -48,7 +48,7 @@ import {
 } from "lucide-react";
 import {
   MOCK_PRODUCTS,
-  getAgentForProductName,
+  getSupplierForProductName,
   MOCK_STOCK_COUNTS,
   MOCK_STOCK_COUNT_EDITS,
   costInSom,
@@ -323,7 +323,7 @@ export function Sanoq() {
   // Sessiya ichidagi ko'rinish filtrlari — hujjat qamroviga ta'sir qilmaydi.
   const [viewWarehouse, setViewWarehouse] = React.useState("ALL");
   const [viewShelf, setViewShelf] = React.useState("ALL");
-  const [viewAgent, setViewAgent] = React.useState("ALL");
+  const [viewSupplier, setViewSupplier] = React.useState("ALL");
   const [lastScannedId, setLastScannedId] = React.useState<string | null>(null);
   const [finishOpen, setFinishOpen] = React.useState(false);
   const [note, setNote] = React.useState("");
@@ -376,8 +376,8 @@ export function Sanoq() {
     [filterPool],
   );
 
-  const filterAgents = React.useMemo(
-    () => Array.from(new Set(filterPool.map((p) => getAgentForProductName(p.name)))).sort(),
+  const filterSuppliers = React.useMemo(
+    () => Array.from(new Set(filterPool.map((p) => getSupplierForProductName(p.name)))).sort(),
     [filterPool],
   );
 
@@ -414,11 +414,11 @@ export function Sanoq() {
   const visibleLines = React.useMemo(() => {
     const q = query.trim().toLowerCase();
     return lines.filter((line) => {
-      // Custom sanoqda ombor/polka/agent filtri qidiruvga tegishli — qo'shilgan qatorlarga emas.
+      // Custom sanoqda ombor/polka/yetkazib beruvchi filtri qidiruvga tegishli — qo'shilgan qatorlarga emas.
       if (!isCustom) {
         if (viewWarehouse !== "ALL" && line.warehouse !== viewWarehouse) return false;
         if (viewShelf !== "ALL" && (line.shelfLocation ?? "") !== viewShelf) return false;
-        if (viewAgent !== "ALL" && getAgentForProductName(line.productName) !== viewAgent)
+        if (viewSupplier !== "ALL" && getSupplierForProductName(line.productName) !== viewSupplier)
           return false;
       }
       if (rowFilter === "uncounted" && line.countedQty !== null) return false;
@@ -430,7 +430,7 @@ export function Sanoq() {
         line.customCode.toLowerCase().includes(q)
       );
     });
-  }, [lines, query, rowFilter, isCustom, viewWarehouse, viewShelf, viewAgent]);
+  }, [lines, query, rowFilter, isCustom, viewWarehouse, viewShelf, viewSupplier]);
 
   // ── Amallar ───────────────────────────────────────────────────────────────
   const beginSession = (cfg: SessionConfig, products: Product[]) => {
@@ -444,7 +444,7 @@ export function Sanoq() {
     setRowFilter("all");
     setViewWarehouse("ALL");
     setViewShelf("ALL");
-    setViewAgent("ALL");
+    setViewSupplier("ALL");
     setNote("");
     setTreatUncountedAsZero(false);
     setNoLossCorrection(false);
@@ -479,19 +479,20 @@ export function Sanoq() {
 
   /**
    * Custom sanoqda qidiruv/filtrga mos, hali qo'shilmagan bazadagi tovarlar.
-   * Filtr (ombor/polka/agent) aynan shu ro'yxatni toraytiradi.
+   * Filtr (ombor/polka/yetkazib beruvchi) aynan shu ro'yxatni toraytiradi.
    */
   const customResults = React.useMemo(() => {
     if (!isCustom) return [];
     const q = query.trim().toLowerCase();
-    const hasFilter = viewWarehouse !== "ALL" || viewShelf !== "ALL" || viewAgent !== "ALL";
+    const hasFilter = viewWarehouse !== "ALL" || viewShelf !== "ALL" || viewSupplier !== "ALL";
     if (!q && !hasFilter) return [];
     const have = new Set(snapshot.map((p) => p.id));
     return MOCK_PRODUCTS.filter((p) => {
       if (have.has(p.id)) return false;
       if (viewWarehouse !== "ALL" && p.warehouse !== viewWarehouse) return false;
       if (viewShelf !== "ALL" && (p.shelfLocation ?? "") !== viewShelf) return false;
-      if (viewAgent !== "ALL" && getAgentForProductName(p.name) !== viewAgent) return false;
+      if (viewSupplier !== "ALL" && getSupplierForProductName(p.name) !== viewSupplier)
+        return false;
       if (!q) return true;
       return (
         p.name.toLowerCase().includes(q) ||
@@ -499,7 +500,7 @@ export function Sanoq() {
         p.customCode.toLowerCase().includes(q)
       );
     }).slice(0, 12);
-  }, [isCustom, query, snapshot, viewWarehouse, viewShelf, viewAgent]);
+  }, [isCustom, query, snapshot, viewWarehouse, viewShelf, viewSupplier]);
 
   /**
    * Custom sanoqda Enter — mos tovarni ro'yxatga qo'shadi.
@@ -783,7 +784,7 @@ export function Sanoq() {
             const activeViewFilters =
               (viewWarehouse !== "ALL" ? 1 : 0) +
               (viewShelf !== "ALL" ? 1 : 0) +
-              (viewAgent !== "ALL" ? 1 : 0);
+              (viewSupplier !== "ALL" ? 1 : 0);
             return (
               <Popover>
                 <PopoverTrigger asChild>
@@ -848,20 +849,26 @@ export function Sanoq() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">Agent bo'yicha</Label>
+                    <Label className="text-xs text-muted-foreground">
+                      Yetkazib beruvchi bo'yicha
+                    </Label>
                     <Select
-                      value={viewAgent}
-                      onValueChange={setViewAgent}
-                      disabled={filterAgents.length === 0}
+                      value={viewSupplier}
+                      onValueChange={setViewSupplier}
+                      disabled={filterSuppliers.length === 0}
                     >
                       <SelectTrigger className="h-9 text-sm">
                         <SelectValue
-                          placeholder={filterAgents.length === 0 ? "Agent ma'lumoti yo'q" : "Agent"}
+                          placeholder={
+                            filterSuppliers.length === 0
+                              ? "Yetkazib beruvchi ma'lumoti yo'q"
+                              : "Yetkazib beruvchi"
+                          }
                         />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="ALL">Barcha agentlar</SelectItem>
-                        {filterAgents.map((name) => (
+                        <SelectItem value="ALL">Barcha yetkazib beruvchilar</SelectItem>
+                        {filterSuppliers.map((name) => (
                           <SelectItem key={name} value={name}>
                             {name}
                           </SelectItem>
@@ -878,7 +885,7 @@ export function Sanoq() {
                       onClick={() => {
                         setViewWarehouse("ALL");
                         setViewShelf("ALL");
-                        setViewAgent("ALL");
+                        setViewSupplier("ALL");
                       }}
                     >
                       Filtrni tozalash

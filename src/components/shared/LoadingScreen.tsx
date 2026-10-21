@@ -69,7 +69,15 @@ export function LoadingScreen() {
         {/* Pastdagi loading chizig'i */}
         <rect x="150" y="410" width="340" height="5" rx="2.5" fill="#e4e8f1" />
         <g clipPath="url(#track-clip)">
-          <rect className="uzko-bar" x="150" y="410" width="130" height="5" rx="2.5" fill="url(#bar-g)" />
+          <rect
+            className="uzko-bar"
+            x="150"
+            y="410"
+            width="130"
+            height="5"
+            rx="2.5"
+            fill="url(#bar-g)"
+          />
           <circle className="uzko-spark" cx="150" cy="412.5" r="3.2" fill="#0a2fbf" />
         </g>
       </svg>

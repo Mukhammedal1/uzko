@@ -40,7 +40,7 @@ import {
   computeMarkupPrice,
   reverseMarkupPercent,
   formatMoney,
-  getAgentsList,
+  getSuppliersList,
   productHasVariants,
   resolveVariant,
 } from "@/lib/mock-data";
@@ -116,11 +116,11 @@ function resolveRowProduct(row: Pick<PrixodRow, "productId" | "variantId">) {
 export function TovarPrixod() {
   const { settings } = useApp();
   const defaultWarehouse = settings.warehouses[0]?.name ?? "Asosiy ombor";
-  const agents = getAgentsList();
+  const agents = getSuppliersList();
   const [tab, setTab] = React.useState<"bugun" | "tahrir">("bugun");
   const [formOpen, setFormOpen] = React.useState(false);
   const [rows, setRows] = React.useState<PrixodRow[]>(() => [makeEmptyRow()]);
-  const [agentId, setAgentId] = React.useState("");
+  const [supplierId, setSupplierId] = React.useState("");
   const [showValidation, setShowValidation] = React.useState(false);
   const [paymentOpen, setPaymentOpen] = React.useState(false);
   const [paymentPaidAmount, setPaymentPaidAmount] = React.useState("");
@@ -130,32 +130,24 @@ export function TovarPrixod() {
   );
   const [paymentNote, setPaymentNote] = React.useState("");
 
-  const agent = agents.find((a) => a.id === agentId);
+  const agent = agents.find((a) => a.id === supplierId);
 
   const updateRow = (id: string, patch: Partial<PrixodRow>) => {
     setRows((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)));
   };
 
-  // Qulflangan foizlar: null bo'lsa qulf o'chiq. Qiymat qulflangan paytdagi
-  // foizga qotib qoladi va shu qiymat yangi qo'shiladigan qatorlarga ko'chadi.
-  const [lockedWholesalePercent, setLockedWholesalePercent] = React.useState<string | null>(null);
-  const [lockedPricePercent, setLockedPricePercent] = React.useState<string | null>(null);
-
   const addRow = () =>
-    setRows((current) => [
-      ...current,
-      {
-        ...makeEmptyRow(),
-        wholesaleMarkupPercent: lockedWholesalePercent ?? "",
-        priceMarkupPercent: lockedPricePercent ?? "",
-      },
-    ]);
-
-  const toggleWholesaleLock = (row: PrixodRow) =>
-    setLockedWholesalePercent((prev) => (prev !== null ? null : row.wholesaleMarkupPercent || "0"));
-
-  const togglePriceLock = (row: PrixodRow) =>
-    setLockedPricePercent((prev) => (prev !== null ? null : row.priceMarkupPercent || "0"));
+    setRows((current) => {
+      const lastRow = current[current.length - 1];
+      return [
+        ...current,
+        {
+          ...makeEmptyRow(),
+          wholesaleMarkupPercent: lastRow?.wholesaleMarkupPercent ?? "",
+          priceMarkupPercent: lastRow?.priceMarkupPercent ?? "",
+        },
+      ];
+    });
 
   const removeRow = (id: string) => {
     setRows((current) => (current.length > 1 ? current.filter((row) => row.id !== id) : current));
@@ -227,28 +219,31 @@ export function TovarPrixod() {
     return patch;
   };
 
-  /** Foiz maydonidagi (yoki Enter/tugma bosilgandagi) foiz asosida narxni hisoblaydi. */
-  const applyMarkup = (row: PrixodRow, kind: "wholesale" | "price") => {
-    const cost = parseNumberInput(row.costPrice);
+  /** Marja foizi o'zgarganda (har bir belgida) — tan narx asosida narxni darhol
+   * qayta hisoblaydi, qo'shimcha "Qo'llash" tugmasi kerak emas. */
+  const updateMarkupPercent = (row: PrixodRow, kind: "wholesale" | "price", percent: string) => {
+    const percentKey = kind === "wholesale" ? "wholesaleMarkupPercent" : "priceMarkupPercent";
     const warnKey = kind === "wholesale" ? "wholesaleMarkupWarn" : "priceMarkupWarn";
+    const priceKey = kind === "wholesale" ? "wholesalePrice" : "price";
+    const cost = parseNumberInput(row.costPrice);
     if (!cost) {
-      updateRow(row.id, { [warnKey]: true });
-      toast.error("Avval tan narxni kiriting");
+      updateRow(row.id, {
+        [percentKey]: percent,
+        [warnKey]: percent.trim() !== "",
+      } as Partial<PrixodRow>);
       return;
     }
-    const percent = parseNumberInput(
-      kind === "wholesale" ? row.wholesaleMarkupPercent : row.priceMarkupPercent,
-    );
     const result = computeMarkupPrice(
       cost,
       row.costCurrency,
       kind === "wholesale" ? wholesaleCurrencyOf(row) : priceCurrencyOf(row),
-      percent,
+      parseNumberInput(percent),
     );
     updateRow(row.id, {
-      [kind === "wholesale" ? "wholesalePrice" : "price"]: formatNumberInput(String(result)),
+      [percentKey]: percent,
+      [priceKey]: formatNumberInput(String(result)),
       [warnKey]: false,
-    });
+    } as Partial<PrixodRow>);
   };
 
   /** Optom/sotuv narx qo'lda o'zgartirilib, inputdan chiqilganda (blur) — tan
@@ -278,7 +273,7 @@ export function TovarPrixod() {
     });
   };
 
-  const agentInvalid = showValidation && !agent;
+  const supplierInvalid = showValidation && !agent;
 
   const rowQty = (row: PrixodRow) => Math.max(0, parseNumberInput(row.qty) || 0);
   const rowUnitCost = (row: PrixodRow, fallback: number) =>
@@ -312,7 +307,7 @@ export function TovarPrixod() {
   // boshqa manbadanmi so'raladi (o'tkazma kassaga umuman tegmaydi).
   const askOutflowSource = paymentPaidNumber > 0 && selectedPaymentMethod?.kind !== "transfer";
 
-  /** Prixodni yakuniy saqlaydi. `payment` — agent bo'lsa, popupda tanlangan to'lov holati. */
+  /** Prixodni yakuniy saqlaydi. `payment` — yetkazib beruvchi bo'lsa, popupda tanlangan to'lov holati. */
   const finalizeProductAddition = (
     payment: { method: PaymentMethod; paidAmount: number; fromKassa: boolean } | null,
   ) => {
@@ -376,9 +371,9 @@ export function TovarPrixod() {
         source: agent
           ? {
               enabled: true,
-              agentId: agent.id,
-              agentName: agent.name,
-              agentPhone: agent.phone,
+              supplierId: agent.id,
+              supplierName: agent.name,
+              supplierPhone: agent.phone,
               paidAmount: String(paidAmount),
               note: payment
                 ? `${payment.method.name} orqali to'landi (${payment.method.kind === "transfer" ? "o'tkazma" : payment.fromKassa ? "kassadan" : "boshqa manbadan"})${paymentNote.trim() ? ` · ${paymentNote.trim()}` : ""}`
@@ -399,12 +394,12 @@ export function TovarPrixod() {
         id: `CH-prixod-${Date.now()}`,
         date: new Date().toISOString(),
         cashier: settings.username,
-        category: "Agentlarga to'lov",
+        category: "Yetkazib beruvchilarga to'lov",
         cash: kind === "cash" ? Math.round(paidTotal * rate(paymentCurrency)) : 0,
         cardAmount: kind === "card" ? Math.round(paidTotal * rate(paymentCurrency)) : 0,
         currencies: kind === "currency" ? [{ code: paymentCurrency, amount: paidTotal }] : [],
         note: `Tovar prixodi uchun to'lov (${payment.method.name}) · ${filledRows.map((i) => i.product.name).join(", ")}`,
-        agentId: agent.id,
+        supplierId: agent.id,
       });
     }
 
@@ -427,7 +422,7 @@ export function TovarPrixod() {
     });
 
     setRows([makeEmptyRow()]);
-    setAgentId("");
+    setSupplierId("");
     setShowValidation(false);
     setPaymentOpen(false);
     setFormOpen(false);
@@ -435,9 +430,7 @@ export function TovarPrixod() {
 
   const openForm = () => {
     setRows([makeEmptyRow()]);
-    setAgentId("");
-    setLockedWholesalePercent(null);
-    setLockedPricePercent(null);
+    setSupplierId("");
     setShowValidation(false);
     setFormOpen(true);
   };
@@ -608,12 +601,9 @@ export function TovarPrixod() {
                           <MarkupRow
                             percent={row.wholesaleMarkupPercent}
                             warn={row.wholesaleMarkupWarn}
-                            locked={lockedWholesalePercent !== null}
-                            onToggleLock={() => toggleWholesaleLock(row)}
                             onPercentChange={(value) =>
-                              updateRow(row.id, { wholesaleMarkupPercent: value })
+                              updateMarkupPercent(row, "wholesale", value)
                             }
-                            onApply={() => applyMarkup(row, "wholesale")}
                           />
                         </Field>
 
@@ -634,12 +624,7 @@ export function TovarPrixod() {
                           <MarkupRow
                             percent={row.priceMarkupPercent}
                             warn={row.priceMarkupWarn}
-                            locked={lockedPricePercent !== null}
-                            onToggleLock={() => togglePriceLock(row)}
-                            onPercentChange={(value) =>
-                              updateRow(row.id, { priceMarkupPercent: value })
-                            }
-                            onApply={() => applyMarkup(row, "price")}
+                            onPercentChange={(value) => updateMarkupPercent(row, "price", value)}
                           />
                         </Field>
 
@@ -658,16 +643,19 @@ export function TovarPrixod() {
                           />
                         </Field>
 
-                        <Field label="Taminotchi" required error={agentInvalid}>
+                        <Field label="Taminotchi" required error={supplierInvalid}>
                           <Select
-                            value={agentId || "__none__"}
+                            value={supplierId || "__none__"}
                             disabled={index > 0}
-                            onValueChange={(value) => setAgentId(value === "__none__" ? "" : value)}
+                            onValueChange={(value) =>
+                              setSupplierId(value === "__none__" ? "" : value)
+                            }
                           >
                             <SelectTrigger
                               className={cn(
                                 "h-9 text-sm",
-                                agentInvalid && "border-destructive focus-visible:ring-destructive",
+                                supplierInvalid &&
+                                  "border-destructive focus-visible:ring-destructive",
                               )}
                               title={
                                 index > 0
@@ -877,7 +865,7 @@ export function TovarPrixod() {
                   <p className="text-[11px] text-muted-foreground">
                     {paymentOutflowSource === "kassa"
                       ? "Bu summa kassadan chiqim sifatida yoziladi"
-                      : "Kassaga tegilmaydi — faqat agentga to'lov sifatida qayd etiladi"}
+                      : "Kassaga tegilmaydi — faqat yetkazib beruvchiga to'lov sifatida qayd etiladi"}
                   </p>
                 </div>
               )}

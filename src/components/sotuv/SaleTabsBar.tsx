@@ -11,12 +11,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 export type SaleTabInfo = {
   id: string;
@@ -106,7 +101,9 @@ export function SaleTabsBar({ sales, activeId, onSelect, onAdd, onRemove }: Prop
               <Plus className="h-4 w-4" />
             </button>
           </TooltipTrigger>
-          <TooltipContent side="top" className="text-xs">Yangi sotuv (tezkor)</TooltipContent>
+          <TooltipContent side="top" className="text-xs">
+            Yangi sotuv (tezkor)
+          </TooltipContent>
         </Tooltip>
       </div>
 

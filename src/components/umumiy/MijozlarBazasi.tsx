@@ -4,10 +4,21 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { MOCK_CREDIT_CUSTOMERS, formatSom, type CreditCustomer, type CustomerDebtReceipt } from "@/lib/mock-data";
+import {
+  MOCK_CREDIT_CUSTOMERS,
+  formatSom,
+  type CreditCustomer,
+  type CustomerDebtReceipt,
+} from "@/lib/mock-data";
 
 function fmtDate(value: string) {
-  return new Date(value).toLocaleString("uz-UZ", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  return new Date(value).toLocaleString("uz-UZ", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function printReceipt(customer: CreditCustomer, receipt: CustomerDebtReceipt) {
@@ -41,7 +52,9 @@ export function MijozlarBazasi() {
   const customers = React.useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return MOCK_CREDIT_CUSTOMERS;
-    return MOCK_CREDIT_CUSTOMERS.filter((c) => `${c.id} ${c.firstName} ${c.lastName} ${c.phone ?? ""}`.toLowerCase().includes(q));
+    return MOCK_CREDIT_CUSTOMERS.filter((c) =>
+      `${c.id} ${c.firstName} ${c.lastName} ${c.phone ?? ""}`.toLowerCase().includes(q),
+    );
   }, [query]);
   const selected = MOCK_CREDIT_CUSTOMERS.find((c) => c.id === selectedId) ?? customers[0];
 
@@ -61,58 +74,141 @@ export function MijozlarBazasi() {
     <div className="grid h-full grid-cols-[320px_1fr] gap-3 overflow-hidden">
       <Card className="overflow-hidden">
         <CardHeader className="border-b py-3">
-          <CardTitle className="flex items-center gap-2 text-base"><UserRound className="h-4 w-4" /> Mijozlar bazasi</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <UserRound className="h-4 w-4" /> Mijozlar bazasi
+          </CardTitle>
           <div className="relative mt-2">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Ism, ID yoki telefon..." className="pl-9" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Ism, ID yoki telefon..."
+              className="pl-9"
+            />
           </div>
-          <div className="rounded-md bg-primary/10 p-2 text-sm font-semibold text-primary">Jami qarzdorlik: {formatSom(totalDebt)}</div>
+          <div className="rounded-md bg-primary/10 p-2 text-sm font-semibold text-primary">
+            Jami qarzdorlik: {formatSom(totalDebt)}
+          </div>
         </CardHeader>
         <CardContent className="h-full overflow-auto p-2">
           {customers.map((c) => (
-            <button key={c.id} onClick={() => { setSelectedId(c.id); }} className={`mb-2 w-full rounded-lg border p-3 text-left hover:bg-muted/60 ${selected?.id === c.id ? "border-primary bg-primary/5" : ""}`}>
-              <div className="flex items-center justify-between"><b>{c.firstName} {c.lastName}</b><Badge variant="outline">{c.id}</Badge></div>
-              <div className="mt-1 text-xs text-muted-foreground">{c.phone} · {c.role}</div>
-              <div className="mt-2 flex justify-between text-sm"><span>Qarz</span><b className="tabular-nums">{formatSom(c.currentDebt)}</b></div>
+            <button
+              key={c.id}
+              onClick={() => {
+                setSelectedId(c.id);
+              }}
+              className={`mb-2 w-full rounded-lg border p-3 text-left hover:bg-muted/60 ${selected?.id === c.id ? "border-primary bg-primary/5" : ""}`}
+            >
+              <div className="flex items-center justify-between">
+                <b>
+                  {c.firstName} {c.lastName}
+                </b>
+                <Badge variant="outline">{c.id}</Badge>
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {c.phone} · {c.role}
+              </div>
+              <div className="mt-2 flex justify-between text-sm">
+                <span>Qarz</span>
+                <b className="tabular-nums">{formatSom(c.currentDebt)}</b>
+              </div>
             </button>
           ))}
         </CardContent>
       </Card>
 
-      {selected && <div className="min-h-0 overflow-auto space-y-3">
-        <div className="grid grid-cols-4 gap-3">
-          <Kpi label="Mijoz ID" value={selected.id} />
-          <Kpi label="Umumiy qarz" value={formatSom(selected.currentDebt)} accent />
-          <Kpi label="Limit" value={formatSom(selected.limit)} />
-          <Kpi label="Qoldiq limit" value={formatSom(selected.limit - selected.currentDebt)} />
-        </div>
+      {selected && (
+        <div className="min-h-0 overflow-auto space-y-3">
+          <div className="grid grid-cols-4 gap-3">
+            <Kpi label="Mijoz ID" value={selected.id} />
+            <Kpi label="Umumiy qarz" value={formatSom(selected.currentDebt)} accent />
+            <Kpi label="Limit" value={formatSom(selected.limit)} />
+            <Kpi label="Qoldiq limit" value={formatSom(selected.limit - selected.currentDebt)} />
+          </div>
 
-        <Card>
-          <CardHeader className="border-b py-3">
-            <div className="flex flex-wrap items-end justify-between gap-2">
-              <CardTitle className="flex items-center gap-2 text-base"><ReceiptText className="h-4 w-4" /> Qarz cheklari <Lock className="h-3.5 w-3.5 text-muted-foreground" /></CardTitle>
-              <div className="flex flex-wrap gap-2">
-                <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-40" />
-                <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-40" />
+          <Card>
+            <CardHeader className="border-b py-3">
+              <div className="flex flex-wrap items-end justify-between gap-2">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <ReceiptText className="h-4 w-4" /> Qarz cheklari{" "}
+                  <Lock className="h-3.5 w-3.5 text-muted-foreground" />
+                </CardTitle>
+                <div className="flex flex-wrap gap-2">
+                  <Input
+                    type="date"
+                    value={dateFrom}
+                    onChange={(e) => setDateFrom(e.target.value)}
+                    className="w-40"
+                  />
+                  <Input
+                    type="date"
+                    value={dateTo}
+                    onChange={(e) => setDateTo(e.target.value)}
+                    className="w-40"
+                  />
+                </div>
               </div>
-            </div>
-            <div className="text-xs text-muted-foreground">Bu cheklarni faqat ko‘rish va print qilish mumkin. Edit/delete yo‘q.</div>
-          </CardHeader>
-          <CardContent className="p-0">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/60 text-xs uppercase text-muted-foreground"><tr><th className="px-3 py-2 text-left">Sana</th><th className="px-3 py-2 text-left">Chek</th><th className="px-3 py-2 text-left">Amal</th><th className="px-3 py-2 text-right">Summa</th><th className="px-3 py-2 text-right">Print</th></tr></thead>
-              <tbody>
-                {receipts.map((r) => <tr key={r.id} className="border-b hover:bg-muted/40"><td className="px-3 py-2 text-muted-foreground">{fmtDate(r.date)}</td><td className="px-3 py-2 font-mono font-semibold">{r.id}</td><td className="px-3 py-2">{r.title}</td><td className={`px-3 py-2 text-right font-semibold tabular-nums ${r.amount < 0 ? "text-emerald-600" : ""}`}>{formatSom(r.amount)}</td><td className="px-3 py-2 text-right"><Button size="sm" variant="outline" onClick={() => printReceipt(selected, r)}><Printer className="h-4 w-4" /></Button></td></tr>)}
-                {receipts.length === 0 && <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">Cheklar topilmadi</td></tr>}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
-      </div>}
+              <div className="text-xs text-muted-foreground">
+                Bu cheklarni faqat ko‘rish va print qilish mumkin. Edit/delete yo‘q.
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/60 text-xs uppercase text-muted-foreground">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Sana</th>
+                    <th className="px-3 py-2 text-left">Chek</th>
+                    <th className="px-3 py-2 text-left">Amal</th>
+                    <th className="px-3 py-2 text-right">Summa</th>
+                    <th className="px-3 py-2 text-right">Print</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {receipts.map((r) => (
+                    <tr key={r.id} className="border-b hover:bg-muted/40">
+                      <td className="px-3 py-2 text-muted-foreground">{fmtDate(r.date)}</td>
+                      <td className="px-3 py-2 font-mono font-semibold">{r.id}</td>
+                      <td className="px-3 py-2">{r.title}</td>
+                      <td
+                        className={`px-3 py-2 text-right font-semibold tabular-nums ${r.amount < 0 ? "text-emerald-600" : ""}`}
+                      >
+                        {formatSom(r.amount)}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => printReceipt(selected, r)}
+                        >
+                          <Printer className="h-4 w-4" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                  {receipts.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="p-8 text-center text-muted-foreground">
+                        Cheklar topilmadi
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
 
 function Kpi({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
-  return <div className="rounded-lg border bg-card p-3 shadow-sm"><div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div><div className={`mt-1 text-lg font-bold tabular-nums ${accent ? "text-primary" : ""}`}>{value}</div></div>;
+  return (
+    <div className="rounded-lg border bg-card p-3 shadow-sm">
+      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className={`mt-1 text-lg font-bold tabular-nums ${accent ? "text-primary" : ""}`}>
+        {value}
+      </div>
+    </div>
+  );
 }

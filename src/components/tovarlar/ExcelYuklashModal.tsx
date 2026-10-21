@@ -33,12 +33,12 @@ export type ImportRow = {
   barcodes: string[];
   stock_id: number | null;
   shelf_number_id: number | null;
-  agent_id: number | null;
+  supplier_id: number | null;
 };
 
-/** Agent tanlanganda — unga hozir necha pul berilayotgani va qayerdan to'lanayotgani. */
+/** Yetkazib beruvchi tanlanganda — unga hozir necha pul berilayotgani va qayerdan to'lanayotgani. */
 export type ImportPayment = {
-  agentId: number;
+  supplierId: number;
   paidAmount: number;
   source: "kassa" | "keyin";
 };
@@ -53,9 +53,10 @@ export type ExcelYuklashModalProps = {
 };
 
 // ─── Ustundan biriktiriladigan maydonlar (hardcode) ────────────────────────
-// Ombor / polka / agent bu yerda yo'q — ular yuqorida umumiy tanlov sifatida so'raladi.
+// Ombor / polka / yetkazib beruvchi bu yerda yo'q — ular yuqorida umumiy tanlov sifatida so'raladi.
 
-type FieldKey = "name" | "quantity" | "purchase_price" | "retail_price" | "wholesale_price" | "barcode";
+type FieldKey =
+  "name" | "quantity" | "purchase_price" | "retail_price" | "wholesale_price" | "barcode";
 
 // Avtomatik biriktirish uchun kalit so'zlar — aniqroqlari oldin tekshiriladi.
 const AUTO_HINTS: { key: FieldKey; hints: string[] }[] = [
@@ -140,7 +141,7 @@ export function ExcelYuklashModal({
   // ─── Yuqoridagi 4 ta umumiy tanlov ────────────────────────────────────────
   const [stockId, setStockId] = React.useState<number | null>(stocks[0]?.id ?? null);
   const [shelfId, setShelfId] = React.useState<number | null>(null);
-  const [agentId, setAgentId] = React.useState<number | null>(null);
+  const [supplierId, setSupplierId] = React.useState<number | null>(null);
   const [purchaseCurrencyId, setPurchaseCurrencyId] = React.useState<number | null>(
     currencies[0]?.id ?? null,
   );
@@ -184,7 +185,9 @@ export function ExcelYuklashModal({
         purchase: parseOptionalNumber(cellAt(row, mapping.purchase_price)),
         retail: parseOptionalNumber(cellAt(row, mapping.retail_price)),
         wholesale: parseOptionalNumber(cellAt(row, mapping.wholesale_price)),
-        barcodes: fixedBarcodes.has(line) ? [fixedBarcodes.get(line)!] : splitBarcodes(cellAt(row, mapping.barcode)),
+        barcodes: fixedBarcodes.has(line)
+          ? [fixedBarcodes.get(line)!]
+          : splitBarcodes(cellAt(row, mapping.barcode)),
       }));
   }, [dataRows, mapping, skipRows, fixedBarcodes]);
 
@@ -193,7 +196,11 @@ export function ExcelYuklashModal({
     parsedRows.forEach((row) => {
       row.barcodes.forEach((code) => counts.set(code, (counts.get(code) ?? 0) + 1));
     });
-    return new Set(Array.from(counts.entries()).filter(([, n]) => n > 1).map(([code]) => code));
+    return new Set(
+      Array.from(counts.entries())
+        .filter(([, n]) => n > 1)
+        .map(([code]) => code),
+    );
   }, [parsedRows]);
 
   const missingBarcodeCount = React.useMemo(
@@ -236,7 +243,8 @@ export function ExcelYuklashModal({
     const retailRate = MOCK_RATES[retailCurrencyCode] ?? 1;
     const purchaseCurrencyCode = currencies.find((c) => c.id === purchaseCurrencyId)?.code ?? "UZS";
     const purchaseRate = MOCK_RATES[purchaseCurrencyCode] ?? 1;
-    const shelfName = shelfId != null ? (shelfNumbers.find((s) => s.id === shelfId)?.name ?? "") : "";
+    const shelfName =
+      shelfId != null ? (shelfNumbers.find((s) => s.id === shelfId)?.name ?? "") : "";
     return validatedRows
       .filter((row) => row.errors.length === 0)
       .map((row) => ({
@@ -280,8 +288,8 @@ export function ExcelYuklashModal({
   );
 
   React.useEffect(() => {
-    if (agentId != null) setPaidAmount(String(totalPurchaseCost));
-  }, [agentId, totalPurchaseCost]);
+    if (supplierId != null) setPaidAmount(String(totalPurchaseCost));
+  }, [supplierId, totalPurchaseCost]);
 
   // ─── Yuklanayotgan qatorlar bo'yicha jamlanma — nechta tovar, necha pulga ────
 
@@ -341,7 +349,9 @@ export function ExcelYuklashModal({
       setFixedBarcodes(new Map());
       setStatus("loaded");
     } catch {
-      toast.error("Faylni o'qib bo'lmadi", { description: "Excel (.xlsx, .xls) yoki CSV fayl tanlang" });
+      toast.error("Faylni o'qib bo'lmadi", {
+        description: "Excel (.xlsx, .xls) yoki CSV fayl tanlang",
+      });
       setStatus("empty");
     }
   };
@@ -374,7 +384,8 @@ export function ExcelYuklashModal({
   const applyBarcodeAutoFix = () => {
     const usedCodes = new Set<string>();
     parsedRows.forEach((row) => {
-      const needsFix = row.barcodes.length === 0 || row.barcodes.some((code) => duplicateBarcodes.has(code));
+      const needsFix =
+        row.barcodes.length === 0 || row.barcodes.some((code) => duplicateBarcodes.has(code));
       if (!needsFix) row.barcodes.forEach((code) => usedCodes.add(code));
     });
 
@@ -382,7 +393,8 @@ export function ExcelYuklashModal({
     setFixedBarcodes((current) => {
       const next = new Map(current);
       parsedRows.forEach((row) => {
-        const needsFix = row.barcodes.length === 0 || row.barcodes.some((code) => duplicateBarcodes.has(code));
+        const needsFix =
+          row.barcodes.length === 0 || row.barcodes.some((code) => duplicateBarcodes.has(code));
         if (!needsFix) return;
         let code = generateBarcode();
         while (usedCodes.has(code)) code = generateBarcode();
@@ -402,24 +414,24 @@ export function ExcelYuklashModal({
     setSaving(true);
     try {
       const rows: ImportRow[] = validatedRows.map((row) => ({
-          name: row.name,
-          quantity: row.quantity.value ?? 0,
-          purchase_price: row.purchase.value,
-          purchase_currency_id: row.purchase.value !== null ? purchaseCurrencyId : null,
-          retail_price: row.retail.value,
-          retail_currency_id: row.retail.value !== null ? retailCurrencyId : null,
-          wholesale_price: row.wholesale.value,
-          wholesale_currency_id: row.wholesale.value !== null ? wholesaleCurrencyId : null,
-          barcodes: row.barcodes,
-          stock_id: stockId,
-          shelf_number_id: shelfId,
-          agent_id: agentId,
-        }));
+        name: row.name,
+        quantity: row.quantity.value ?? 0,
+        purchase_price: row.purchase.value,
+        purchase_currency_id: row.purchase.value !== null ? purchaseCurrencyId : null,
+        retail_price: row.retail.value,
+        retail_currency_id: row.retail.value !== null ? retailCurrencyId : null,
+        wholesale_price: row.wholesale.value,
+        wholesale_currency_id: row.wholesale.value !== null ? wholesaleCurrencyId : null,
+        barcodes: row.barcodes,
+        stock_id: stockId,
+        shelf_number_id: shelfId,
+        supplier_id: supplierId,
+      }));
 
       const payment: ImportPayment | undefined =
-        agentId != null
+        supplierId != null
           ? {
-              agentId,
+              supplierId,
               paidAmount: paymentSource === "kassa" ? Math.max(0, Number(paidAmount) || 0) : 0,
               source: paymentSource,
             }
@@ -565,10 +577,14 @@ export function ExcelYuklashModal({
                 </div>
               )}
 
-              {/* Yuqoridagi 4 ta tanlov: Ombor | valyutalar | Agent (+to'lov) | Polka */}
+              {/* Yuqoridagi 4 ta tanlov: Ombor | valyutalar | Yetkazib beruvchi (+to'lov) | Polka */}
               <div
                 className="grid"
-                style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", columnGap: 24, rowGap: 18 }}
+                style={{
+                  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+                  columnGap: 24,
+                  rowGap: 18,
+                }}
               >
                 <FieldSlot label="Ombor *">
                   <select
@@ -635,14 +651,14 @@ export function ExcelYuklashModal({
                   </select>
                 </FieldSlot>
 
-                <FieldSlot label="Agent">
+                <FieldSlot label="Yetkazib beruvchi">
                   <select
-                    value={agentId ?? ""}
-                    onChange={(e) => setAgentId(e.target.value ? Number(e.target.value) : null)}
+                    value={supplierId ?? ""}
+                    onChange={(e) => setSupplierId(e.target.value ? Number(e.target.value) : null)}
                     className="w-full appearance-none bg-transparent text-[13px] outline-none"
                     style={{ color: C.text, ...fw }}
                   >
-                    <option value="">Agentsiz (bazani shakllantirish)</option>
+                    <option value="">Yetkazib beruvchisiz (bazani shakllantirish)</option>
                     {agents.map((a) => (
                       <option key={a.id} value={a.id}>
                         {a.name}
@@ -651,7 +667,7 @@ export function ExcelYuklashModal({
                   </select>
                 </FieldSlot>
 
-                {agentId != null && (
+                {supplierId != null && (
                   <FieldSlot label="Hozir qancha to'laysiz">
                     <input
                       type="number"
@@ -665,7 +681,7 @@ export function ExcelYuklashModal({
                   </FieldSlot>
                 )}
 
-                {agentId != null && (
+                {supplierId != null && (
                   <FieldSlot label="Qayerdan to'lanadi">
                     <div className="flex gap-4 pt-0.5">
                       <button
@@ -774,7 +790,11 @@ export function ExcelYuklashModal({
                     })}
                     {pageRows.length === 0 && (
                       <tr>
-                        <td colSpan={6} className="py-6 text-center text-[13px]" style={{ color: C.faint }}>
+                        <td
+                          colSpan={6}
+                          className="py-6 text-center text-[13px]"
+                          style={{ color: C.faint }}
+                        >
                           Ma'lumot yo'q
                         </td>
                       </tr>
@@ -783,7 +803,10 @@ export function ExcelYuklashModal({
                 </table>
 
                 {validatedRows.length > PAGE_SIZE && (
-                  <div className="mt-3 flex items-center justify-center gap-4 text-[13px]" style={{ color: C.secondary, ...fw }}>
+                  <div
+                    className="mt-3 flex items-center justify-center gap-4 text-[13px]"
+                    style={{ color: C.secondary, ...fw }}
+                  >
                     <button
                       type="button"
                       onClick={() => setPage((p) => Math.max(0, p - 1))}

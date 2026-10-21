@@ -36,8 +36,16 @@ export const MOCK_ONLINE_ORDERS: OnlineOrder[] = [
       "https://www.openstreetmap.org/export/embed.html?bbox=66.9547%2C39.6492%2C66.9647%2C39.6592&layer=mapnik&marker=39.6542%2C66.9597",
     comment: "Sementni podval yoniga tushirib bering. Yetkazib berishdan oldin qo'ng'iroq qiling.",
     items: [
-      { id: "tg-1048-1", product: product("p1", "Sement M400 50kg", 65000, "QM001", "qop", "Quruq aralashmalar"), quantity: 6 },
-      { id: "tg-1048-2", product: product("p9", "Kraska emulsiya 10kg", 98000, "QM009", "dona", "Bo'yoq ombori"), quantity: 2 },
+      {
+        id: "tg-1048-1",
+        product: product("p1", "Sement M400 50kg", 65000, "QM001", "qop", "Quruq aralashmalar"),
+        quantity: 6,
+      },
+      {
+        id: "tg-1048-2",
+        product: product("p9", "Kraska emulsiya 10kg", 98000, "QM009", "dona", "Bo'yoq ombori"),
+        quantity: 2,
+      },
     ],
   },
   {
@@ -52,8 +60,16 @@ export const MOCK_ONLINE_ORDERS: OnlineOrder[] = [
       "https://www.openstreetmap.org/export/embed.html?bbox=66.9604%2C39.6428%2C66.9704%2C39.6528&layer=mapnik&marker=39.6478%2C66.9654",
     comment: "Optom narx bo'lsa telefon qilib ayting.",
     items: [
-      { id: "tg-1049-1", product: product("p13", "Kabel VVG 2x2.5", 35000, "EL013", "metr", "Elektrika"), quantity: 30 },
-      { id: "tg-1049-2", product: product("p14", "Rozetka ichki", 48000, "EL014", "dona", "Elektrika"), quantity: 8 },
+      {
+        id: "tg-1049-1",
+        product: product("p13", "Kabel VVG 2x2.5", 35000, "EL013", "metr", "Elektrika"),
+        quantity: 30,
+      },
+      {
+        id: "tg-1049-2",
+        product: product("p14", "Rozetka ichki", 48000, "EL014", "dona", "Elektrika"),
+        quantity: 8,
+      },
     ],
   },
   {
@@ -68,7 +84,18 @@ export const MOCK_ONLINE_ORDERS: OnlineOrder[] = [
       "https://www.openstreetmap.org/export/embed.html?bbox=66.9425%2C39.6555%2C66.9525%2C39.6655&layer=mapnik&marker=39.6605%2C66.9475",
     comment: "Prorab nomiga nasiya qilib yozish kerak bo'lishi mumkin.",
     items: [
-      { id: "tg-1050-1", product: product("p3", "Shpaklovka start 25kg", 58000, "QM003", "qop", "Quruq aralashmalar"), quantity: 10 },
+      {
+        id: "tg-1050-1",
+        product: product(
+          "p3",
+          "Shpaklovka start 25kg",
+          58000,
+          "QM003",
+          "qop",
+          "Quruq aralashmalar",
+        ),
+        quantity: 10,
+      },
     ],
   },
   {
@@ -83,8 +110,23 @@ export const MOCK_ONLINE_ORDERS: OnlineOrder[] = [
       "https://www.openstreetmap.org/export/embed.html?bbox=66.9661%2C39.6461%2C66.9761%2C39.6561&layer=mapnik&marker=39.6511%2C66.9711",
     comment: "Kechqurun yetkazib bering.",
     items: [
-      { id: "tg-1044-1", product: product("p4", "Shpaklovka finish 25kg", 64000, "QM004", "qop", "Quruq aralashmalar"), quantity: 5 },
-      { id: "tg-1044-2", product: product("p10", "Gruntovka 10L", 85000, "QM010", "dona", "Bo'yoq ombori"), quantity: 1 },
+      {
+        id: "tg-1044-1",
+        product: product(
+          "p4",
+          "Shpaklovka finish 25kg",
+          64000,
+          "QM004",
+          "qop",
+          "Quruq aralashmalar",
+        ),
+        quantity: 5,
+      },
+      {
+        id: "tg-1044-2",
+        product: product("p10", "Gruntovka 10L", 85000, "QM010", "dona", "Bo'yoq ombori"),
+        quantity: 1,
+      },
     ],
   },
   {
@@ -99,7 +141,11 @@ export const MOCK_ONLINE_ORDERS: OnlineOrder[] = [
       "https://www.openstreetmap.org/export/embed.html?bbox=66.9305%2C39.6631%2C66.9405%2C39.6731&layer=mapnik&marker=39.6681%2C66.9355",
     comment: "Manzilga olib kelganda chek bering.",
     items: [
-      { id: "tg-1045-1", product: product("p2", "Sement M500 50kg", 72000, "QM002", "qop", "Quruq aralashmalar"), quantity: 4 },
+      {
+        id: "tg-1045-1",
+        product: product("p2", "Sement M500 50kg", 72000, "QM002", "qop", "Quruq aralashmalar"),
+        quantity: 4,
+      },
     ],
   },
   {
@@ -114,7 +160,11 @@ export const MOCK_ONLINE_ORDERS: OnlineOrder[] = [
       "https://www.openstreetmap.org/export/embed.html?bbox=66.9572%2C39.6683%2C66.9672%2C39.6783&layer=mapnik&marker=39.6733%2C66.9622",
     comment: "Mijoz keyinroq olishini aytdi.",
     items: [
-      { id: "tg-1046-1", product: product("p7", "PVA kley 5kg", 72000, "QM007", "dona", "Bo'yoq ombori"), quantity: 3 },
+      {
+        id: "tg-1046-1",
+        product: product("p7", "PVA kley 5kg", 72000, "QM007", "dona", "Bo'yoq ombori"),
+        quantity: 3,
+      },
     ],
   },
 ];
@@ -141,7 +191,12 @@ export function filterOnlineOrders(input: {
   anchor?: Date;
 }) {
   const orders = input.orders ?? MOCK_ONLINE_ORDERS;
-  const range = periodRange(input.period, input.from, input.to, input.anchor ?? latestOrderDate(orders));
+  const range = periodRange(
+    input.period,
+    input.from,
+    input.to,
+    input.anchor ?? latestOrderDate(orders),
+  );
   const query = normalize(input.query ?? "");
   const name = normalize(input.name ?? "");
   const orderId = normalize(input.orderId ?? "");
@@ -167,7 +222,9 @@ export function filterOnlineOrders(input: {
 
 export function onlineOrdersSummary(orders: OnlineOrder[]) {
   const total = orders.reduce((sum, order) => sum + onlineOrderTotal(order), 0);
-  const accepted = orders.filter((order) => order.status === "accepted" || order.status === "completed");
+  const accepted = orders.filter(
+    (order) => order.status === "accepted" || order.status === "completed",
+  );
   const confirmed = orders.filter((order) => order.status === "completed");
   const canceled = orders.filter((order) => order.status === "canceled");
   return {
@@ -189,7 +246,14 @@ export function latestOrderDate(orders = MOCK_ONLINE_ORDERS) {
   }, new Date(orders[0].createdAt));
 }
 
-function product(id: string, name: string, price: number, customCode: string, unit: string, warehouse: string): Product {
+function product(
+  id: string,
+  name: string,
+  price: number,
+  customCode: string,
+  unit: string,
+  warehouse: string,
+): Product {
   return {
     id,
     name,
@@ -228,8 +292,13 @@ function periodRange(period: OnlineOrderPeriod, from: string, to: string, anchor
     start.setDate(start.getDate() - 6);
     return { start, end: endOfDay(anchor) };
   }
-  if (period === "month") return { start: new Date(anchor.getFullYear(), anchor.getMonth(), 1), end: endOfDay(anchor) };
-  if (period === "year") return { start: new Date(anchor.getFullYear(), 0, 1), end: new Date(anchor.getFullYear(), 11, 31, 23, 59, 59, 999) };
+  if (period === "month")
+    return { start: new Date(anchor.getFullYear(), anchor.getMonth(), 1), end: endOfDay(anchor) };
+  if (period === "year")
+    return {
+      start: new Date(anchor.getFullYear(), 0, 1),
+      end: new Date(anchor.getFullYear(), 11, 31, 23, 59, 59, 999),
+    };
   if (period === "custom") {
     return {
       start: from ? startOfDay(new Date(`${from}T12:00:00`)) : new Date("1970-01-01"),

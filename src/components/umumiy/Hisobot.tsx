@@ -55,20 +55,20 @@ export function Hisobot() {
   const [period, setPeriod] = React.useState<Period>("all");
   const [from, setFrom] = React.useState("");
   const [to, setTo] = React.useState("");
-  const [agentName, setAgentName] = React.useState("");
-  const [agentPhone, setAgentPhone] = React.useState("");
-  const [agentId, setAgentId] = React.useState("");
+  const [supplierName, setSupplierName] = React.useState("");
+  const [supplierPhone, setSupplierPhone] = React.useState("");
+  const [supplierId, setSupplierId] = React.useState("");
   const [detail, setDetail] = React.useState<KpiKind | null>(null);
   const filteredReports = React.useMemo(
     () =>
       MOCK_SUPPLIER_REPORTS.filter((row) => {
         if (!isInside(row.date, period, from, to)) return false;
-        if (agentName && !matches(row.agentName, agentName)) return false;
-        if (agentPhone && !matches(row.agentPhone || "", agentPhone)) return false;
-        if (agentId && !matches(row.agentId, agentId)) return false;
+        if (supplierName && !matches(row.supplierName, supplierName)) return false;
+        if (supplierPhone && !matches(row.supplierPhone || "", supplierPhone)) return false;
+        if (supplierId && !matches(row.supplierId, supplierId)) return false;
         return true;
       }),
-    [agentId, agentName, agentPhone, from, period, to],
+    [supplierId, supplierName, supplierPhone, from, period, to],
   );
 
   const totals = filteredReports.reduce(
@@ -92,25 +92,28 @@ export function Hisobot() {
             onFromChange={setFrom}
             onToChange={setTo}
           />
-          <Field label="Agent ismi" icon={<Search className="h-4 w-4 text-muted-foreground" />}>
+          <Field
+            label="Yetkazib beruvchi ismi"
+            icon={<Search className="h-4 w-4 text-muted-foreground" />}
+          >
             <Input
-              value={agentName}
-              onChange={(e) => setAgentName(e.target.value)}
+              value={supplierName}
+              onChange={(e) => setSupplierName(e.target.value)}
               placeholder="Bekzod"
             />
           </Field>
-          <Field label="Agent telefon">
+          <Field label="Yetkazib beruvchi telefon">
             <Input
-              value={agentPhone}
-              onChange={(e) => setAgentPhone(e.target.value)}
+              value={supplierPhone}
+              onChange={(e) => setSupplierPhone(e.target.value)}
               placeholder="+998"
             />
           </Field>
-          <Field label="Agent ID">
+          <Field label="Yetkazib beruvchi ID">
             <Input
-              value={agentId}
-              onChange={(e) => setAgentId(e.target.value)}
-              placeholder="AG-0001"
+              value={supplierId}
+              onChange={(e) => setSupplierId(e.target.value)}
+              placeholder="YB-0001"
             />
           </Field>
         </div>
@@ -139,8 +142,8 @@ export function Hisobot() {
             <thead className="sticky top-0 z-10 bg-muted/90 backdrop-blur">
               <tr className="border-b text-xs uppercase text-muted-foreground">
                 <th className="px-3 py-2 text-left">{t("date")}</th>
-                <th className="px-3 py-2 text-left">{t("agent_id")}</th>
-                <th className="px-3 py-2 text-left">{t("agent")}</th>
+                <th className="px-3 py-2 text-left">{t("supplier_id")}</th>
+                <th className="px-3 py-2 text-left">{t("supplier")}</th>
                 <th className="px-3 py-2 text-left">{t("phone")}</th>
                 <th className="px-3 py-2 text-left">{t("products")}</th>
                 <th className="px-3 py-2 text-right">{t("total_amount")}</th>
@@ -156,10 +159,10 @@ export function Hisobot() {
                     {fmtDate(row.date)}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2 font-mono font-semibold text-primary">
-                    {row.agentId}
+                    {row.supplierId}
                   </td>
-                  <td className="px-3 py-2 font-semibold">{row.agentName}</td>
-                  <td className="whitespace-nowrap px-3 py-2">{row.agentPhone || "—"}</td>
+                  <td className="px-3 py-2 font-semibold">{row.supplierName}</td>
+                  <td className="whitespace-nowrap px-3 py-2">{row.supplierPhone || "—"}</td>
                   <td className="px-3 py-2">
                     <div className="space-y-1">
                       {row.items.map((item, idx) => (
@@ -296,9 +299,9 @@ function SupplierDetailDialog({
                 (kind === "paid" ? [row] : row.items).map((item, index) => (
                   <tr key={`${row.id}-${index}`} className="border-b align-top last:border-0">
                     <td className="px-3 py-2 font-semibold">
-                      {row.agentName}
+                      {row.supplierName}
                       <div className="text-xs font-normal text-muted-foreground">
-                        {row.agentId} · {row.agentPhone}
+                        {row.supplierId} · {row.supplierPhone}
                       </div>
                     </td>
                     <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">

@@ -303,7 +303,9 @@ function TelegramBotIntegration({ onBack }: { onBack: () => void }) {
               Studio'dan (aistudio.google.com/apikey) bepul olish mumkin.
             </p>
             <div>
-              <Label className="mb-1.5 block text-xs text-muted-foreground">Gemini API kaliti</Label>
+              <Label className="mb-1.5 block text-xs text-muted-foreground">
+                Gemini API kaliti
+              </Label>
               <div className="flex gap-2">
                 <Input
                   type={showGeminiKey ? "text" : "password"}
@@ -328,7 +330,9 @@ function TelegramBotIntegration({ onBack }: { onBack: () => void }) {
           <div className="space-y-1.5 rounded-lg bg-muted/30 p-3 text-xs text-muted-foreground">
             <div className="font-medium text-foreground">Ulash tartibi:</div>
             <div>1. BotFather orqali bot yarating va tokenni yuqoriga kiriting.</div>
-            <div>2. Telegramda botni oching va <b>/start</b> yozing.</div>
+            <div>
+              2. Telegramda botni oching va <b>/start</b> yozing.
+            </div>
             <div>
               3. 📎 (qog'oz qisqich) → Kontakt → "O'zimni ulashish" orqali kontaktingizni botga
               yuboring.
@@ -337,10 +341,10 @@ function TelegramBotIntegration({ onBack }: { onBack: () => void }) {
           </div>
 
           <p className="text-xs text-muted-foreground">
-            Nega chat ID emas, telefon raqam? Telegram bot API xabarni faqat sonli{" "}
-            <b>chat ID</b> orqali yubora oladi — telefon raqamning o'zi bilan to'g'ridan-to'g'ri
-            xabar yuborib bo'lmaydi. Shuning uchun tizim raqamingizni kontakt orqali chat ID'ga
-            avtomatik moslaydi — bu qo'lda ID qidirishdan ham tezroq, ham xatoga yo'l qo'ymaydi.
+            Nega chat ID emas, telefon raqam? Telegram bot API xabarni faqat sonli <b>chat ID</b>{" "}
+            orqali yubora oladi — telefon raqamning o'zi bilan to'g'ridan-to'g'ri xabar yuborib
+            bo'lmaydi. Shuning uchun tizim raqamingizni kontakt orqali chat ID'ga avtomatik moslaydi
+            — bu qo'lda ID qidirishdan ham tezroq, ham xatoga yo'l qo'ymaydi.
           </p>
         </div>
       ) : (
@@ -349,8 +353,8 @@ function TelegramBotIntegration({ onBack }: { onBack: () => void }) {
             <div>
               <div className="text-sm font-medium">Mijozlar boti yoqilgan</div>
               <div className="text-xs text-muted-foreground">
-                Yoqilganda nasiya mijozlari va agentlarga cheklar, qarz eslatmalari shu bot orqali
-                yuboriladi
+                Yoqilganda nasiya mijozlari va yetkazib beruvchilarga cheklar, qarz eslatmalari shu
+                bot orqali yuboriladi
               </div>
             </div>
             <Switch
@@ -381,7 +385,7 @@ function TelegramBotIntegration({ onBack }: { onBack: () => void }) {
           </div>
 
           <p className="text-xs text-muted-foreground">
-            Mijozlar va agentlar bo'limidagi "Bot" tugmasi shu bot orqali ulanadi.
+            Mijozlar va yetkazib beruvchilar bo'limidagi "Bot" tugmasi shu bot orqali ulanadi.
           </p>
         </div>
       )}

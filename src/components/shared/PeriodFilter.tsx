@@ -4,10 +4,17 @@ import { CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
-export type PeriodFilterValue = "all" | "today" | "yesterday" | "week" | "month" | "year" | "custom";
+export type PeriodFilterValue =
+  "all" | "today" | "yesterday" | "week" | "month" | "year" | "custom";
 
 type Props = {
   value: PeriodFilterValue;

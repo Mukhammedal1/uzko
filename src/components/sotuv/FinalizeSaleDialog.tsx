@@ -38,6 +38,7 @@ import {
   Wallet,
   Landmark,
   Building2,
+  KeyRound,
   Split,
   Plus,
   Star,
@@ -47,12 +48,14 @@ import {
 import {
   formatSom,
   MOCK_CREDIT_CUSTOMERS,
+  MOCK_EMPLOYEES,
   MOCK_LOYAL_CUSTOMERS,
   MOCK_PAYMENT_METHODS,
   MOCK_RATES,
   type CreditCustomer,
   type CustomerType,
   type Currency,
+  type Employee,
   type LoyalCustomer,
   type PaymentBreakdownRow,
   type PaymentKind,
@@ -119,7 +122,17 @@ function formatDueLabel(value: string) {
 }
 
 type DueMode = (typeof DUE_PRESETS)[number] | "custom";
-type InvalidField = "customer" | "due" | "payment" | null;
+type InvalidField = "customer" | "due" | "payment" | "employee" | null;
+
+function findEmployeeByCode(code: string): Employee | null {
+  const normalized = code.trim();
+  if (!normalized) return null;
+  return (
+    MOCK_EMPLOYEES.find(
+      (employee) => employee.source === "manual" && employee.code === normalized,
+    ) ?? null
+  );
+}
 
 // ─── To'lov usullari — umumiy komponent ─────────────────────────────────────
 // Ro'yxat MOCK_PAYMENT_METHODS'dan (sozlamalar) keladi, kodga qattiq
@@ -694,9 +707,13 @@ export function FinalizeSaleDialog({ open, onOpenChange, total, onConfirm }: Pro
   const [generalDebtTarget, setGeneralDebtTarget] = React.useState("general");
   const [invalidField, setInvalidField] = React.useState<InvalidField>(null);
   const [limitWarnOpen, setLimitWarnOpen] = React.useState(false);
+  const [employeeCode, setEmployeeCode] = React.useState("");
   const givenInputRef = React.useRef<HTMLInputElement>(null);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const dueInputRef = React.useRef<HTMLInputElement>(null);
+  const employeeInputRef = React.useRef<HTMLInputElement>(null);
+
+  const resolvedEmployee = React.useMemo(() => findEmployeeByCode(employeeCode), [employeeCode]);
 
   // TODO: backend tayyor bo'lganda shu snapshot o'rniga API/hook chaqiriladi.
   // Ro'yxat modal ochilganda bir marta olinadi, filtrlash frontendda bo'ladi.
@@ -719,6 +736,7 @@ export function FinalizeSaleDialog({ open, onOpenChange, total, onConfirm }: Pro
     setPrepayRows([]);
     setGeneralDebtTarget("general");
     setInvalidField(null);
+    setEmployeeCode("");
   }, [open]);
 
   // Xaridor turi almashganda to'lov holati toza boshlansin.
@@ -832,6 +850,8 @@ export function FinalizeSaleDialog({ open, onOpenChange, total, onConfirm }: Pro
       customerId: picked.id,
       customerName: fullCustomerName(picked),
       customerPhone: picked.phone,
+      employeeId: resolvedEmployee?.id,
+      employeeName: resolvedEmployee?.name,
       loyalCustomerId: loyalPicked?.id,
       loyalCardNumber: loyalPicked?.cardNumber,
       loyalCustomerName: loyalPicked ? fullCustomerName(loyalPicked) : undefined,
@@ -844,6 +864,13 @@ export function FinalizeSaleDialog({ open, onOpenChange, total, onConfirm }: Pro
   };
 
   const handleConfirm = () => {
+    if (!resolvedEmployee) {
+      setInvalidField("employee");
+      employeeInputRef.current?.focus();
+      toast.error("Xodim tasdiqlash kodini kiriting");
+      return;
+    }
+
     if (isNasiya) {
       if (!picked) {
         setInvalidField("customer");
@@ -886,6 +913,8 @@ export function FinalizeSaleDialog({ open, onOpenChange, total, onConfirm }: Pro
 
     onConfirm({
       customerType: "oddiy",
+      employeeId: resolvedEmployee?.id,
+      employeeName: resolvedEmployee?.name,
       loyalCustomerId: loyalPicked?.id,
       loyalCardNumber: loyalPicked?.cardNumber,
       loyalCustomerName: loyalPicked ? fullCustomerName(loyalPicked) : undefined,
@@ -1067,6 +1096,45 @@ export function FinalizeSaleDialog({ open, onOpenChange, total, onConfirm }: Pro
                   )}
                 </div>
               </div>
+            )}
+          </div>
+
+          <div
+            className={cn(
+              "flex flex-shrink-0 items-center gap-2 border-b border-[#AEB9D4] px-5 py-2",
+              invalidField === "employee" ? "bg-[#C43B3B]/10" : "bg-[#F4F5F9]",
+            )}
+          >
+            <KeyRound
+              className={cn(
+                "h-4 w-4 flex-shrink-0",
+                invalidField === "employee" ? "text-[#C43B3B]" : "text-[#0836B0]",
+              )}
+            />
+            <Label className="flex-shrink-0 text-xs font-medium text-[#222C3B]">Xodim kodi:</Label>
+            <Input
+              ref={employeeInputRef}
+              value={employeeCode}
+              onChange={(event) => {
+                setEmployeeCode(event.target.value.replace(/\D/g, ""));
+                setInvalidField(null);
+              }}
+              placeholder="PIN kod"
+              inputMode="numeric"
+              maxLength={6}
+              className={cn(
+                "h-8 w-28 border-[#AEB9D4] bg-white font-mono text-xs",
+                invalidField === "employee" && "border-[#C43B3B]",
+              )}
+            />
+            {resolvedEmployee ? (
+              <span className="text-xs font-semibold text-[#0836B0]">
+                {resolvedEmployee.name} · {resolvedEmployee.role}
+              </span>
+            ) : employeeCode.trim() ? (
+              <span className="text-xs font-medium text-[#C43B3B]">Kod topilmadi</span>
+            ) : (
+              <span className="text-xs text-[#737D91]">Sotuvni kim yakunlagani tasdiqlansin</span>
             )}
           </div>
 

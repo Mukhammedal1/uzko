@@ -3,7 +3,7 @@ import { History } from "lucide-react";
 import { MOCK_MONEY_OPERATIONS, formatSom } from "@/lib/mock-data";
 
 type Props = {
-  party: "nasiyachi" | "agent";
+  party: "nasiyachi" | "yetkazib_beruvchi";
   partyId: string;
   /** Tashqarida refreshKey o'zgarganda ro'yxatni qayta hisoblash uchun. */
   refreshKey?: number;
@@ -13,7 +13,7 @@ function fmtDateTime(value: string) {
   return new Date(value).toLocaleString("uz-UZ");
 }
 
-/** Nasiyachi yoki agent bo'yicha pul operatsiyalari (to'lovlar) tarixi. */
+/** Nasiyachi yoki yetkazib beruvchi bo'yicha pul operatsiyalari (to'lovlar) tarixi. */
 export function MoneyOperationsList({ party, partyId, refreshKey }: Props) {
   const ops = React.useMemo(
     () => MOCK_MONEY_OPERATIONS.filter((op) => op.party === party && op.partyId === partyId),
@@ -44,11 +44,11 @@ export function MoneyOperationsList({ party, partyId, refreshKey }: Props) {
             <div key={op.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
               <div className="min-w-0">
                 <div className="font-medium">
-                  {op.party === "nasiyachi" ? "Qarz so'ndirildi" : "Agentga to'lov"}
+                  {op.party === "nasiyachi" ? "Qarz so'ndirildi" : "Yetkazib beruvchiga to'lov"}
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {fmtDateTime(op.date)} · {op.method}
-                  {op.party === "agent"
+                  {op.party === "yetkazib_beruvchi"
                     ? op.source === "boshqa"
                       ? " · ixtiyoriy manba"
                       : " · kassadan"

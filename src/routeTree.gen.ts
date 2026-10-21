@@ -10,7 +10,6 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as AgentlarRouteImport } from './routes/agentlar'
 import { Route as BoshqaruvRouteImport } from './routes/boshqaruv'
 import { Route as KassaRouteImport } from './routes/kassa'
 import { Route as LoginRouteImport } from './routes/login'
@@ -19,15 +18,12 @@ import { Route as RegisterRouteImport } from './routes/register'
 import { Route as SozlamalarRouteImport } from './routes/sozlamalar'
 import { Route as TovarlarRouteImport } from './routes/tovarlar'
 import { Route as UmumiyRouteImport } from './routes/umumiy'
+import { Route as XodimlarRouteImport } from './routes/xodimlar'
+import { Route as YetkazibBeruvchilarRouteImport } from './routes/yetkazib-beruvchilar'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AgentlarRoute = AgentlarRouteImport.update({
-  id: '/agentlar',
-  path: '/agentlar',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BoshqaruvRoute = BoshqaruvRouteImport.update({
@@ -70,10 +66,19 @@ const UmumiyRoute = UmumiyRouteImport.update({
   path: '/umumiy',
   getParentRoute: () => rootRouteImport,
 } as any)
+const XodimlarRoute = XodimlarRouteImport.update({
+  id: '/xodimlar',
+  path: '/xodimlar',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const YetkazibBeruvchilarRoute = YetkazibBeruvchilarRouteImport.update({
+  id: '/yetkazib-beruvchilar',
+  path: '/yetkazib-beruvchilar',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/agentlar': typeof AgentlarRoute
   '/boshqaruv': typeof BoshqaruvRoute
   '/kassa': typeof KassaRoute
   '/login': typeof LoginRoute
@@ -82,10 +87,11 @@ export interface FileRoutesByFullPath {
   '/sozlamalar': typeof SozlamalarRoute
   '/tovarlar': typeof TovarlarRoute
   '/umumiy': typeof UmumiyRoute
+  '/xodimlar': typeof XodimlarRoute
+  '/yetkazib-beruvchilar': typeof YetkazibBeruvchilarRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/agentlar': typeof AgentlarRoute
   '/boshqaruv': typeof BoshqaruvRoute
   '/kassa': typeof KassaRoute
   '/login': typeof LoginRoute
@@ -94,11 +100,12 @@ export interface FileRoutesByTo {
   '/sozlamalar': typeof SozlamalarRoute
   '/tovarlar': typeof TovarlarRoute
   '/umumiy': typeof UmumiyRoute
+  '/xodimlar': typeof XodimlarRoute
+  '/yetkazib-beruvchilar': typeof YetkazibBeruvchilarRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/agentlar': typeof AgentlarRoute
   '/boshqaruv': typeof BoshqaruvRoute
   '/kassa': typeof KassaRoute
   '/login': typeof LoginRoute
@@ -107,12 +114,13 @@ export interface FileRoutesById {
   '/sozlamalar': typeof SozlamalarRoute
   '/tovarlar': typeof TovarlarRoute
   '/umumiy': typeof UmumiyRoute
+  '/xodimlar': typeof XodimlarRoute
+  '/yetkazib-beruvchilar': typeof YetkazibBeruvchilarRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/agentlar'
     | '/boshqaruv'
     | '/kassa'
     | '/login'
@@ -121,10 +129,11 @@ export interface FileRouteTypes {
     | '/sozlamalar'
     | '/tovarlar'
     | '/umumiy'
+    | '/xodimlar'
+    | '/yetkazib-beruvchilar'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/agentlar'
     | '/boshqaruv'
     | '/kassa'
     | '/login'
@@ -133,10 +142,11 @@ export interface FileRouteTypes {
     | '/sozlamalar'
     | '/tovarlar'
     | '/umumiy'
+    | '/xodimlar'
+    | '/yetkazib-beruvchilar'
   id:
     | '__root__'
     | '/'
-    | '/agentlar'
     | '/boshqaruv'
     | '/kassa'
     | '/login'
@@ -145,11 +155,12 @@ export interface FileRouteTypes {
     | '/sozlamalar'
     | '/tovarlar'
     | '/umumiy'
+    | '/xodimlar'
+    | '/yetkazib-beruvchilar'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  AgentlarRoute: typeof AgentlarRoute
   BoshqaruvRoute: typeof BoshqaruvRoute
   KassaRoute: typeof KassaRoute
   LoginRoute: typeof LoginRoute
@@ -158,6 +169,8 @@ export interface RootRouteChildren {
   SozlamalarRoute: typeof SozlamalarRoute
   TovarlarRoute: typeof TovarlarRoute
   UmumiyRoute: typeof UmumiyRoute
+  XodimlarRoute: typeof XodimlarRoute
+  YetkazibBeruvchilarRoute: typeof YetkazibBeruvchilarRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -167,13 +180,6 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/agentlar': {
-      id: '/agentlar'
-      path: '/agentlar'
-      fullPath: '/agentlar'
-      preLoaderRoute: typeof AgentlarRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/boshqaruv': {
@@ -232,12 +238,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof UmumiyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/xodimlar': {
+      id: '/xodimlar'
+      path: '/xodimlar'
+      fullPath: '/xodimlar'
+      preLoaderRoute: typeof XodimlarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/yetkazib-beruvchilar': {
+      id: '/yetkazib-beruvchilar'
+      path: '/yetkazib-beruvchilar'
+      fullPath: '/yetkazib-beruvchilar'
+      preLoaderRoute: typeof YetkazibBeruvchilarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AgentlarRoute: AgentlarRoute,
   BoshqaruvRoute: BoshqaruvRoute,
   KassaRoute: KassaRoute,
   LoginRoute: LoginRoute,
@@ -246,6 +265,8 @@ const rootRouteChildren: RootRouteChildren = {
   SozlamalarRoute: SozlamalarRoute,
   TovarlarRoute: TovarlarRoute,
   UmumiyRoute: UmumiyRoute,
+  XodimlarRoute: XodimlarRoute,
+  YetkazibBeruvchilarRoute: YetkazibBeruvchilarRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

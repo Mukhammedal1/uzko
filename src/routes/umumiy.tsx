@@ -6,10 +6,7 @@ import { UmumiyDashboard } from "@/components/umumiy/UmumiyDashboard";
 
 export const Route = createFileRoute("/umumiy")({
   head: () => ({
-    meta: [
-      { title: "UZKO — Umumiy" },
-      { name: "description", content: "Umumiy dashboard" },
-    ],
+    meta: [{ title: "UZKO — Umumiy" }, { name: "description", content: "Umumiy dashboard" }],
   }),
   component: UmumiyPage,
 });

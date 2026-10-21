@@ -171,7 +171,13 @@ export function getSalesList(
 
 // ─── 3. get_top_products ─────────────────────────────────────────────────────
 
-export type TopProductRow = { name: string; qty: number; unit: string; revenue: number; profit: number };
+export type TopProductRow = {
+  name: string;
+  qty: number;
+  unit: string;
+  revenue: number;
+  profit: number;
+};
 
 export function getTopProducts(
   start: Date,
@@ -328,7 +334,12 @@ export function findCustomer(query: string, limit = 8): CustomerMatch[] {
     `${fullCustomerName(c)} ${c.phone ?? ""}`.toLowerCase().includes(q),
   )
     .slice(0, limit)
-    .map((c) => ({ id: c.id, name: fullCustomerName(c), phone: maskPhone(c.phone), debt: c.currentDebt }));
+    .map((c) => ({
+      id: c.id,
+      name: fullCustomerName(c),
+      phone: maskPhone(c.phone),
+      debt: c.currentDebt,
+    }));
 }
 
 // ─── 7. get_customer_debt ────────────────────────────────────────────────────
@@ -422,7 +433,10 @@ export function getStock(
         lastSoldAt: lastSoldAt(p),
         frozenValue: qty * p.costPrice,
         _isOut: qty <= 0,
-        _isLow: qty > 0 && ((p.minStockAlert !== undefined && qty <= p.minStockAlert) || (daysLeft !== null && daysLeft < 3)),
+        _isLow:
+          qty > 0 &&
+          ((p.minStockAlert !== undefined && qty <= p.minStockAlert) ||
+            (daysLeft !== null && daysLeft < 3)),
         _isDead: qty > 0 && daysSinceLastSale(p) >= deadDays,
       };
     })

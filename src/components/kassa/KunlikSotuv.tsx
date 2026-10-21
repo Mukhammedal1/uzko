@@ -23,12 +23,29 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
-  Search, CalendarDays, Pencil, Printer, Trash2, Plus, Minus, Wifi, Eye, EyeOff,
-  Lock, AlertTriangle, Send, ChevronDown, Check,
+  Search,
+  CalendarDays,
+  Pencil,
+  Printer,
+  Trash2,
+  Plus,
+  Minus,
+  Wifi,
+  Eye,
+  EyeOff,
+  Lock,
+  AlertTriangle,
+  Send,
+  ChevronDown,
+  Check,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -37,10 +54,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  RECEIPT_PRINT_FORMAT_OPTIONS,
-  printSaleReceipt,
-} from "@/lib/receipt-print";
+import { RECEIPT_PRINT_FORMAT_OPTIONS, printSaleReceipt } from "@/lib/receipt-print";
 import type { ReceiptPrintFormat } from "@/lib/app-context";
 import {
   MOCK_RECEIPTS,
@@ -135,8 +149,10 @@ export function KunlikSotuv() {
               cardsByType[row.cardType] = (cardsByType[row.cardType] ?? 0) + row.amountSom;
             }
             if (row.currency) {
-              currenciesByCode[row.currency] = (currenciesByCode[row.currency] ?? 0) + (row.currencyAmount ?? 0);
-              currencySomByCode[row.currency] = (currencySomByCode[row.currency] ?? 0) + row.amountSom;
+              currenciesByCode[row.currency] =
+                (currenciesByCode[row.currency] ?? 0) + (row.currencyAmount ?? 0);
+              currencySomByCode[row.currency] =
+                (currencySomByCode[row.currency] ?? 0) + row.amountSom;
             }
           }
         } else if (receipt.customerType === "nasiya") {
@@ -194,7 +210,9 @@ export function KunlikSotuv() {
         <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-card p-3">
           <div>
             <div className="text-sm font-semibold">Nasiya savdolar</div>
-            <div className="text-xs text-muted-foreground">Kunlik sotuv ichidagi nasiya savdolar ro'yxati</div>
+            <div className="text-xs text-muted-foreground">
+              Kunlik sotuv ichidagi nasiya savdolar ro'yxati
+            </div>
           </div>
           <Button variant="outline" size="sm" onClick={() => setShowNasiya(false)}>
             Kunlik sotuvga qaytish
@@ -213,7 +231,9 @@ export function KunlikSotuv() {
         <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-card p-3">
           <div>
             <div className="text-sm font-semibold">Online savdo tarixi</div>
-            <div className="text-xs text-muted-foreground">Telegram botdan kelgan zakazlar bo'yicha tarix</div>
+            <div className="text-xs text-muted-foreground">
+              Telegram botdan kelgan zakazlar bo'yicha tarix
+            </div>
           </div>
           <Button variant="outline" size="sm" onClick={() => setShowOnlineHistory(false)}>
             Kunlik sotuvga qaytish
@@ -242,7 +262,10 @@ export function KunlikSotuv() {
             </button>
           }
         />
-        <DashboardCard label="Naqd pul" value={showAmounts ? formatSom(dashboard.cash) : "••••••"} />
+        <DashboardCard
+          label="Naqd pul"
+          value={showAmounts ? formatSom(dashboard.cash) : "••••••"}
+        />
         <DashboardCard
           label="Karta"
           value={showAmounts ? formatSom(dashboard.card) : "••••••"}
@@ -260,7 +283,10 @@ export function KunlikSotuv() {
           label="Hamyon (Click/Payme)"
           value={showAmounts ? formatSom(dashboard.wallet) : "••••••"}
         />
-        <DashboardCard label="Valyuta (so'm)" value={showAmounts ? formatSom(dashboard.currency) : "••••••"} />
+        <DashboardCard
+          label="Valyuta (so'm)"
+          value={showAmounts ? formatSom(dashboard.currency) : "••••••"}
+        />
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-b bg-card p-3">
@@ -277,9 +303,7 @@ export function KunlikSotuv() {
           <PopoverTrigger asChild>
             <Button variant="outline" size="sm" className="gap-2">
               <CalendarDays className="h-4 w-4" />
-              {range?.from && range?.to
-                ? `${fmtDate(range.from)} — ${fmtDate(range.to)}`
-                : "Bugun"}
+              {range?.from && range?.to ? `${fmtDate(range.from)} — ${fmtDate(range.to)}` : "Bugun"}
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-auto p-0" align="end">
@@ -291,8 +315,12 @@ export function KunlikSotuv() {
               className={cn("p-3 pointer-events-auto")}
             />
             <div className="border-t p-2">
-              <Button size="sm" variant="ghost" className="w-full"
-                onClick={() => setRange(undefined)}>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="w-full"
+                onClick={() => setRange(undefined)}
+              >
                 Tozalash (bugun)
               </Button>
             </div>
@@ -301,11 +329,21 @@ export function KunlikSotuv() {
         <Button variant="outline" size="sm" onClick={() => setShowNasiya(true)}>
           Nasiya savdolar
         </Button>
-        <Button variant="outline" size="sm" className="gap-2" onClick={() => setShowOnlineHistory(true)}>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-2"
+          onClick={() => setShowOnlineHistory(true)}
+        >
           <Wifi className="h-4 w-4" />
           Online savdo tarixi
         </Button>
-        <Button variant="destructive" size="sm" className="gap-2" onClick={() => setShowCloseShift(true)}>
+        <Button
+          variant="destructive"
+          size="sm"
+          className="gap-2"
+          onClick={() => setShowCloseShift(true)}
+        >
           <Lock className="h-4 w-4" />
           Smenani yakunlash / Kassani yopish
         </Button>
@@ -331,35 +369,62 @@ export function KunlikSotuv() {
               >
                 <td className="px-3 py-2 font-medium">{r.cashier}</td>
                 <td className="px-3 py-2 font-mono text-xs">{r.id}</td>
-                <td className="px-3 py-2 text-right font-semibold tabular-nums">{formatSom(r.total)}</td>
+                <td className="px-3 py-2 text-right font-semibold tabular-nums">
+                  {formatSom(r.total)}
+                </td>
                 <td className="px-3 py-2 text-xs text-muted-foreground">
                   {new Date(r.date).toLocaleString("uz-UZ")}
                   {r.editedAt && (
-                    <div className="text-[10px] text-amber-600">tahrir: {new Date(r.editedAt).toLocaleString("uz-UZ")}</div>
+                    <div className="text-[10px] text-amber-600">
+                      tahrir: {new Date(r.editedAt).toLocaleString("uz-UZ")}
+                    </div>
                   )}
                 </td>
                 <td className="px-3 py-2">
                   <div className="flex items-center justify-center gap-1">
-                    <Button size="icon" variant="outline" className="h-8 w-8"
-                      onClick={() => setEditing(r)} aria-label="Tahrir">
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      className="h-8 w-8"
+                      onClick={() => setEditing(r)}
+                      aria-label="Tahrir"
+                    >
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button size="icon" variant="outline" className="h-8 w-8"
-                      onClick={() => handlePrint(r)} aria-label="Print">
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      className="h-8 w-8"
+                      onClick={() => handlePrint(r)}
+                      aria-label="Print"
+                    >
                       <Printer className="h-4 w-4" />
                     </Button>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button size="icon" variant="outline" className="h-8 w-6 px-0"
-                          aria-label="Chek formatini tanlash" title="Chek formati">
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          className="h-8 w-6 px-0"
+                          aria-label="Chek formatini tanlash"
+                          title="Chek formati"
+                        >
                           <ChevronDown className="h-3.5 w-3.5" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-60">
                         <DropdownMenuLabel>Chek formati (standart)</DropdownMenuLabel>
                         {RECEIPT_PRINT_FORMAT_OPTIONS.map((opt) => (
-                          <DropdownMenuItem key={opt.value} onSelect={() => choosePrintFormat(r, opt.value)}>
-                            <Check className={cn("mr-2 h-3.5 w-3.5", printFormat === opt.value ? "opacity-100" : "opacity-0")} />
+                          <DropdownMenuItem
+                            key={opt.value}
+                            onSelect={() => choosePrintFormat(r, opt.value)}
+                          >
+                            <Check
+                              className={cn(
+                                "mr-2 h-3.5 w-3.5",
+                                printFormat === opt.value ? "opacity-100" : "opacity-0",
+                              )}
+                            />
                             <div>
                               <div className="text-sm font-medium">{opt.label}</div>
                               <div className="text-[11px] text-muted-foreground">{opt.hint}</div>
@@ -368,9 +433,13 @@ export function KunlikSotuv() {
                         ))}
                       </DropdownMenuContent>
                     </DropdownMenu>
-                    <Button size="icon" variant="outline"
+                    <Button
+                      size="icon"
+                      variant="outline"
                       className="h-8 w-8 text-destructive hover:text-destructive"
-                      onClick={() => setDeleting(r)} aria-label="O'chirish">
+                      onClick={() => setDeleting(r)}
+                      aria-label="O'chirish"
+                    >
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
@@ -390,7 +459,10 @@ export function KunlikSotuv() {
 
       <EditReceiptDialog
         receipt={editing}
-        onClose={() => { setEditing(null); force((n) => n + 1); }}
+        onClose={() => {
+          setEditing(null);
+          force((n) => n + 1);
+        }}
       />
 
       <CloseShiftDialog
@@ -454,7 +526,9 @@ function nextCurrencyCode(used: string[]) {
 }
 
 function CloseShiftDialog({
-  open, onOpenChange, dashboard,
+  open,
+  onOpenChange,
+  dashboard,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -476,7 +550,10 @@ function CloseShiftDialog({
     setActualCash(dashboard.cash ? String(Math.round(dashboard.cash)) : "");
     setCurrencyRows(
       codes.length > 0
-        ? codes.map((code) => ({ code, amount: String(Math.round(dashboard.currenciesByCode[code] ?? 0)) }))
+        ? codes.map((code) => ({
+            code,
+            amount: String(Math.round(dashboard.currenciesByCode[code] ?? 0)),
+          }))
         : [],
     );
     setNote("");
@@ -492,7 +569,14 @@ function CloseShiftDialog({
     const expectedSom = dashboard.currencySomByCode[row.code] ?? 0;
     const rate = expectedNative > 0 ? expectedSom / expectedNative : 0;
     const diffNative = actualNative - expectedNative;
-    return { idx, code: row.code, expectedNative, actualNative, diffNative, diffSom: diffNative * rate };
+    return {
+      idx,
+      code: row.code,
+      expectedNative,
+      actualNative,
+      diffNative,
+      diffSom: diffNative * rate,
+    };
   });
 
   const totalDiff = cashDiff + currencyDiffs.reduce((s, d) => s + d.diffSom, 0);
@@ -508,7 +592,10 @@ function CloseShiftDialog({
   };
 
   const addCurrencyRow = () => {
-    setCurrencyRows((prev) => [...prev, { code: nextCurrencyCode(prev.map((r) => r.code)), amount: "" }]);
+    setCurrencyRows((prev) => [
+      ...prev,
+      { code: nextCurrencyCode(prev.map((r) => r.code)), amount: "" },
+    ]);
   };
   const removeCurrencyRow = (idx: number) => {
     setCurrencyRows((prev) => prev.filter((_, i) => i !== idx));
@@ -518,7 +605,10 @@ function CloseShiftDialog({
   };
 
   const close = () => {
-    if (!code.trim()) { toast.error("Tasdiqlash kodini kiriting"); return; }
+    if (!code.trim()) {
+      toast.error("Tasdiqlash kodini kiriting");
+      return;
+    }
     if (!balanced && !note.trim()) {
       toast.error("Kamomat/ortiqcha sababini izohga yozing");
       return;
@@ -542,15 +632,25 @@ function CloseShiftDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) reset(); onOpenChange(o); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (!o) reset();
+        onOpenChange(o);
+      }}
+    >
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Smenani yakunlash / Kassani yopish</DialogTitle>
         </DialogHeader>
 
         <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
-          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Jami tushum</div>
-          <div className="mt-1 text-xl font-bold tabular-nums text-primary">{formatSom(dashboard.total)}</div>
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Jami tushum
+          </div>
+          <div className="mt-1 text-xl font-bold tabular-nums text-primary">
+            {formatSom(dashboard.total)}
+          </div>
         </div>
 
         {/* O'zgarmaydigan, elektron to'lovlar — tizim avtomatik hisoblaydi */}
@@ -587,18 +687,34 @@ function CloseShiftDialog({
                     className="mx-auto h-8 w-32 text-center font-semibold"
                   />
                 </td>
-                <td className={cn("px-3 py-2 text-right font-semibold tabular-nums", diffTextTone(cashDiff))}>
-                  {Math.abs(cashDiff) < CLOSE_DIFF_EPSILON ? "—" : `${cashDiff > 0 ? "+" : "−"}${formatSom(Math.abs(cashDiff))}`}
+                <td
+                  className={cn(
+                    "px-3 py-2 text-right font-semibold tabular-nums",
+                    diffTextTone(cashDiff),
+                  )}
+                >
+                  {Math.abs(cashDiff) < CLOSE_DIFF_EPSILON
+                    ? "—"
+                    : `${cashDiff > 0 ? "+" : "−"}${formatSom(Math.abs(cashDiff))}`}
                 </td>
                 <td></td>
               </tr>
               {currencyDiffs.map((d) => (
                 <tr key={d.idx} className={cn("border-t", diffRowTone(d.diffNative))}>
                   <td className="px-3 py-2 font-medium">
-                    <Select value={d.code} onValueChange={(v) => updateCurrencyRow(d.idx, { code: v })}>
-                      <SelectTrigger className="h-8 w-24"><SelectValue /></SelectTrigger>
+                    <Select
+                      value={d.code}
+                      onValueChange={(v) => updateCurrencyRow(d.idx, { code: v })}
+                    >
+                      <SelectTrigger className="h-8 w-24">
+                        <SelectValue />
+                      </SelectTrigger>
                       <SelectContent>
-                        {CLOSE_CURRENCY_OPTIONS.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                        {CLOSE_CURRENCY_OPTIONS.map((c) => (
+                          <SelectItem key={c} value={c}>
+                            {c}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </td>
@@ -614,12 +730,23 @@ function CloseShiftDialog({
                       className="mx-auto h-8 w-32 text-center"
                     />
                   </td>
-                  <td className={cn("px-3 py-2 text-right font-semibold tabular-nums", diffTextTone(d.diffNative))}>
-                    {Math.abs(d.diffNative) < CLOSE_DIFF_EPSILON ? "—" : `${d.diffNative > 0 ? "+" : "−"}${Math.round(Math.abs(d.diffNative)).toLocaleString("uz-UZ")}`}
+                  <td
+                    className={cn(
+                      "px-3 py-2 text-right font-semibold tabular-nums",
+                      diffTextTone(d.diffNative),
+                    )}
+                  >
+                    {Math.abs(d.diffNative) < CLOSE_DIFF_EPSILON
+                      ? "—"
+                      : `${d.diffNative > 0 ? "+" : "−"}${Math.round(Math.abs(d.diffNative)).toLocaleString("uz-UZ")}`}
                   </td>
                   <td className="px-1 py-2">
-                    <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive"
-                      onClick={() => removeCurrencyRow(d.idx)}>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7 text-destructive"
+                      onClick={() => removeCurrencyRow(d.idx)}
+                    >
                       <Minus className="h-3.5 w-3.5" />
                     </Button>
                   </td>
@@ -636,25 +763,33 @@ function CloseShiftDialog({
         </div>
 
         {/* Farq / kamomat — avtomatik hisoblanadi */}
-        <div className={cn(
-          "rounded-lg border p-2.5 transition-colors",
-          isShortage ? "border-destructive/40 bg-destructive/5" : "",
-          isSurplus ? "border-amber-500/40 bg-amber-500/5" : "",
-          balanced ? "bg-card" : "",
-        )}>
+        <div
+          className={cn(
+            "rounded-lg border p-2.5 transition-colors",
+            isShortage ? "border-destructive/40 bg-destructive/5" : "",
+            isSurplus ? "border-amber-500/40 bg-amber-500/5" : "",
+            balanced ? "bg-card" : "",
+          )}
+        >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 text-muted-foreground" />
               <Label className="text-sm font-semibold">
-                {isShortage ? "Kamomat (tizim bilan farq)" : isSurplus ? "Ortiqcha (tizim bilan farq)" : "Farq (tizim bilan)"}
+                {isShortage
+                  ? "Kamomat (tizim bilan farq)"
+                  : isSurplus
+                    ? "Ortiqcha (tizim bilan farq)"
+                    : "Farq (tizim bilan)"}
               </Label>
             </div>
-            <div className={cn(
-              "text-base font-bold tabular-nums",
-              isShortage ? "text-destructive" : "",
-              isSurplus ? "text-amber-600" : "",
-              balanced ? "text-success" : "",
-            )}>
+            <div
+              className={cn(
+                "text-base font-bold tabular-nums",
+                isShortage ? "text-destructive" : "",
+                isSurplus ? "text-amber-600" : "",
+                balanced ? "text-success" : "",
+              )}
+            >
               {balanced ? "0" : `${isSurplus ? "+" : "−"}${formatSom(Math.abs(totalDiff))}`}
             </div>
           </div>
@@ -663,9 +798,11 @@ function CloseShiftDialog({
               className="mt-2"
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder={isShortage
-                ? "Kamomat sababini yozing (masalan: mijozga qaytim kam berilgan)..."
-                : "Ortiqcha summa sababini yozing..."}
+              placeholder={
+                isShortage
+                  ? "Kamomat sababini yozing (masalan: mijozga qaytim kam berilgan)..."
+                  : "Ortiqcha summa sababini yozing..."
+              }
               rows={2}
             />
           )}
@@ -689,7 +826,9 @@ function CloseShiftDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Bekor</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Bekor
+          </Button>
           <Button onClick={close} className="gap-2">
             <Send className="h-4 w-4" />
             Kassani yopish
@@ -737,7 +876,14 @@ function OnlineSalesHistoryPanel() {
       </div>
 
       <div className="space-y-3 border-b bg-card p-3">
-        <PeriodFilter value={period} onValueChange={setPeriod} from={from} to={to} onFromChange={setFrom} onToChange={setTo} />
+        <PeriodFilter
+          value={period}
+          onValueChange={setPeriod}
+          from={from}
+          to={to}
+          onFromChange={setFrom}
+          onToChange={setTo}
+        />
         <Input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
@@ -763,8 +909,12 @@ function OnlineSalesHistoryPanel() {
                 <td className="px-3 py-2 font-mono text-xs font-bold text-primary">{order.id}</td>
                 <td className="px-3 py-2 font-medium">{order.customerName}</td>
                 <td className="px-3 py-2 text-muted-foreground">{order.customerPhone}</td>
-                <td className="px-3 py-2 text-right font-semibold tabular-nums">{formatSom(onlineOrderTotal(order))}</td>
-                <td className="px-3 py-2 text-xs text-muted-foreground">{new Date(order.createdAt).toLocaleString("uz-UZ")}</td>
+                <td className="px-3 py-2 text-right font-semibold tabular-nums">
+                  {formatSom(onlineOrderTotal(order))}
+                </td>
+                <td className="px-3 py-2 text-xs text-muted-foreground">
+                  {new Date(order.createdAt).toLocaleString("uz-UZ")}
+                </td>
                 <td className="px-3 py-2">
                   <span className="rounded-md border bg-muted/30 px-2 py-1 text-xs font-semibold">
                     {onlineStatusLabel(order.status)}
@@ -820,14 +970,14 @@ function DashboardCard({
         {action}
       </div>
       <div className="mt-1 text-xl font-bold tabular-nums text-foreground">{value}</div>
-      {subtitle && <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{subtitle}</div>}
+      {subtitle && (
+        <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{subtitle}</div>
+      )}
     </div>
   );
 }
 
-function EditReceiptDialog({
-  receipt, onClose,
-}: { receipt: Receipt | null; onClose: () => void }) {
+function EditReceiptDialog({ receipt, onClose }: { receipt: Receipt | null; onClose: () => void }) {
   const { settings } = useApp();
   const [items, setItems] = React.useState(receipt?.items ?? []);
 
@@ -841,7 +991,7 @@ function EditReceiptDialog({
   const total = Math.max(0, subtotal - receipt.discount);
 
   const setQty = (idx: number, qty: number) => {
-    setItems((prev) => prev.map((it, i) => i === idx ? { ...it, qty: Math.max(0, qty) } : it));
+    setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, qty: Math.max(0, qty) } : it)));
   };
   const removeRow = (idx: number) => {
     setItems((prev) => prev.filter((_, i) => i !== idx));
@@ -909,8 +1059,12 @@ function EditReceiptDialog({
                   <td className="px-3 py-2 text-right tabular-nums">{formatSom(it.price)}</td>
                   <td className="px-3 py-2">
                     <div className="inline-flex items-center gap-1">
-                      <Button size="icon" variant="outline" className="h-7 w-7"
-                        onClick={() => setQty(idx, it.qty - 1)}>
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        className="h-7 w-7"
+                        onClick={() => setQty(idx, it.qty - 1)}
+                      >
                         <Minus className="h-3 w-3" />
                       </Button>
                       <input
@@ -919,8 +1073,12 @@ function EditReceiptDialog({
                         onChange={(e) => setQty(idx, parseFloat(e.target.value) || 0)}
                         className="h-7 w-14 rounded border bg-background px-1 text-center text-xs tabular-nums"
                       />
-                      <Button size="icon" variant="outline" className="h-7 w-7"
-                        onClick={() => setQty(idx, it.qty + 1)}>
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        className="h-7 w-7"
+                        onClick={() => setQty(idx, it.qty + 1)}
+                      >
                         <Plus className="h-3 w-3" />
                       </Button>
                     </div>
@@ -929,9 +1087,12 @@ function EditReceiptDialog({
                     {formatSom(it.price * it.qty)}
                   </td>
                   <td className="px-3 py-2">
-                    <Button size="icon" variant="outline"
+                    <Button
+                      size="icon"
+                      variant="outline"
                       className="h-8 w-8 text-destructive hover:text-destructive"
-                      onClick={() => removeRow(idx)}>
+                      onClick={() => removeRow(idx)}
+                    >
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </td>
@@ -947,7 +1108,9 @@ function EditReceiptDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Bekor</Button>
+          <Button variant="outline" onClick={onClose}>
+            Bekor
+          </Button>
           <Button onClick={save}>Saqlash</Button>
         </DialogFooter>
       </DialogContent>

@@ -198,7 +198,9 @@ export function OnlineSalesDialog({ open, onOpenChange, cashier }: Props) {
 
   const selected = orders.find((order) => order.id === selectedId) ?? null;
   const finalizeOrder = orders.find((order) => order.id === finalizeOrderId) ?? null;
-  const visibleOrders = orders.filter((order) => order.status !== "completed" && order.status !== "canceled");
+  const visibleOrders = orders.filter(
+    (order) => order.status !== "completed" && order.status !== "canceled",
+  );
   const historyOrders = React.useMemo(
     () =>
       filterOnlineOrders({
@@ -300,7 +302,8 @@ export function OnlineSalesDialog({ open, onOpenChange, cashier }: Props) {
                 <div>
                   <div className="text-sm font-semibold">Telegram botdan kelgan zakazlar</div>
                   <div className="text-xs text-muted-foreground">
-                    Zakazni ko'rish uchun qator ustiga ikki marta bosing yoki ko'z iconidan foydalaning.
+                    Zakazni ko'rish uchun qator ustiga ikki marta bosing yoki ko'z iconidan
+                    foydalaning.
                   </div>
                 </div>
                 <div className="flex items-center gap-1 rounded-lg bg-background p-1">
@@ -388,8 +391,15 @@ export function OnlineSalesDialog({ open, onOpenChange, cashier }: Props) {
           if (!nextOpen) setFinalizeOrderId(null);
         }}
         total={finalizeOrder ? onlineOrderTotal(finalizeOrder) : 0}
-        onConfirm={(payload) => {
-          if (finalizeOrder) completeOrder(finalizeOrder, payload);
+        onConfirm={(details) => {
+          if (!finalizeOrder) return;
+          const total = onlineOrderTotal(finalizeOrder);
+          completeOrder(finalizeOrder, {
+            ...details,
+            subtotal: total,
+            discountAmount: 0,
+            total,
+          });
         }}
       />
     </>
@@ -540,7 +550,9 @@ function OrderDetailDialog({
                     <tr key={item.id} className="border-b">
                       <td className="px-4 py-2">
                         <div className="font-medium">{item.product.name}</div>
-                        <div className="text-xs text-muted-foreground">{item.product.customCode}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {item.product.customCode}
+                        </div>
                       </td>
                       <td className="px-4 py-2 text-right tabular-nums">
                         {formatSom(item.product.price)}
@@ -591,7 +603,10 @@ function OrderDetailDialog({
                 </div>
                 <InfoRow label="Ism" value={order.customerName} />
                 <InfoRow label="Telefon" value={order.customerPhone} />
-                <InfoRow label="Zakaz vaqti" value={new Date(order.createdAt).toLocaleString("uz-UZ")} />
+                <InfoRow
+                  label="Zakaz vaqti"
+                  value={new Date(order.createdAt).toLocaleString("uz-UZ")}
+                />
               </div>
 
               <div className="rounded-lg border bg-card p-3">
@@ -599,13 +614,17 @@ function OrderDetailDialog({
                   <MessageSquareText className="h-4 w-4 text-primary" />
                   Comment
                 </div>
-                <div className="text-sm text-muted-foreground">{order.comment || "Izoh yozilmagan"}</div>
+                <div className="text-sm text-muted-foreground">
+                  {order.comment || "Izoh yozilmagan"}
+                </div>
               </div>
 
               <div className="rounded-lg border bg-card p-3">
                 <div className="mb-3 flex items-center justify-between">
                   <span className="text-sm font-semibold">Jami zakaz</span>
-                  <span className="text-lg font-bold tabular-nums text-primary">{formatSom(total)}</span>
+                  <span className="text-lg font-bold tabular-nums text-primary">
+                    {formatSom(total)}
+                  </span>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   {order.status === "pending" ? (

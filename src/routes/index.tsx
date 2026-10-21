@@ -77,7 +77,9 @@ function SotuvchiPage() {
     try {
       const raw = localStorage.getItem(PENDING_RETURN_EXCHANGE_KEY);
       if (raw) setPendingReturn(JSON.parse(raw) as PendingReturnExchange);
-    } catch {}
+    } catch {
+      // ignore
+    }
   }, []);
 
   const active = sales.find((s) => s.id === activeId) ?? sales[0];
@@ -87,14 +89,6 @@ function SotuvchiPage() {
   };
 
   const handlePick = (p: Product) => {
-    const needsPrompt =
-      p.unit === "kg" ||
-      ((p.perBox ?? 0) > 1 &&
-        (!!p.packUnit || (active.priceMode === "wholesale" && p.unit === "dona")));
-    if (settings.quickAddToCart && !needsPrompt) {
-      handleAddToCart(p, 1, "retail");
-      return;
-    }
     setPickedProduct(p);
     setQtyOpen(true);
   };
@@ -182,11 +176,15 @@ function SotuvchiPage() {
       finalizePendingReturnExchange(pendingReturn);
       try {
         localStorage.removeItem(PENDING_RETURN_EXCHANGE_KEY);
-      } catch {}
+      } catch {
+        // ignore
+      }
       setPendingReturn(null);
     }
     const receipt = addSaleReceipt({
       cashier: settings.username || "Admin",
+      employeeId: payload.employeeId,
+      employeeName: payload.employeeName,
       customerType: payload.customerType,
       customerId: payload.customerId,
       customerName: payload.customerName,
@@ -234,7 +232,9 @@ function SotuvchiPage() {
   const clearPendingReturn = () => {
     try {
       localStorage.removeItem(PENDING_RETURN_EXCHANGE_KEY);
-    } catch {}
+    } catch {
+      // ignore
+    }
     setPendingReturn(null);
   };
 

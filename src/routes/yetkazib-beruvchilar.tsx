@@ -2,23 +2,26 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Toaster } from "@/components/ui/sonner";
 import { TopBar } from "@/components/sotuv/TopBar";
 import { BottomBar } from "@/components/sotuv/BottomBar";
-import { AgentlarPage } from "@/components/agentlar/AgentlarPage";
+import { YetkazibBeruvchilarPage } from "@/components/yetkazib-beruvchilar/YetkazibBeruvchilarPage";
 
-export const Route = createFileRoute("/agentlar")({
+export const Route = createFileRoute("/yetkazib-beruvchilar")({
   head: () => ({
-    meta: [{ title: "UZKO — Agentlar" }, { name: "description", content: "Agentlar dashboardi" }],
+    meta: [
+      { title: "UZKO — Yetkazib beruvchilar" },
+      { name: "description", content: "Yetkazib beruvchilar dashboardi" },
+    ],
   }),
-  component: AgentlarRoutePage,
+  component: YetkazibBeruvchilarRoutePage,
 });
 
-function AgentlarRoutePage() {
+function YetkazibBeruvchilarRoutePage() {
   return (
     <div className="app-shell flex min-h-dvh w-full flex-col bg-muted/30 pb-14 lg:pb-0">
       <TopBar />
 
       <main className="responsive-main flex min-h-0 flex-1 flex-col gap-2 overflow-hidden bg-muted/40 p-2">
         <section className="responsive-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card shadow-sm">
-          <AgentlarPage />
+          <YetkazibBeruvchilarPage />
         </section>
       </main>
 

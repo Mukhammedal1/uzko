@@ -319,7 +319,7 @@ export function ProductAuditDialog({
                       <tr className="border-b text-xs uppercase text-muted-foreground">
                         <th className="px-3 py-2 text-left">Sana</th>
                         <th className="px-3 py-2 text-left">Nakladnoy</th>
-                        <th className="px-3 py-2 text-left">Agent / ombor</th>
+                        <th className="px-3 py-2 text-left">Yetkazib beruvchi / ombor</th>
                         <th className="px-3 py-2 text-right">Miqdor</th>
                         <th className="px-3 py-2 text-right">Tan narx</th>
                         <th className="px-3 py-2 text-right">Summa</th>
@@ -331,7 +331,7 @@ export function ProductAuditDialog({
                           <td className="px-3 py-1.5 text-muted-foreground">{fmt(p.date)}</td>
                           <td className="px-3 py-1.5 font-mono">{p.invoiceNumber}</td>
                           <td className="px-3 py-1.5">
-                            <div>{p.agentName}</div>
+                            <div>{p.supplierName}</div>
                             <div className="text-xs text-muted-foreground">{p.warehouse}</div>
                           </td>
                           <td className="px-3 py-1.5 text-right font-semibold tabular-nums text-emerald-600">
