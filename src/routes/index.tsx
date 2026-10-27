@@ -21,7 +21,13 @@ import type {
 } from "@/components/sotuv/types";
 import { useApp } from "@/lib/app-context";
 import { addSaleReceipt, dispatchRegularSaleReceipt } from "@/lib/data-actions";
-import { MOCK_PRODUCTS } from "@/lib/mock-data";
+import {
+  MOCK_KOMPLEKTLAR,
+  MOCK_PRODUCTS,
+  komplektComponents,
+  avgCostInSom,
+  resolveKassaId,
+} from "@/lib/mock-data";
 import type { Product, ReceiptItem } from "@/lib/mock-data";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -106,6 +112,9 @@ function SotuvchiPage() {
           ),
         };
       }
+      const komplekt = product.komplektId
+        ? MOCK_KOMPLEKTLAR.find((k) => k.id === product.komplektId)
+        : undefined;
       return {
         ...s,
         items: [
@@ -116,6 +125,16 @@ function SotuvchiPage() {
             quantity,
             unit: product.unit,
             priceMode,
+            komplekt: komplekt
+              ? {
+                  komplektId: komplekt.id,
+                  components: komplektComponents(komplekt).map(({ product: cp, qty }) => ({
+                    product: cp,
+                    qtyPerSet: qty,
+                    qty: qty * quantity,
+                  })),
+                }
+              : undefined,
           },
         ],
       };
@@ -157,7 +176,47 @@ function SotuvchiPage() {
   const handleChangeQty = (id: string, qty: number) => {
     updateActive((s) => ({
       ...s,
-      items: s.items.map((it) => (it.id === id ? { ...it, quantity: Math.max(0, qty) } : it)),
+      items: s.items.map((it) => {
+        if (it.id !== id) return it;
+        const nextQty = Math.max(0, qty);
+        // "Nechta komplekt" o'zgarsa, tarkibidagi tovarlar retsept bo'yicha
+        // proporsional qayta hisoblanadi (qo'lda tahrirlangan bo'lsa ham).
+        return {
+          ...it,
+          quantity: nextQty,
+          komplekt: it.komplekt
+            ? {
+                ...it.komplekt,
+                components: it.komplekt.components.map((c) => ({
+                  ...c,
+                  qty: c.qtyPerSet * nextQty,
+                })),
+              }
+            : it.komplekt,
+        };
+      }),
+    }));
+  };
+
+  const handleChangeKomplektComponentQty = (
+    cartItemId: string,
+    componentProductId: string,
+    qty: number,
+  ) => {
+    updateActive((s) => ({
+      ...s,
+      items: s.items.map((it) => {
+        if (it.id !== cartItemId || !it.komplekt) return it;
+        return {
+          ...it,
+          komplekt: {
+            ...it.komplekt,
+            components: it.komplekt.components.map((c) =>
+              c.product.id === componentProductId ? { ...c, qty: Math.max(0, qty) } : c,
+            ),
+          },
+        };
+      }),
     }));
   };
 
@@ -181,10 +240,12 @@ function SotuvchiPage() {
       }
       setPendingReturn(null);
     }
+    const currentDevice = settings.devices.find((d) => d.id === settings.currentDeviceId);
     const receipt = addSaleReceipt({
       cashier: settings.username || "Admin",
       employeeId: payload.employeeId,
       employeeName: payload.employeeName,
+      kassaId: resolveKassaId(currentDevice?.kassaId),
       customerType: payload.customerType,
       customerId: payload.customerId,
       customerName: payload.customerName,
@@ -214,9 +275,31 @@ function SotuvchiPage() {
   };
 
   const handleFinalize = (payload: FinalizedSalePayload) => {
-    finalizeSaleCore(
-      payload,
-      active.items.map((item) => ({
+    const receiptItems: ReceiptItem[] = [];
+    active.items.forEach((item) => {
+      if (item.komplekt) {
+        // Komplekt savatchada bitta qator, lekin chekda va ombordan ayirishda
+        // har bir tarkibiy tovar alohida hisoblanadi.
+        item.komplekt.components.forEach(({ product: cp, qty }) => {
+          if (qty <= 0) return;
+          receiptItems.push({
+            productId: cp.id,
+            name: cp.name,
+            price: salePrice(cp, item.priceMode ?? active.priceMode),
+            qty,
+            unit: cp.unit,
+            source: item.source ?? "catalog",
+            note: `"${item.product.name}" komplekti tarkibidan`,
+            costPriceAtSaleSom: avgCostInSom(cp),
+          });
+          const target = MOCK_PRODUCTS.find((p) => p.id === cp.id);
+          if (target) {
+            target.vitrinaQty = Math.max(0, target.vitrinaQty - qty);
+          }
+        });
+        return;
+      }
+      receiptItems.push({
         productId: item.product.id,
         name: item.product.name,
         price: salePrice(item.product, item.priceMode ?? active.priceMode),
@@ -224,8 +307,10 @@ function SotuvchiPage() {
         unit: item.unit,
         source: item.source ?? "catalog",
         note: item.note,
-      })),
-    );
+        costPriceAtSaleSom: avgCostInSom(item.product),
+      });
+    });
+    finalizeSaleCore(payload, receiptItems);
     updateActive((s) => ({ ...s, items: [], discount: { type: "none" } }));
   };
 
@@ -301,6 +386,7 @@ function SotuvchiPage() {
                 discount={active.discount}
                 priceMode={active.priceMode}
                 onChangeQty={handleChangeQty}
+                onChangeKomplektComponentQty={handleChangeKomplektComponentQty}
                 onRemove={handleRemove}
                 onSetDiscount={handleSetDiscount}
                 onFinalize={handleFinalize}

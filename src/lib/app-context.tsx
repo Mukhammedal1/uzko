@@ -430,6 +430,8 @@ export type Device = {
   lastConnectedAt?: string;
   permissions: PermissionKey[];
   employeeId?: string;
+  /** Shu qurilma/xodim ishlaydigan qo'shimcha kassa — smena yopishda shu kassa bo'yicha hisoblanadi. */
+  kassaId?: string;
   active: boolean;
   isMain: boolean;
 };
@@ -567,12 +569,10 @@ const DEFAULT_SETTINGS: AppSettings = {
   ],
   units: [
     { id: "u-1", name: "dona", abbr: "dona" },
-    { id: "u-2", name: "karobka", abbr: "kar" },
-    { id: "u-3", name: "dona | karobka", abbr: "dona/kar", isBoxUnit: true },
-    { id: "u-4", name: "kg", abbr: "kg" },
-    { id: "u-5", name: "litr", abbr: "l" },
-    { id: "u-6", name: "metr", abbr: "m" },
-    { id: "u-7", name: "tonna", abbr: "t" },
+    { id: "u-2", name: "kg", abbr: "kg" },
+    { id: "u-3", name: "metr", abbr: "m" },
+    { id: "u-4", name: "litr", abbr: "l" },
+    { id: "u-5", name: "qop", abbr: "qop" },
   ],
   shelfLocations: [
     { id: "sl-1", name: "B-001", warehouse: "Asosiy ombor" },
@@ -600,6 +600,7 @@ const DEFAULT_SETTINGS: AppSettings = {
       isMain: true,
       active: true,
       employeeId: "X-005",
+      kassaId: "kassa-1",
       permissions: [
         "sotuv.create",
         "sotuv.view",
@@ -623,6 +624,7 @@ const DEFAULT_SETTINGS: AppSettings = {
       isMain: false,
       active: true,
       employeeId: "X-006",
+      kassaId: "kassa-1",
       permissions: ["sotuv.create", "sotuv.view", "kassa.view", "kassa.close"],
     },
     {

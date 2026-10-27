@@ -25,8 +25,17 @@ export type Product = {
   wholesaleCurrency?: Currency; // optom narx valyutasi (yo'q bo'lsa UZS)
   /** Tan narx ustiga qo'yilgan foiz — optom narx uchun, priceMarkupPercent kabi. */
   wholesaleMarkupPercent?: number;
-  costPrice: number; // tan narx — costCurrency da
+  costPrice: number; // tan narx — costCurrency da (oxirgi prixod narxi)
   costCurrency: Currency; // tan narx valyutasi
+  /** Og'irlikli o'rtacha tan narx — so'mda. Foyda/hisobotlar faqat shundan
+   * hisoblanadi. Har bir prixodda `applyPurchaseToProduct` orqali qayta hisoblanadi;
+   * qoldiq kamayganda (sotuv, qaytarish, komplekt) o'zgarmaydi. */
+  avgCostPriceSom?: number;
+  /** Faqat ma'lumot/monitoring uchun — oxirgi hisoblangan kursga nisbatan
+   * `avgCostPriceSom`ning dollar ekvivalenti. Hisob-kitobga ta'sir qilmaydi. */
+  avgCostPriceUsd?: number;
+  /** Oxirgi prixodda qo'llanilgan valyuta kursi (tahlil uchun, ixtiyoriy). */
+  avgCostCurrencyRate?: number;
   /** true bo'lsa — bu tovar tan narxidan past narxda sotilishiga yo'l qo'yilmaydi. */
   preventBelowCost?: boolean;
   barcode: string;
@@ -52,6 +61,11 @@ export type Product = {
    * maydonlar ota-tovardan olinadi.
    */
   variants?: ProductVariant[];
+  /** true bo'lsa — bu haqiqiy tovar emas, balki bir komplektni sotuvda
+   * ko'rsatish uchun yaratilgan sintetik yozuv (`resolveKomplekt` natijasi). */
+  isKomplekt?: boolean;
+  /** `isKomplekt` true bo'lsa — qaysi `Komplekt.id`dan yasalganini bildiradi. */
+  komplektId?: string;
 };
 
 export type ProductVariant = {
@@ -69,6 +83,9 @@ export type ProductVariant = {
   wholesaleCurrency?: Currency;
   costPrice?: number;
   costCurrency?: Currency;
+  avgCostPriceSom?: number;
+  avgCostPriceUsd?: number;
+  avgCostCurrencyRate?: number;
   vitrinaQty: number;
   omborQty?: number;
   minStockAlert?: number;
@@ -150,6 +167,10 @@ export type ReceiptItem = {
   unit: string;
   source?: "catalog" | "one-time";
   note?: string;
+  /** Sotuv paytidagi tovarning o'rtacha tan narxi (so'mda) — muhrlangan, o'zgarmas
+   * qiymat. Keyinchalik `avgCostPriceSom` yangilansa ham, bu yozuv o'z vaqtidagi
+   * tan narxini saqlab qoladi — shunda o'tgan davr hisobotlari buzilmaydi. */
+  costPriceAtSaleSom?: number;
 };
 
 /** Bitta to'lov usuli bo'yicha real yozuv — kassa hisobotlarida batafsil ko'rsatish uchun. */
@@ -172,6 +193,8 @@ export type Receipt = {
   /** Savdoni yakunlagan xodim (kod orqali tasdiqlangan) — sotuv hisobotlari uchun. */
   employeeId?: string;
   employeeName?: string;
+  /** Pul kirimi qaysi qo'shimcha kassaga tegishli ekani — smena yopishda shu kassa bo'yicha hisoblanadi. */
+  kassaId?: string;
   customerType: "oddiy" | "nasiya";
   customerId?: string;
   customerName?: string;
@@ -229,19 +252,100 @@ export type CashClose = {
   id: string;
   date: string;
   cashier: string;
+  /** Yopilgan qo'shimcha kassa. */
+  kassaId?: string;
   cash: number;
   cards: { type: string; amount: number }[];
   currencies: { code: Currency; amount: number }[];
   shortage: number; // kamomat
   leftInRegister: number; // kassada qoldi
+  /** Shu kassadan shu kun ichida qilingan chiqimlar (harajatlar) yig'indisi — yopish vaqtida hisoblab qotiriladi. */
+  expenses?: number;
+  /** Shu kassa bo'yicha shu kunlik jami tushum (naqd + karta + o'tkazma + hamyon + valyuta). */
+  totalSales?: number;
   note?: string;
 };
+
+// ─── Kassalar (asosiy kassa + qo'shimcha kassalar) ─────────────────────────
+//
+// Do'konda kunlik savdolar qo'shimcha kassa(lar) orqali o'tadi. Kun yakunida
+// kassir ertasi kun uchun o'zida qoldirmoqchi bo'lgan summadan tashqarisini
+// asosiy kassaga o'tkazadi. Har bir kassaning joriy balansi shu kassaga
+// tegishli KassaTransaction'lar yig'indisidan hisoblanadi (kassaBalance()).
+
+export type Kassa = {
+  id: string;
+  name: string;
+  kind: "asosiy" | "qoshimcha";
+  createdAt: string;
+  /** Smena yopilishida kassada standart qoldiriladigan summa (so'm). Admin belgilaydi. */
+  defaultLeftover?: number;
+  /** Kassir yopish paytida shu summani o'zi o'zgartira olsinmi — standart holatda yo'q (admin ruxsat bersa yoqiladi). */
+  allowSelfLeftover?: boolean;
+};
+
+export type KassaTransaction = {
+  id: string;
+  kassaId: string;
+  date: string;
+  type: "kirim" | "chiqim";
+  amount: number; // doim musbat — ishora `type` orqali aniqlanadi
+  note?: string;
+  cashier: string;
+  /** Kassalar orasidagi o'tkazma bo'lsa — qarama-qarshi kassa */
+  counterpartKassaId?: string;
+  counterpartKassaName?: string;
+};
+
+export const MOCK_KASSALAR: Kassa[] = [
+  {
+    id: "kassa-asosiy",
+    name: "Asosiy kassa",
+    kind: "asosiy",
+    createdAt: new Date("2026-01-01T00:00:00").toISOString(),
+  },
+  {
+    id: "kassa-1",
+    name: "Do'kon kassasi",
+    kind: "qoshimcha",
+    createdAt: new Date("2026-01-01T00:00:00").toISOString(),
+    defaultLeftover: 500_000,
+    allowSelfLeftover: false,
+  },
+];
+
+export const MOCK_KASSA_TRANSACTIONS: KassaTransaction[] = [
+  {
+    id: "KT-0001",
+    kassaId: "kassa-1",
+    date: new Date("2026-05-07T09:00:00").toISOString(),
+    type: "kirim",
+    amount: 3_250_000,
+    note: "Boshlang'ich balans",
+    cashier: "Sardor",
+  },
+];
+
+export function kassaBalance(kassaId: string): number {
+  return MOCK_KASSA_TRANSACTIONS.filter((t) => t.kassaId === kassaId).reduce(
+    (s, t) => s + (t.type === "kirim" ? t.amount : -t.amount),
+    0,
+  );
+}
+
+/** Qurilmaga biriktirilgan kassa yo'q/bo'lmasa — birinchi qo'shimcha kassaga tushadi. */
+export function resolveKassaId(deviceKassaId: string | undefined): string | undefined {
+  if (deviceKassaId && MOCK_KASSALAR.some((k) => k.id === deviceKassaId)) return deviceKassaId;
+  return MOCK_KASSALAR.find((k) => k.kind === "qoshimcha")?.id;
+}
 
 export type CashWithdrawal = {
   id: string;
   date: string;
   cashier: string;
   category: string;
+  /** Pul qaysi qo'shimcha kassadan chiqqani — kassa yopishda harajat sifatida hisoblanadi. */
+  kassaId?: string;
   cash: number;
   cardAmount: number;
   currencies: { code: Currency; amount: number }[];
@@ -920,7 +1024,7 @@ export const MOCK_PRODUCTS: Product[] = [
     vitrinaQty: 83,
     omborQty: 420,
     perBox: 20,
-    packUnit: "pallet",
+    packUnit: "karobka",
     salesHistory: genHistory(60, 2),
   },
   {
@@ -936,7 +1040,7 @@ export const MOCK_PRODUCTS: Product[] = [
     vitrinaQty: 46,
     omborQty: 180,
     perBox: 40,
-    packUnit: "pallet",
+    packUnit: "karobka",
     salesHistory: genHistory(60, 3),
   },
   {
@@ -2483,6 +2587,65 @@ export function costInSom(p: Pick<Product, "costPrice" | "costCurrency">): numbe
   return p.costPrice * (MOCK_RATES[p.costCurrency] ?? 1);
 }
 
+/** Foyda/hisobot hisob-kitoblari uchun haqiqiy baza — og'irlikli o'rtacha tan
+ * narx (so'mda). Hali birorta prixod WAC orqali o'tmagan eski tovarlarda
+ * `avgCostPriceSom` yo'q — shu holda oxirgi tan narxga (`costInSom`) tushadi. */
+export function avgCostInSom(
+  p: Pick<Product, "costPrice" | "costCurrency" | "avgCostPriceSom">,
+): number {
+  return typeof p.avgCostPriceSom === "number" ? p.avgCostPriceSom : costInSom(p);
+}
+
+/**
+ * Bitta prixod qatorini og'irlikli o'rtacha tan narx (WAC) formulasi bo'yicha
+ * mahsulotga qo'llaydi va yangi qoldiq + yangi o'rtacha tan narxni birgalikda
+ * yozadi (frontendda yagona sinxron chaqiruv — real backendda bitta transaction
+ * ichida, qatorni qulflab bajarilishi kerak bo'lgan qism shu funksiya).
+ *
+ * `exchangeRate` faqat `currency !== "UZS"` bo'lsa ishlatiladi — shu kungi kurs.
+ */
+export function applyPurchaseToProduct(
+  target: {
+    omborQty: number;
+    costPrice: number;
+    costCurrency: Currency;
+    avgCostPriceSom?: number;
+    avgCostPriceUsd?: number;
+    avgCostCurrencyRate?: number;
+  },
+  purchase: { qty: number; price: number; currency: Currency; exchangeRate?: number },
+): void {
+  const purchasePriceSom =
+    purchase.currency === "UZS"
+      ? purchase.price
+      : purchase.price * (purchase.exchangeRate ?? MOCK_RATES[purchase.currency] ?? 1);
+
+  const oldQty = Math.max(0, target.omborQty || 0);
+  // Hali birorta prixod WAC orqali o'tmagan bo'lsa (`avgCostPriceSom` yo'q) —
+  // mavjud qoldiqning bazasi 0 emas, balki tovarning joriy tan narxi (so'mda)
+  // deb olinadi. Aks holda eski qoldiq "bepul" hisoblanib, o'rtacha narx
+  // sun'iy ravishda keskin pasayib ketadi.
+  const oldAvgSom =
+    typeof target.avgCostPriceSom === "number" ? target.avgCostPriceSom : costInSom(target);
+  const incomingQty = Math.max(0, purchase.qty || 0);
+  const newQty = oldQty + incomingQty;
+
+  // So'mda tiyin yo'q — boshqa har bir narx maydoni kabi butun songa yaxlitlanadi,
+  // aks holda qoldiq cheksiz davriy kasrga aylanib (masalan 1/3 kabi nisbatlarda),
+  // keyingi prixodlarda xatolik asta-sekin to'planib boradi.
+  const newAvgSom =
+    newQty === 0 ? 0 : Math.round((oldQty * oldAvgSom + incomingQty * purchasePriceSom) / newQty);
+
+  target.omborQty = newQty;
+  target.avgCostPriceSom = newAvgSom;
+  if (purchase.currency !== "UZS") {
+    const rate = purchase.exchangeRate ?? MOCK_RATES[purchase.currency] ?? 1;
+    target.avgCostPriceUsd =
+      rate > 0 ? Math.round((newAvgSom / rate) * 100) / 100 : target.avgCostPriceUsd;
+    target.avgCostCurrencyRate = rate;
+  }
+}
+
 export function priceInSom(p: Pick<Product, "price" | "priceCurrency">): number {
   return p.price * (MOCK_RATES[p.priceCurrency ?? "UZS"] ?? 1);
 }
@@ -2593,6 +2756,91 @@ export function isProductAtLimit(product: Pick<Product, "vitrinaQty" | "minStock
   return typeof product.minStockAlert === "number" && product.minStockAlert >= 0
     ? product.vitrinaQty <= product.minStockAlert
     : false;
+}
+
+// === Komplekt (bir nechta tovardan tashkil topgan to'plam) ===
+
+export type KomplektItem = {
+  productId: string;
+  /** 1 ta komplekt yig'ish uchun shu tovardan necha dona kerakligi. */
+  qty: number;
+};
+
+export type Komplekt = {
+  id: string;
+  name: string;
+  items: KomplektItem[];
+};
+
+export const MOCK_KOMPLEKTLAR: Komplekt[] = [];
+
+export function nextKomplektId(): string {
+  return `KMP-${String(MOCK_KOMPLEKTLAR.length + 1).padStart(4, "0")}`;
+}
+
+/** Komplekt tarkibidagi tovarlarni (bazadan o'chirilmagan bo'lsa) qoldiqlari bilan qaytaradi. */
+export function komplektComponents(komplekt: Komplekt): { product: Product; qty: number }[] {
+  return komplekt.items
+    .map((item) => {
+      const product = MOCK_PRODUCTS.find((p) => p.id === item.productId);
+      return product ? { product, qty: item.qty } : null;
+    })
+    .filter((x): x is { product: Product; qty: number } => x !== null);
+}
+
+/** Komplekt narxi — tarkibidagi tovarlar narxi yig'indisi (1 komplekt uchun). */
+export function komplektPrice(
+  komplekt: Komplekt,
+  priceMode: "retail" | "wholesale" = "retail",
+): number {
+  return komplektComponents(komplekt).reduce((sum, { product, qty }) => {
+    const unitPrice =
+      priceMode === "wholesale" && product.wholesalePrice ? product.wholesalePrice : product.price;
+    return sum + unitPrice * qty;
+  }, 0);
+}
+
+function komplektCostPrice(komplekt: Komplekt): number {
+  return komplektComponents(komplekt).reduce(
+    (sum, { product, qty }) => sum + product.costPrice * qty,
+    0,
+  );
+}
+
+/** Omborda hozir nechta komplekt yig'ish mumkinligi — eng kam yetadigan
+ * tarkibiy tovar bo'yicha hisoblanadi. */
+export function komplektAvailableQty(komplekt: Komplekt): number {
+  const components = komplektComponents(komplekt);
+  if (components.length === 0) return 0;
+  return Math.min(
+    ...components.map(({ product, qty }) => (qty > 0 ? Math.floor(product.vitrinaQty / qty) : 0)),
+  );
+}
+
+/** Komplektni sotuvda oddiy tovar kabi ishlatish uchun sintetik `Product`
+ * obyektiga aylantiradi (savatcha, miqdor oynasi va h.k. o'zgarmaydi). */
+export function resolveKomplekt(komplekt: Komplekt): Product {
+  return {
+    id: `komplekt::${komplekt.id}`,
+    name: komplekt.name,
+    price: komplektPrice(komplekt, "retail"),
+    wholesalePrice: komplektPrice(komplekt, "wholesale") || undefined,
+    costPrice: komplektCostPrice(komplekt),
+    costCurrency: "UZS",
+    barcode: "",
+    customCode: "KOMPLEKT",
+    unit: "komplekt",
+    warehouse: "",
+    vitrinaQty: komplektAvailableQty(komplekt),
+    omborQty: 0,
+    isKomplekt: true,
+    komplektId: komplekt.id,
+  };
+}
+
+/** Berilgan tovar a'zo bo'lgan barcha komplektlar ro'yxati. */
+export function komplektlarOfProduct(productId: string): Komplekt[] {
+  return MOCK_KOMPLEKTLAR.filter((k) => k.items.some((item) => item.productId === productId));
 }
 
 export type SupplierSummary = {

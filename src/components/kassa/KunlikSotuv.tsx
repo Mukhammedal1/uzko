@@ -60,7 +60,11 @@ import {
   MOCK_RECEIPTS,
   MOCK_RECEIPT_EDIT_HISTORY,
   MOCK_CASH_CLOSES,
+  MOCK_KASSALAR,
+  MOCK_KASSA_TRANSACTIONS,
+  MOCK_WITHDRAWALS,
   formatSom,
+  resolveKassaId,
   type Receipt,
   type CashClose,
 } from "@/lib/mock-data";
@@ -81,6 +85,48 @@ function fmtDate(d: Date) {
 }
 function isSameDay(a: Date, b: Date) {
   return a.toDateString() === b.toDateString();
+}
+
+/** Cheklar ro'yxatidan kassa hisoboti (naqd/karta/valyuta taqsimoti) yig'adi —
+ * umumiy "Kunlik sotuv" sahifasida ham, kassa-xususiy "Smenani yakunlash"
+ * oynasida ham xuddi shu hisoblash ishlatiladi. */
+function buildDashboard(receipts: Receipt[]) {
+  const cardsByType: Record<string, number> = {};
+  const currenciesByCode: Record<string, number> = {};
+  const currencySomByCode: Record<string, number> = {};
+  const acc = receipts.reduce(
+    (acc, receipt) => {
+      acc.total += receipt.total;
+      const payment = receipt.paymentBreakdown;
+      if (payment) {
+        acc.cash += payment.cash;
+        acc.card += payment.card;
+        acc.transfer += payment.transfer ?? 0;
+        acc.wallet += payment.wallet ?? 0;
+        acc.currency += payment.currencyInSom;
+        for (const row of payment.rows ?? []) {
+          if (row.cardType === "Humo") acc.humo += row.amountSom;
+          else if (row.cardType === "Uzcard") acc.uzcard += row.amountSom;
+          if (row.cardType) {
+            cardsByType[row.cardType] = (cardsByType[row.cardType] ?? 0) + row.amountSom;
+          }
+          if (row.currency) {
+            currenciesByCode[row.currency] =
+              (currenciesByCode[row.currency] ?? 0) + (row.currencyAmount ?? 0);
+            currencySomByCode[row.currency] =
+              (currencySomByCode[row.currency] ?? 0) + row.amountSom;
+          }
+        }
+      } else if (receipt.customerType === "nasiya") {
+        acc.cash += receipt.paidAmount ?? 0;
+      } else {
+        acc.cash += receipt.total;
+      }
+      return acc;
+    },
+    { total: 0, cash: 0, card: 0, transfer: 0, wallet: 0, currency: 0, humo: 0, uzcard: 0 },
+  );
+  return { ...acc, cardsByType, currenciesByCode, currencySomByCode };
 }
 
 function matchesReceiptQuery(r: Receipt, rawQuery: string) {
@@ -128,44 +174,7 @@ export function KunlikSotuv() {
     return dateFiltered.filter((r) => matchesReceiptQuery(r, query));
   }, [dateFiltered, query]);
 
-  const dashboard = React.useMemo(() => {
-    const cardsByType: Record<string, number> = {};
-    const currenciesByCode: Record<string, number> = {};
-    const currencySomByCode: Record<string, number> = {};
-    const acc = dateFiltered.reduce(
-      (acc, receipt) => {
-        acc.total += receipt.total;
-        const payment = receipt.paymentBreakdown;
-        if (payment) {
-          acc.cash += payment.cash;
-          acc.card += payment.card;
-          acc.transfer += payment.transfer ?? 0;
-          acc.wallet += payment.wallet ?? 0;
-          acc.currency += payment.currencyInSom;
-          for (const row of payment.rows ?? []) {
-            if (row.cardType === "Humo") acc.humo += row.amountSom;
-            else if (row.cardType === "Uzcard") acc.uzcard += row.amountSom;
-            if (row.cardType) {
-              cardsByType[row.cardType] = (cardsByType[row.cardType] ?? 0) + row.amountSom;
-            }
-            if (row.currency) {
-              currenciesByCode[row.currency] =
-                (currenciesByCode[row.currency] ?? 0) + (row.currencyAmount ?? 0);
-              currencySomByCode[row.currency] =
-                (currencySomByCode[row.currency] ?? 0) + row.amountSom;
-            }
-          }
-        } else if (receipt.customerType === "nasiya") {
-          acc.cash += receipt.paidAmount ?? 0;
-        } else {
-          acc.cash += receipt.total;
-        }
-        return acc;
-      },
-      { total: 0, cash: 0, card: 0, transfer: 0, wallet: 0, currency: 0, humo: 0, uzcard: 0 },
-    );
-    return { ...acc, cardsByType, currenciesByCode, currencySomByCode };
-  }, [dateFiltered]);
+  const dashboard = React.useMemo(() => buildDashboard(dateFiltered), [dateFiltered]);
 
   const printReceiptAs = (r: Receipt, format: ReceiptPrintFormat) => {
     const ok = printSaleReceipt(r, format, {
@@ -465,11 +474,7 @@ export function KunlikSotuv() {
         }}
       />
 
-      <CloseShiftDialog
-        open={showCloseShift}
-        onOpenChange={setShowCloseShift}
-        dashboard={dashboard}
-      />
+      <CloseShiftDialog open={showCloseShift} onOpenChange={setShowCloseShift} />
 
       <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
         <AlertDialogContent>
@@ -488,20 +493,6 @@ export function KunlikSotuv() {
     </div>
   );
 }
-
-type DashboardData = {
-  total: number;
-  cash: number;
-  card: number;
-  transfer: number;
-  wallet: number;
-  currency: number;
-  humo: number;
-  uzcard: number;
-  cardsByType: Record<string, number>;
-  currenciesByCode: Record<string, number>;
-  currencySomByCode: Record<string, number>;
-};
 
 const CLOSE_DIFF_EPSILON = 0.5;
 
@@ -528,18 +519,35 @@ function nextCurrencyCode(used: string[]) {
 function CloseShiftDialog({
   open,
   onOpenChange,
-  dashboard,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  dashboard: DashboardData;
 }) {
   const { settings } = useApp();
 
+  const currentDevice = settings.devices.find((d) => d.id === settings.currentDeviceId);
+  const myKassaId = resolveKassaId(currentDevice?.kassaId);
+  const myKassa = MOCK_KASSALAR.find((k) => k.id === myKassaId);
+  const asosiy = MOCK_KASSALAR.find((k) => k.kind === "asosiy");
+
+  const isToday = (d: string) =>
+    isSameDay(new Date(d), new Date("2026-05-07")) || isSameDay(new Date(d), new Date());
+
+  // Faqat shu kassaga tegishli, bugungi cheklar — har bir kassa o'z smenasini mustaqil yopadi.
+  const myReceipts = React.useMemo(
+    () => MOCK_RECEIPTS.filter((r) => r.kassaId === myKassaId && isToday(r.date)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [myKassaId, open],
+  );
+  const dashboard = React.useMemo(() => buildDashboard(myReceipts), [myReceipts]);
+
   const [actualCash, setActualCash] = React.useState("");
   const [currencyRows, setCurrencyRows] = React.useState<CurrencyRow[]>([]);
+  const [leftover, setLeftover] = React.useState("");
   const [note, setNote] = React.useState("");
   const [code, setCode] = React.useState("");
+
+  const canEditLeftover = !!myKassa?.allowSelfLeftover;
 
   // Dialog ochilganda tizim bo'yicha kutilgan summalarni boshlang'ich qiymat sifatida qo'yamiz —
   // kassir shu yerdan boshlab qo'lda sanagan haqiqiy summaga tuzatadi. Savdo bo'lmagan
@@ -556,6 +564,7 @@ function CloseShiftDialog({
           }))
         : [],
     );
+    setLeftover(String(Math.round(myKassa?.defaultLeftover ?? 0)));
     setNote("");
     setCode("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -584,9 +593,21 @@ function CloseShiftDialog({
   const isShortage = totalDiff < -CLOSE_DIFF_EPSILON;
   const isSurplus = totalDiff > CLOSE_DIFF_EPSILON;
 
+  // Kassir qo'lda sanagan naqd + valyuta — somga o'girilgan jami. Shundan qoldiq
+  // ayirilgandan keyingi qismi asosiy kassaga o'tkaziladi.
+  const countedCurrencySom = currencyDiffs.reduce((s, d) => {
+    const expectedSom = dashboard.currencySomByCode[d.code] ?? 0;
+    const rate = d.expectedNative > 0 ? expectedSom / d.expectedNative : 0;
+    return s + d.actualNative * rate;
+  }, 0);
+  const countedTotal = (parseFloat(actualCash) || 0) + countedCurrencySom;
+  const leftoverAmount = parseFloat(leftover) || 0;
+  const transferAmount = Math.max(0, Math.round(countedTotal - leftoverAmount));
+
   const reset = () => {
     setActualCash("");
     setCurrencyRows([]);
+    setLeftover("");
     setNote("");
     setCode("");
   };
@@ -614,18 +635,57 @@ function CloseShiftDialog({
       return;
     }
 
+    const expenses = MOCK_WITHDRAWALS.filter(
+      (w) => w.kassaId === myKassaId && isToday(w.date),
+    ).reduce(
+      (s, w) => s + w.cash + w.cardAmount + w.currencies.reduce((cs, c) => cs + c.amount, 0),
+      0,
+    );
+
     const cashClose: CashClose = {
       id: `KY-${Date.now()}`,
       date: new Date().toISOString(),
       cashier: settings.username,
+      kassaId: myKassaId,
       cash: parseFloat(actualCash) || 0,
       cards: Object.entries(dashboard.cardsByType).map(([type, amount]) => ({ type, amount })),
       currencies: currencyRows.map((r) => ({ code: r.code, amount: parseFloat(r.amount) || 0 })),
       shortage: isShortage ? Math.abs(totalDiff) : 0,
-      leftInRegister: 0,
+      leftInRegister: leftoverAmount,
+      expenses,
+      totalSales: dashboard.total,
       note: !balanced ? note.trim() : undefined,
     };
     MOCK_CASH_CLOSES.push(cashClose);
+
+    // Qoldiqdan tashqari summa avtomatik, tasdiqlovsiz asosiy kassaga o'tadi.
+    if (transferAmount > 0 && myKassaId && asosiy) {
+      const now = new Date().toISOString();
+      const txId = `KT-${Date.now()}`;
+      MOCK_KASSA_TRANSACTIONS.push({
+        id: `${txId}-out`,
+        kassaId: myKassaId,
+        date: now,
+        type: "chiqim",
+        amount: transferAmount,
+        note: "Smena yopilishi — asosiy kassaga o'tkazma",
+        cashier: settings.username,
+        counterpartKassaId: asosiy.id,
+        counterpartKassaName: asosiy.name,
+      });
+      MOCK_KASSA_TRANSACTIONS.push({
+        id: `${txId}-in`,
+        kassaId: asosiy.id,
+        date: now,
+        type: "kirim",
+        amount: transferAmount,
+        note: `${myKassa?.name ?? ""} smenasi yopildi`,
+        cashier: settings.username,
+        counterpartKassaId: myKassaId,
+        counterpartKassaName: myKassa?.name,
+      });
+    }
+
     toast.success("Kassa muvaffaqiyatli yopildi");
     reset();
     onOpenChange(false);
@@ -641,7 +701,12 @@ function CloseShiftDialog({
     >
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Smenani yakunlash / Kassani yopish</DialogTitle>
+          <DialogTitle>
+            Smenani yakunlash / Kassani yopish
+            {myKassa && (
+              <span className="ml-1 font-normal text-muted-foreground">— {myKassa.name}</span>
+            )}
+          </DialogTitle>
         </DialogHeader>
 
         <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
@@ -806,6 +871,29 @@ function CloseShiftDialog({
               rows={2}
             />
           )}
+        </div>
+
+        <div className="rounded-lg border bg-card p-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <Label className="text-sm font-semibold">Kassada qoldiriladigan summa</Label>
+            {!canEditLeftover && (
+              <span className="text-xs text-muted-foreground">
+                Admin belgilagan — o'zgartirib bo'lmaydi
+              </span>
+            )}
+          </div>
+          <Input
+            type="number"
+            value={leftover}
+            onChange={(e) => canEditLeftover && setLeftover(e.target.value)}
+            disabled={!canEditLeftover}
+            placeholder="0"
+            className="mt-2 h-9"
+          />
+          <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+            <span>Asosiy kassaga avtomatik o'tkaziladi</span>
+            <span className="font-semibold text-foreground">{formatSom(transferAmount)}</span>
+          </div>
         </div>
 
         <div className="rounded-lg border bg-card p-2.5">

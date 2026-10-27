@@ -39,6 +39,7 @@ import {
   MOCK_SUPPLIER_REPORTS,
   MOCK_EMPLOYEES,
   formatSom,
+  resolveKassaId,
   type Currency,
   type CashWithdrawal,
   type Employee,
@@ -170,11 +171,13 @@ export function KassadanPulChiqarish() {
       toast.error("Xodim tanlash shart");
       return;
     }
+    const currentDevice = settings.devices.find((d) => d.id === settings.currentDeviceId);
     const w: CashWithdrawal = {
       id: `WD-${Date.now()}`,
       date: new Date().toISOString(),
       cashier: "Joriy foydalanuvchi",
       category,
+      kassaId: resolveKassaId(currentDevice?.kassaId),
       cash: parseFloat(cash) || 0,
       cardAmount: sum(cards),
       currencies: currs.map((c) => ({ code: c.code, amount: parseFloat(c.amount) || 0 })),

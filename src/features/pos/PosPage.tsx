@@ -1,7 +1,7 @@
 import * as React from "react";
 import { toast } from "sonner";
 import { HandCoins, PackagePlus, RotateCcw, Wifi } from "lucide-react";
-import { formatSom, maxAllowedCartDiscount } from "@/lib/mock-data";
+import { formatSom, maxAllowedCartDiscount, avgCostInSom } from "@/lib/mock-data";
 import type { Product, ReceiptItem } from "@/lib/mock-data";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { FinalizeSaleDialog } from "@/components/sotuv/FinalizeSaleDialog";
@@ -187,6 +187,7 @@ export function PosPage({
       qty: line.quantity,
       unit: line.product.unit,
       source: line.product.customCode === "BIR-MARTALIK" ? "one-time" : "catalog",
+      costPriceAtSaleSom: avgCostInSom(line.product),
     }));
 
     onFinalizeSale?.(

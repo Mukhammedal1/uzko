@@ -38,6 +38,7 @@ import {
   HandCoins,
   Wifi,
   LayoutGrid,
+  ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -45,6 +46,7 @@ type Props = {
   items: CartItem[];
   discount: Discount;
   onChangeQty: (id: string, qty: number) => void;
+  onChangeKomplektComponentQty?: (cartItemId: string, componentProductId: string, qty: number) => void;
   onRemove: (id: string) => void;
   onSetDiscount: (d: Discount) => void;
   onFinalize: (payload: FinalizedSalePayload) => void;
@@ -67,6 +69,7 @@ export function SaleCart({
   items,
   discount,
   onChangeQty,
+  onChangeKomplektComponentQty,
   onRemove,
   onSetDiscount,
   onFinalize,
@@ -88,9 +91,24 @@ export function SaleCart({
   const [finalizeOpen, setFinalizeOpen] = React.useState(false);
   const [demoOpen, setDemoOpen] = React.useState(false);
   const [oneTimeOpen, setOneTimeOpen] = React.useState(false);
+  const [expandedKomplekt, setExpandedKomplekt] = React.useState<Set<string>>(() => new Set());
+
+  const toggleKomplektExpand = (id: string) => {
+    setExpandedKomplekt((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const lineTotal = (it: CartItem) =>
-    salePrice(it.product, it.priceMode ?? priceMode) * safeNumber(it.quantity);
+    it.komplekt
+      ? it.komplekt.components.reduce(
+          (sum, c) => sum + salePrice(c.product, it.priceMode ?? priceMode) * safeNumber(c.qty),
+          0,
+        )
+      : salePrice(it.product, it.priceMode ?? priceMode) * safeNumber(it.quantity);
   const subtotal = items.reduce((s, it) => s + lineTotal(it), 0);
 
   const discountAmount =
@@ -295,10 +313,31 @@ export function SaleCart({
               </thead>
               <tbody>
                 {items.map((it) => (
-                  <tr key={it.id} className="border-b transition-colors hover:bg-muted/40">
+                  <React.Fragment key={it.id}>
+                  <tr className="border-b transition-colors hover:bg-muted/40">
                     <td className="px-3 py-1.5">
                       <div className="flex min-w-0 items-center gap-2">
+                        {it.komplekt && (
+                          <button
+                            type="button"
+                            onClick={() => toggleKomplektExpand(it.id)}
+                            className="shrink-0 text-muted-foreground"
+                            aria-label="Komplekt tarkibini ko'rsatish"
+                          >
+                            <ChevronRight
+                              className={
+                                "h-3.5 w-3.5 transition-transform " +
+                                (expandedKomplekt.has(it.id) ? "rotate-90" : "")
+                              }
+                            />
+                          </button>
+                        )}
                         <div className="truncate font-medium">{it.product.name}</div>
+                        {it.komplekt && (
+                          <Badge variant="secondary" className="shrink-0 text-[9px]">
+                            komplekt
+                          </Badge>
+                        )}
                         {it.source === "one-time" && (
                           <Badge variant="secondary" className="shrink-0 text-[9px]">
                             bir martalik
@@ -377,6 +416,44 @@ export function SaleCart({
                       </div>
                     </td>
                   </tr>
+                  {it.komplekt &&
+                    expandedKomplekt.has(it.id) &&
+                    it.komplekt.components.map((c) => (
+                      <tr
+                        key={`${it.id}-${c.product.id}`}
+                        className="border-b bg-muted/20 text-xs text-muted-foreground"
+                      >
+                        <td className="py-1 pl-9 pr-3">{c.product.name}</td>
+                        <td className="px-3 py-1 text-right tabular-nums">
+                          {formatMoney(salePrice(c.product, it.priceMode ?? priceMode), currency)}
+                        </td>
+                        <td className="px-3 py-1 text-center">
+                          <input
+                            type="number"
+                            value={c.qty}
+                            onChange={(e) =>
+                              onChangeKomplektComponentQty?.(
+                                it.id,
+                                c.product.id,
+                                parseFloat(e.target.value) || 0,
+                              )
+                            }
+                            className="h-6 w-16 rounded border bg-background px-1 text-center text-xs tabular-nums"
+                            min={0}
+                            step="any"
+                          />
+                        </td>
+                        <td className="px-3 py-1">{c.product.unit}</td>
+                        <td className="px-3 py-1 text-right tabular-nums">
+                          {formatMoney(
+                            salePrice(c.product, it.priceMode ?? priceMode) * c.qty,
+                            currency,
+                          )}
+                        </td>
+                        <td></td>
+                      </tr>
+                    ))}
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>

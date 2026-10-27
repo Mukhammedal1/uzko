@@ -50,6 +50,7 @@ export type AddSaleReceiptInput = {
   cashier: string;
   employeeId?: string;
   employeeName?: string;
+  kassaId?: string;
   customerType: CustomerType;
   customerId?: string;
   customerName?: string;
@@ -158,6 +159,7 @@ export function addSaleReceipt(input: AddSaleReceiptInput) {
     cashier: input.cashier,
     employeeId: input.employeeId,
     employeeName: input.employeeName,
+    kassaId: input.kassaId,
     customerType: input.customerType,
     customerId: input.customerId,
     customerName: input.customerName,

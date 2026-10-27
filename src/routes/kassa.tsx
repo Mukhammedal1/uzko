@@ -4,10 +4,11 @@ import { Toaster } from "@/components/ui/sonner";
 import { TopBar } from "@/components/sotuv/TopBar";
 import { BottomBar } from "@/components/sotuv/BottomBar";
 import { Button } from "@/components/ui/button";
-import { Receipt, Banknote, History } from "lucide-react";
+import { Receipt, Banknote, History, Landmark } from "lucide-react";
 import { KunlikSotuv } from "@/components/kassa/KunlikSotuv";
 import { KassadanPulChiqarish } from "@/components/kassa/KassadanPulChiqarish";
 import { KassaTarixi } from "@/components/kassa/KassaTarixi";
+import { Kassalar } from "@/components/kassa/Kassalar";
 
 export const Route = createFileRoute("/kassa")({
   head: () => ({
@@ -20,6 +21,7 @@ const TABS = [
   { id: "kunlik", label: "Kunlik sotuv", icon: Receipt },
   { id: "chiqim", label: "Kassadan pul chiqarish", icon: Banknote },
   { id: "tarix", label: "Kassa tarixi", icon: History },
+  { id: "kassalar", label: "Kassalar", icon: Landmark },
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
 
@@ -54,6 +56,7 @@ function KassaPage() {
           {tab === "kunlik" && <KunlikSotuv />}
           {tab === "chiqim" && <KassadanPulChiqarish />}
           {tab === "tarix" && <KassaTarixi />}
+          {tab === "kassalar" && <Kassalar />}
         </section>
       </main>
 

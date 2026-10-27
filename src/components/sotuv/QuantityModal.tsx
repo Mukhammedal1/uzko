@@ -10,9 +10,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { Product } from "@/lib/mock-data";
-import { formatMoney, isProductAtLimit } from "@/lib/mock-data";
+import { formatMoney, isProductAtLimit, komplektlarOfProduct, resolveKomplekt } from "@/lib/mock-data";
 import { AlertTriangle } from "lucide-react";
 import type { PriceMode } from "./types";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 type Props = {
   product: Product | null;
@@ -26,44 +33,58 @@ const WEIGHT_UNITS = new Set(["kg"]);
 
 export function QuantityModal({ product, open, onOpenChange, onAdd, currency = "UZS" }: Props) {
   const [qty, setQty] = React.useState("1");
-  const [boxMode, setBoxMode] = React.useState<"dona" | "karobka">("dona");
+  const [unitMode, setUnitMode] = React.useState<"dona" | "karobka" | "komplekt">("dona");
   const [amountMode, setAmountMode] = React.useState<"qty" | "amount">("qty");
   const [selectedPriceMode, setSelectedPriceMode] = React.useState<PriceMode>("retail");
+  const [selectedKomplektId, setSelectedKomplektId] = React.useState("");
 
   const hasBoxOption = !!product && (product.perBox ?? 0) > 1;
   const isWeightUnit = !!product && WEIGHT_UNITS.has(product.unit);
+  const komplektOptions =
+    product && !product.isKomplekt ? komplektlarOfProduct(product.id) : [];
+  const hasKomplektOption = komplektOptions.length > 0;
 
   React.useEffect(() => {
     if (open && product) {
       setQty("1");
-      setBoxMode("dona");
+      setUnitMode("dona");
       setAmountMode("qty");
       setSelectedPriceMode("retail");
+      setSelectedKomplektId(komplektlarOfProduct(product.id)[0]?.id ?? "");
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, product]);
 
   if (!product) return null;
 
-  const price = salePrice(product, selectedPriceMode);
+  const selectedKomplekt =
+    komplektOptions.find((k) => k.id === selectedKomplektId) ?? komplektOptions[0] ?? null;
+  const isKomplektMode = unitMode === "komplekt" && !!selectedKomplekt;
+  const effectiveProduct = isKomplektMode ? resolveKomplekt(selectedKomplekt!) : product;
+  const effectiveHasBoxOption = !isKomplektMode && hasBoxOption;
+
+  const price = salePrice(effectiveProduct, selectedPriceMode);
   const enteredValue = parseFloat(qty) || 0;
 
-  const numQty = hasBoxOption
-    ? boxMode === "karobka"
-      ? enteredValue * (product.perBox ?? 1)
-      : enteredValue
-    : isWeightUnit && amountMode === "amount"
-      ? price > 0
-        ? enteredValue / price
-        : 0
-      : enteredValue;
+  const numQty = isKomplektMode
+    ? enteredValue
+    : effectiveHasBoxOption
+      ? unitMode === "karobka"
+        ? enteredValue * (product.perBox ?? 1)
+        : enteredValue
+      : isWeightUnit && amountMode === "amount"
+        ? price > 0
+          ? enteredValue / price
+          : 0
+        : enteredValue;
 
   const totalPrice = numQty * price;
-  const totalAvailable = product.vitrinaQty;
+  const totalAvailable = effectiveProduct.vitrinaQty;
   const exceeds = numQty > totalAvailable;
 
   const handleAdd = () => {
     if (numQty > 0 && !exceeds) {
-      onAdd(product, numQty, selectedPriceMode);
+      onAdd(effectiveProduct, numQty, selectedPriceMode);
       onOpenChange(false);
     }
   };
@@ -79,16 +100,20 @@ export function QuantityModal({ product, open, onOpenChange, onAdd, currency = "
           <div className="flex justify-between">
             <span className="text-muted-foreground">Narxi:</span>
             <span className="font-medium">
-              {formatMoney(price, currency)} / {product.unit}
+              {formatMoney(price, currency)} / {effectiveProduct.unit}
             </span>
           </div>
           <div className="mt-1 flex justify-between">
-            <span className="text-muted-foreground">Vitrinada:</span>
+            <span className="text-muted-foreground">
+              {isKomplektMode ? "Mavjud komplekt:" : "Vitrinada:"}
+            </span>
             <span
-              className={"font-semibold " + (product.vitrinaQty === 0 ? "text-destructive" : "")}
+              className={
+                "font-semibold " + (effectiveProduct.vitrinaQty === 0 ? "text-destructive" : "")
+              }
             >
-              {product.vitrinaQty} {product.unit}
-              {hasBoxOption && (
+              {effectiveProduct.vitrinaQty} {effectiveProduct.unit}
+              {effectiveHasBoxOption && (
                 <span className="ml-1 font-normal text-muted-foreground">
                   ({Math.floor(product.vitrinaQty / (product.perBox ?? 1))}{" "}
                   {product.packUnit ?? "karobka"}
@@ -100,7 +125,7 @@ export function QuantityModal({ product, open, onOpenChange, onAdd, currency = "
               )}
             </span>
           </div>
-          {isProductAtLimit(product) && (
+          {!isKomplektMode && isProductAtLimit(product) && (
             <div className="mt-2 flex items-center justify-between rounded-md bg-amber-50 px-2 py-1 text-amber-700">
               <span className="inline-flex items-center gap-1 text-xs font-semibold">
                 <AlertTriangle className="h-3.5 w-3.5" />
@@ -143,35 +168,79 @@ export function QuantityModal({ product, open, onOpenChange, onAdd, currency = "
           </div>
         </div>
 
-        {hasBoxOption && (
-          <div className="grid grid-cols-2 gap-1.5 rounded-md bg-muted/40 p-1">
+        {(hasBoxOption || hasKomplektOption) && (
+          <div
+            className={
+              "grid gap-1.5 rounded-md bg-muted/40 p-1 " +
+              (hasBoxOption && hasKomplektOption ? "grid-cols-3" : "grid-cols-2")
+            }
+          >
             <button
               type="button"
               onClick={() => {
-                setBoxMode("dona");
+                setUnitMode("dona");
                 setQty("1");
               }}
               className={
                 "rounded-sm px-2 py-1.5 text-sm font-semibold transition-colors " +
-                (boxMode === "dona" ? "bg-card text-primary shadow-sm" : "text-muted-foreground")
+                (unitMode === "dona" ? "bg-card text-primary shadow-sm" : "text-muted-foreground")
               }
             >
               {product.unit.replace(/^./, (c) => c.toUpperCase())}
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                setBoxMode("karobka");
-                setQty("1");
-              }}
-              className={
-                "rounded-sm px-2 py-1.5 text-sm font-semibold transition-colors " +
-                (boxMode === "karobka" ? "bg-card text-primary shadow-sm" : "text-muted-foreground")
-              }
-            >
-              {(product.packUnit ?? "karobka").replace(/^./, (c) => c.toUpperCase())} (
-              {product.perBox} {product.unit})
-            </button>
+            {hasBoxOption && (
+              <button
+                type="button"
+                onClick={() => {
+                  setUnitMode("karobka");
+                  setQty("1");
+                }}
+                className={
+                  "rounded-sm px-2 py-1.5 text-sm font-semibold transition-colors " +
+                  (unitMode === "karobka"
+                    ? "bg-card text-primary shadow-sm"
+                    : "text-muted-foreground")
+                }
+              >
+                {(product.packUnit ?? "karobka").replace(/^./, (c) => c.toUpperCase())} (
+                {product.perBox} {product.unit})
+              </button>
+            )}
+            {hasKomplektOption && (
+              <button
+                type="button"
+                onClick={() => {
+                  setUnitMode("komplekt");
+                  setQty("1");
+                }}
+                className={
+                  "rounded-sm px-2 py-1.5 text-sm font-semibold transition-colors " +
+                  (unitMode === "komplekt"
+                    ? "bg-card text-primary shadow-sm"
+                    : "text-muted-foreground")
+                }
+              >
+                Komplekt
+              </button>
+            )}
+          </div>
+        )}
+
+        {isKomplektMode && (
+          <div>
+            <Label className="mb-2 block">Qaysi komplekt</Label>
+            <Select value={selectedKomplektId} onValueChange={setSelectedKomplektId}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {komplektOptions.map((k) => (
+                  <SelectItem key={k.id} value={k.id}>
+                    {k.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )}
 
@@ -210,13 +279,15 @@ export function QuantityModal({ product, open, onOpenChange, onAdd, currency = "
 
         <div>
           <Label className="mb-2 block">
-            {hasBoxOption
-              ? boxMode === "karobka"
-                ? `Nechta ${product.packUnit ?? "karobka"}`
-                : `Umumiy soni (${product.unit})`
-              : isWeightUnit && amountMode === "amount"
-                ? "Summasi (so'm)"
-                : `Umumiy soni (${product.unit})`}
+            {isKomplektMode
+              ? "Nechta komplekt"
+              : effectiveHasBoxOption
+                ? unitMode === "karobka"
+                  ? `Nechta ${product.packUnit ?? "karobka"}`
+                  : `Umumiy soni (${product.unit})`
+                : isWeightUnit && amountMode === "amount"
+                  ? "Summasi (so'm)"
+                  : `Umumiy soni (${product.unit})`}
           </Label>
           <Input
             type="number"
@@ -227,7 +298,7 @@ export function QuantityModal({ product, open, onOpenChange, onAdd, currency = "
             autoFocus
             onKeyDown={(e) => e.key === "Enter" && handleAdd()}
           />
-          {hasBoxOption && boxMode === "karobka" && enteredValue > 0 && (
+          {effectiveHasBoxOption && unitMode === "karobka" && enteredValue > 0 && (
             <p className="mt-1 text-xs text-muted-foreground">
               = {numQty} {product.unit}
             </p>
@@ -239,7 +310,7 @@ export function QuantityModal({ product, open, onOpenChange, onAdd, currency = "
           )}
           {exceeds && (
             <p className="mt-1 text-xs font-medium text-destructive">
-              Yetarli emas! Mavjud: {totalAvailable} {product.unit}
+              Yetarli emas! Mavjud: {totalAvailable} {effectiveProduct.unit}
             </p>
           )}
         </div>

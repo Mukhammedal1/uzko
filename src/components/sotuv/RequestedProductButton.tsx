@@ -30,7 +30,7 @@ import {
   type RequesterType,
 } from "@/lib/requested-products";
 
-const UNITS = ["dona", "kg", "metr", "litr", "qut"];
+const UNITS = ["dona", "kg", "metr", "litr", "qop"];
 const MAX_IMAGE_SIDE = 800;
 const MAX_SUGGESTIONS = 8;
 

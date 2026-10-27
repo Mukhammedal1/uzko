@@ -10,14 +10,16 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { AlertTriangle, Banknote, ChevronRight, Columns3, Layers, Search } from "lucide-react";
 import {
+  MOCK_KOMPLEKTLAR,
   MOCK_PRODUCTS,
   formatMoney,
   isProductAtLimit,
   productHasVariants,
+  resolveKomplekt,
   resolveVariant,
   variantTotalQty,
 } from "@/lib/mock-data";
-import type { Product, ProductVariant } from "@/lib/mock-data";
+import type { Komplekt, Product, ProductVariant } from "@/lib/mock-data";
 import type { OneTimeItemInput, PriceMode } from "./types";
 
 type OptionalColumn = "costPrice" | "wholesale" | "margin" | "boxQty" | "unit";
@@ -69,7 +71,7 @@ function MarginTag({ price, costPrice }: { price?: number; costPrice?: number })
   );
 }
 
-/** Umumiy sonni (masalan 83 dona) o'ram birligi (karobka/pallet/quti) bo'yicha
+/** Umumiy sonni (masalan 83 dona) o'ram birligi (karobka/quti) bo'yicha
  * "4 karobka va 3 dona" ko'rinishida taqsimlab ko'rsatadi. perBox bo'lmasa null. */
 function formatBoxBreakdown(
   qty: number,
@@ -119,7 +121,8 @@ type Props = {
 type Row =
   | { kind: "product"; product: Product }
   | { kind: "group"; product: Product & { variants: ProductVariant[] } }
-  | { kind: "variant"; parent: Product; variant: ProductVariant };
+  | { kind: "variant"; parent: Product; variant: ProductVariant }
+  | { kind: "komplekt"; komplekt: Komplekt };
 
 function variantMatches(variant: ProductVariant, q: string) {
   if (variant.label.toLowerCase().includes(q)) return true;
@@ -183,6 +186,13 @@ export function ProductsBrowser({
     });
   }, [query, priceMode, numericQuery, priceOnlyMode]);
 
+  const komplektlar = React.useMemo(() => {
+    if (priceOnlyMode) return [];
+    const q = query.trim().toLowerCase();
+    if (!q) return MOCK_KOMPLEKTLAR;
+    return MOCK_KOMPLEKTLAR.filter((k) => k.name.toLowerCase().includes(q));
+  }, [query, priceOnlyMode]);
+
   // Qidiruvda variant nomi mos kelsa, o'sha guruh avtomatik ochiladi.
   const autoExpanded = React.useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -213,8 +223,9 @@ export function ProductsBrowser({
         p.variants.forEach((variant) => list.push({ kind: "variant", parent: p, variant }));
       }
     });
+    komplektlar.forEach((k) => list.push({ kind: "komplekt", komplekt: k }));
     return list;
-  }, [products, isOpen]);
+  }, [products, komplektlar, isOpen]);
 
   React.useEffect(() => {
     setActiveIdx(0);
@@ -233,6 +244,7 @@ export function ProductsBrowser({
   const activateRow = (row: Row) => {
     if (row.kind === "group") toggleGroup(row.product.id);
     else if (row.kind === "product") onPick(row.product);
+    else if (row.kind === "komplekt") onPick(resolveKomplekt(row.komplekt));
     else onPick(resolveVariant(row.parent, row.variant));
   };
 
@@ -507,6 +519,63 @@ export function ProductsBrowser({
                       )}
                       {!hiddenColumns.has("unit") && (
                         <td className="px-3 py-1.5 text-muted-foreground">{parent.unit}</td>
+                      )}
+                      <td className="px-2 py-1.5"></td>
+                    </tr>
+                  );
+                }
+
+                if (row.kind === "komplekt") {
+                  const resolved = resolveKomplekt(row.komplekt);
+                  const out = resolved.vitrinaQty <= 0;
+                  return (
+                    <tr
+                      key={resolved.id}
+                      onMouseEnter={() => setActiveIdx(i)}
+                      onClick={() => !out && onPick(resolved)}
+                      className={
+                        "border-b transition-colors " +
+                        (out ? "cursor-not-allowed opacity-50 " : "cursor-pointer ") +
+                        activeCls
+                      }
+                    >
+                      <td className="px-3 py-1.5">
+                        <div className="flex items-center gap-2">
+                          <div className="font-medium">{resolved.name}</div>
+                          <span className="inline-flex items-center gap-0.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary">
+                            <Layers className="h-2.5 w-2.5" />
+                            Komplekt
+                          </span>
+                          {out && (
+                            <span className="rounded-full bg-destructive/10 px-1.5 py-0.5 text-[9px] font-bold text-destructive">
+                              tugagan
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      {!hiddenColumns.has("costPrice") && (
+                        <td className="px-3 py-1.5 text-right tabular-nums">
+                          {formatMoney(resolved.costPrice, currency)}
+                        </td>
+                      )}
+                      <td className="px-3 py-1.5 text-right font-medium tabular-nums">
+                        {formatMoney(salePrice(resolved, priceMode), currency)}
+                      </td>
+                      {!hiddenColumns.has("wholesale") && (
+                        <td className="px-3 py-1.5 text-right tabular-nums">
+                          {resolved.wholesalePrice ? (
+                            formatMoney(resolved.wholesalePrice, currency)
+                          ) : (
+                            <span className="text-[11px] italic text-muted-foreground">—</span>
+                          )}
+                        </td>
+                      )}
+                      <td className="px-3 py-1.5 text-right tabular-nums">
+                        {resolved.vitrinaQty}
+                      </td>
+                      {!hiddenColumns.has("boxQty") && <td className="px-3 py-1.5"></td>}
+                      {!hiddenColumns.has("unit") && (
+                        <td className="px-3 py-1.5 text-muted-foreground">{resolved.unit}</td>
                       )}
                       <td className="px-2 py-1.5"></td>
                     </tr>

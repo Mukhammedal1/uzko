@@ -30,7 +30,12 @@ import {
 } from "@/components/ui/select";
 import { Monitor, Plus, Trash2, Pencil, Laptop } from "lucide-react";
 import { useApp, type Device, type PermissionKey } from "@/lib/app-context";
-import { MOCK_EMPLOYEES, PERMISSION_GROUPS, ROLE_DEFAULT_PERMISSIONS } from "@/lib/mock-data";
+import {
+  MOCK_EMPLOYEES,
+  MOCK_KASSALAR,
+  PERMISSION_GROUPS,
+  ROLE_DEFAULT_PERMISSIONS,
+} from "@/lib/mock-data";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -64,6 +69,7 @@ export function DevicePermissions() {
     login: string;
     password: string;
     employeeId: string;
+    kassaId: string;
     permissions: PermissionKey[];
   }) => {
     if (editingDevice) {
@@ -267,6 +273,7 @@ function DeviceFormDialog({
     login: string;
     password: string;
     employeeId: string;
+    kassaId: string;
     permissions: PermissionKey[];
   }) => void;
 }) {
@@ -274,7 +281,10 @@ function DeviceFormDialog({
   const [login, setLogin] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [employeeId, setEmployeeId] = React.useState("");
+  const [kassaId, setKassaId] = React.useState("");
   const [permissions, setPermissions] = React.useState<PermissionKey[]>([]);
+
+  const qoshimchaKassalar = MOCK_KASSALAR.filter((k) => k.kind === "qoshimcha");
 
   React.useEffect(() => {
     if (!open) return;
@@ -282,7 +292,9 @@ function DeviceFormDialog({
     setLogin(initialDevice?.login ?? "");
     setPassword(initialDevice?.password ?? "");
     setEmployeeId(initialDevice?.employeeId ?? "");
+    setKassaId(initialDevice?.kassaId ?? qoshimchaKassalar[0]?.id ?? "");
     setPermissions(initialDevice?.permissions ?? []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialDevice]);
 
   const selectEmployee = (id: string) => {
@@ -354,6 +366,25 @@ function DeviceFormDialog({
           </div>
 
           <div>
+            <Label className="mb-1.5 block text-sm">Kassa</Label>
+            <Select value={kassaId} onValueChange={setKassaId}>
+              <SelectTrigger className="h-9 text-sm">
+                <SelectValue placeholder="Kassani tanlang" />
+              </SelectTrigger>
+              <SelectContent>
+                {qoshimchaKassalar.map((k) => (
+                  <SelectItem key={k.id} value={k.id}>
+                    {k.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="mt-1 text-xs text-muted-foreground">
+              Shu qurilmadagi sotuvlar va chiqimlar shu kassaga yoziladi.
+            </div>
+          </div>
+
+          <div>
             <Label className="mb-2 block text-sm">Ruxsatlar</Label>
             <div className="space-y-3 rounded-lg border p-3">
               {PERMISSION_GROUPS.map((group) => (
@@ -394,6 +425,7 @@ function DeviceFormDialog({
                 login: login.trim(),
                 password: password.trim(),
                 employeeId,
+                kassaId,
                 permissions,
               })
             }

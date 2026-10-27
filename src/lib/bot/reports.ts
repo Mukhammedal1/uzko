@@ -20,9 +20,11 @@ import {
   MOCK_RECEIPTS,
   MOCK_WITHDRAWALS,
   MOCK_CASH_CLOSES,
+  avgCostInSom,
   type CreditCustomer,
   type Product,
   type Receipt,
+  type ReceiptItem,
 } from "@/lib/mock-data";
 import { tashkentDateKey } from "./period";
 
@@ -64,11 +66,17 @@ function receiptsInRange(start: Date, end: Date, saleType: SaleType = "all"): Re
   return MOCK_RECEIPTS.filter((r) => inRange(r.date, start, end) && matchesSaleType(r, saleType));
 }
 
+/** Sotuv paytida muhrlangan (`costPriceAtSaleSom`) tan narx bor bo'lsa — shu
+ * ishlatiladi (o'tgan davr hisobotlari o'zgarmas qoladi). Eski, muhrlanmagan
+ * yozuvlarda (`costPriceAtSaleSom` yo'q) — tovarning joriy o'rtacha tan narxiga tushadi. */
+function itemCostSom(item: ReceiptItem): number {
+  if (typeof item.costPriceAtSaleSom === "number") return item.costPriceAtSaleSom;
+  const product = productById(item.productId);
+  return product ? avgCostInSom(product) : 0;
+}
+
 function receiptProfit(receipt: Receipt): number {
-  return receipt.items.reduce((sum, item) => {
-    const cost = productById(item.productId)?.costPrice ?? 0;
-    return sum + (item.price - cost) * item.qty;
-  }, 0);
+  return receipt.items.reduce((sum, item) => sum + (item.price - itemCostSom(item)) * item.qty, 0);
 }
 
 function stockQty(product: Product): number {
@@ -191,7 +199,7 @@ export function getTopProducts(
   const byProduct = new Map<string, TopProductRow>();
   for (const receipt of receiptsInRange(start, end)) {
     for (const item of receipt.items) {
-      const cost = productById(item.productId)?.costPrice ?? 0;
+      const cost = itemCostSom(item);
       const existing = byProduct.get(item.productId) ?? {
         name: item.name,
         qty: 0,

@@ -43,6 +43,7 @@ import {
   getSuppliersList,
   productHasVariants,
   resolveVariant,
+  applyPurchaseToProduct,
 } from "@/lib/mock-data";
 import type { Currency, PaymentKind, PaymentMethod, Product } from "@/lib/mock-data";
 import { recordProductAddition } from "@/lib/data-actions";
@@ -69,6 +70,8 @@ type PrixodRow = {
   qty: string;
   costCurrency: Currency;
   costPrice: string;
+  /** costCurrency UZS bo'lmasa — shu kungi valyuta kursi (WAC hisob-kitobi uchun). */
+  exchangeRate: string;
   wholesalePrice: string;
   wholesaleMarkupPercent: string;
   wholesaleMarkupWarn: boolean;
@@ -91,6 +94,7 @@ function makeEmptyRow(): PrixodRow {
     qty: "",
     costCurrency: "UZS",
     costPrice: "",
+    exchangeRate: "",
     wholesalePrice: "",
     wholesaleMarkupPercent: "",
     wholesaleMarkupWarn: false,
@@ -166,6 +170,10 @@ export function TovarPrixod() {
       variantId,
       costCurrency: product.costCurrency,
       costPrice: formatNumberInput(String(product.costPrice)),
+      exchangeRate:
+        product.costCurrency !== "UZS"
+          ? formatNumberInput(String(MOCK_RATES[product.costCurrency] ?? ""))
+          : "",
       wholesalePrice: product.wholesalePrice
         ? formatNumberInput(String(product.wholesalePrice))
         : "",
@@ -325,15 +333,31 @@ export function TovarPrixod() {
       const costNumber = Math.max(0, parseNumberInput(item.costPrice) || 0);
       const wholesaleNumber = Math.max(0, parseNumberInput(item.wholesalePrice) || 0);
 
-      product.costPrice = costNumber || product.costPrice;
-      product.costCurrency = item.costCurrency;
+      const exchangeRateNumber =
+        item.costCurrency !== "UZS"
+          ? Math.max(0, parseNumberInput(item.exchangeRate) || 0)
+          : undefined;
+
       product.price = priceNumber;
       product.priceMarkupPercent = parseNumberInput(item.priceMarkupPercent) || undefined;
       if (wholesaleNumber > 0) product.wholesalePrice = wholesaleNumber;
       product.wholesaleMarkupPercent = parseNumberInput(item.wholesaleMarkupPercent) || undefined;
       product.warehouse = item.warehouse || defaultWarehouse;
       product.shelfLocation = item.shelfLocation || undefined;
-      product.omborQty = (product.omborQty || 0) + qtyNumber;
+      // Qoldiq va o'rtacha tan narx (WAC) bitta joyda, birgalikda yangilanadi —
+      // ikkisi orasida boshqa hech narsa product.omborQty'ni o'zgartirmasligi kerak.
+      // Eski avg/costPrice hali ustiga yozilmagan bo'lishi shart — applyPurchaseToProduct
+      // birinchi prixodda shundan (mavjud qoldiqning bazasi sifatida) foydalanadi.
+      applyPurchaseToProduct(product, {
+        qty: qtyNumber,
+        price: costNumber,
+        currency: item.costCurrency,
+        exchangeRate: exchangeRateNumber,
+      });
+      // "Tan narx" — butun ilova bo'ylab (ro'yxat, hisobotlar, markja hisob-kitobi)
+      // endi doim og'irlikli o'rtacha tan narx (so'mda), oxirgi prixod narxi emas.
+      product.costPrice = product.avgCostPriceSom ?? product.costPrice;
+      product.costCurrency = "UZS";
       product.minStockAlert = item.minStockAlert.trim()
         ? Math.max(0, parseNumberInput(item.minStockAlert) || 0)
         : undefined;
@@ -342,6 +366,9 @@ export function TovarPrixod() {
         Object.assign(variant, {
           costPrice: product.costPrice,
           costCurrency: product.costCurrency,
+          avgCostPriceSom: product.avgCostPriceSom,
+          avgCostPriceUsd: product.avgCostPriceUsd,
+          avgCostCurrencyRate: product.avgCostCurrencyRate,
           price: product.price,
           wholesalePrice: product.wholesalePrice,
           omborQty: product.omborQty,
@@ -413,12 +440,22 @@ export function TovarPrixod() {
       invoiceNumbers.length > 1
         ? `${invoiceNumbers[0]} — ${invoiceNumbers[invoiceNumbers.length - 1]}`
         : invoiceNumbers[0];
+    const avgCostLine =
+      filledRows.length === 1
+        ? ` · O'rtacha tan narx: ${formatMoney(filledRows[0].product.avgCostPriceSom ?? 0, "UZS")}${
+            filledRows[0].product.avgCostPriceUsd
+              ? ` (≈ ${filledRows[0].product.avgCostPriceUsd.toFixed(2)} USD)`
+              : ""
+          }`
+        : "";
     toast.success(`Tovar prixod qilindi · ${invoiceLabel}`, {
-      description: agent
-        ? remaining > 0
-          ? `${title} · ${agent.name} · qarz: ${formatMoney(remaining, paymentCurrency)}`
-          : `${title} · ${agent.name} · to'liq to'landi`
-        : title,
+      description: `${
+        agent
+          ? remaining > 0
+            ? `${title} · ${agent.name} · qarz: ${formatMoney(remaining, paymentCurrency)}`
+            : `${title} · ${agent.name} · to'liq to'landi`
+          : title
+      }${avgCostLine}`,
     });
 
     setRows([makeEmptyRow()]);
@@ -449,6 +486,14 @@ export function TovarPrixod() {
       }
       if (!(parseNumberInput(row.price) > 0)) {
         toast.error(`Sotuv narxini kiriting${label}`);
+        return;
+      }
+      if (!(parseNumberInput(row.costPrice) > 0)) {
+        toast.error(`Tan narxni kiriting${label}`);
+        return;
+      }
+      if (row.costCurrency !== "UZS" && !(parseNumberInput(row.exchangeRate) > 0)) {
+        toast.error(`Valyuta kursini kiriting${label}`);
         return;
       }
     }
@@ -579,11 +624,41 @@ export function TovarPrixod() {
                               const currency = value as Currency;
                               updateRow(row.id, {
                                 costCurrency: currency,
+                                exchangeRate:
+                                  currency !== "UZS"
+                                    ? row.exchangeRate ||
+                                      formatNumberInput(String(MOCK_RATES[currency] ?? ""))
+                                    : "",
                                 ...applyAutoMarkup(row, row.costPrice, currency),
                               });
                             }}
                           />
                         </Field>
+
+                        {row.costCurrency !== "UZS" && (
+                          <Field
+                            label={`Kurs (1 ${row.costCurrency} = ? UZS)`}
+                            required
+                            error={
+                              showValidation &&
+                              !(parseNumberInput(row.exchangeRate) > 0) &&
+                              Boolean(resolveRowProduct(row).product)
+                            }
+                          >
+                            <Input
+                              value={row.exchangeRate}
+                              onChange={(e) =>
+                                updateRow(row.id, {
+                                  exchangeRate: formatNumberInput(e.target.value),
+                                })
+                              }
+                              placeholder="0"
+                              className="h-9 text-right text-sm"
+                              inputMode="decimal"
+                              title="O'rtacha tan narx (WAC) hisob-kitobi uchun shu kungi kurs"
+                            />
+                          </Field>
+                        )}
 
                         <Field label="Optom narx">
                           <Input

@@ -49,6 +49,7 @@ import {
   FileText,
   Filter,
   Hash,
+  Layers,
   Link2,
   ListOrdered,
   MessageSquareText,
@@ -81,6 +82,8 @@ import {
   productHasVariants,
   variantTotalQty,
   getSuppliersList,
+  MOCK_KOMPLEKTLAR,
+  nextKomplektId,
   type SupplierSummary,
   type Product,
   type ProductVariant,
@@ -274,7 +277,7 @@ function MarginTag({ price, costPrice }: { price?: number; costPrice?: number })
   );
 }
 
-/** Umumiy sonni (masalan 83 dona) o'ram birligi (karobka/pallet/quti) bo'yicha
+/** Umumiy sonni (masalan 83 dona) o'ram birligi (karobka/quti) bo'yicha
  * "4 karobka va 3 dona" ko'rinishida taqsimlab ko'rsatadi. perBox bo'lmasa null. */
 function formatBoxBreakdown(
   qty: number,
@@ -590,6 +593,11 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
   const [writeOffReason, setWriteOffReason] = React.useState("");
   const [excelModalOpen, setExcelModalOpen] = React.useState(false);
   const [mergeSupplierOpen, setMergeSupplierOpen] = React.useState(false);
+  const [komplektOpen, setKomplektOpen] = React.useState(false);
+  const [komplektName, setKomplektName] = React.useState("");
+  const [komplektRows, setKomplektRows] = React.useState<
+    { id: string; name: string; unit: string; qtyStr: string }[]
+  >([]);
 
   const [discountOpen, setDiscountOpen] = React.useState(false);
   const [discountMode, setDiscountMode] = React.useState<"percent" | "amount">("percent");
@@ -1575,6 +1583,46 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
       })),
     );
     setBulkEditOpen(true);
+  };
+
+  const openKomplektDialog = () => {
+    if (selectedProducts.length < 2) {
+      toast.error("Komplekt uchun kamida 2 ta tovar tanlang");
+      return;
+    }
+    setKomplektName("");
+    setKomplektRows(
+      selectedProducts.map((product) => ({
+        id: product.id,
+        name: product.name,
+        unit: product.unit,
+        qtyStr: "1",
+      })),
+    );
+    setKomplektOpen(true);
+  };
+
+  const updateKomplektQty = (id: string, qtyStr: string) => {
+    setKomplektRows((current) => current.map((row) => (row.id === id ? { ...row, qtyStr } : row)));
+  };
+
+  const saveKomplekt = () => {
+    const name = komplektName.trim();
+    if (!name) {
+      toast.error("Komplekt nomini kiriting");
+      return;
+    }
+    const items = komplektRows
+      .map((row) => ({ productId: row.id, qty: Number(row.qtyStr) || 0 }))
+      .filter((item) => item.qty > 0);
+    if (items.length < 2) {
+      toast.error("Har bir tovar uchun 1 komplektga kerakli miqdorni kiriting");
+      return;
+    }
+    MOCK_KOMPLEKTLAR.push({ id: nextKomplektId(), name, items });
+    setKomplektOpen(false);
+    clearSelection();
+    toast.success("Komplekt yaratildi", { description: name });
   };
 
   const openWriteOffDialog = () => {
@@ -4178,6 +4226,17 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
                   type="button"
                   onClick={() => {
                     setEditMenuOpen(false);
+                    openKomplektDialog();
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm font-medium hover:bg-muted"
+                >
+                  <Layers className="h-4 w-4" />
+                  Komplekt yaratish
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditMenuOpen(false);
                     openWriteOffDialog();
                   }}
                   className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm font-medium text-destructive hover:bg-destructive/10"
@@ -4318,6 +4377,65 @@ export function BarchaTovarlar({ onSetCreateMode, selectionSlot }: Props) {
             <Button onClick={applyStockLimit} className="gap-2">
               <AlertTriangle className="h-4 w-4" />
               Saqlash
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={komplektOpen} onOpenChange={setKomplektOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Layers className="h-5 w-5" />
+              Komplekt yaratish
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Komplekt nomi</Label>
+              <Input
+                value={komplektName}
+                onChange={(e) => setKomplektName(e.target.value)}
+                placeholder="Masalan: Vannaxona to'plami"
+                autoFocus
+              />
+            </div>
+
+            <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+              Har bir tovardan 1 ta komplekt yig'ish uchun necha dona kerakligini kiriting.
+              Komplekt narxi shu tovarlar narxi yig'indisidan avtomatik hisoblanadi.
+            </div>
+
+            <div className="max-h-64 space-y-2 overflow-y-auto">
+              {komplektRows.map((row) => (
+                <div
+                  key={row.id}
+                  className="flex items-center justify-between gap-3 rounded-md border p-2.5"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">{row.name}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={0}
+                      value={row.qtyStr}
+                      onChange={(e) => updateKomplektQty(row.id, e.target.value)}
+                      className="h-9 w-24 text-right"
+                    />
+                    <span className="text-xs text-muted-foreground">{row.unit}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setKomplektOpen(false)}>
+              Bekor
+            </Button>
+            <Button onClick={saveKomplekt} className="gap-2">
+              <Layers className="h-4 w-4" />
+              Komplektni saqlash
             </Button>
           </DialogFooter>
         </DialogContent>

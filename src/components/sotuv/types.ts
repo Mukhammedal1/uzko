@@ -11,6 +11,20 @@ export type CartItem = {
   source?: ReceiptItem["source"];
   note?: string;
   priceMode?: PriceMode;
+  /** `product` bir komplekt bo'lsa — tarkibidagi tovarlar (1 komplektga kerakli
+   * miqdor bilan). Savatchada bitta qator sifatida ko'rinadi, lekin chekda va
+   * ombordan ayirishda har bir komponent alohida hisoblanadi. */
+  komplekt?: {
+    komplektId: string;
+    components: {
+      product: Product;
+      /** 1 komplektga retsept bo'yicha kerakli miqdor — "nechta komplekt" soni
+       * o'zgarsa, shunga ko'ra qayta hisoblanadi. */
+      qtyPerSet: number;
+      /** Shu savatcha qatori uchun real miqdor — savatchada qo'lda tahrirlanishi mumkin. */
+      qty: number;
+    }[];
+  };
 };
 
 export type Discount =
