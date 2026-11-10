@@ -1,0 +1,1445 @@
+import * as React from "react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Barcode,
+  Hash,
+  ImagePlus,
+  Layers,
+  Pencil,
+  Plus,
+  Check,
+  Percent,
+  Trash2,
+  X,
+} from "lucide-react";
+import {
+  MOCK_PRODUCTS,
+  MOCK_NEW_PRODUCT_LOG,
+  computeMarkupPrice,
+  reverseMarkupPercent,
+} from "@/lib/mock-data";
+import type { Currency, Product, ProductVariant } from "@/lib/mock-data";
+import { toast } from "sonner";
+import { LoadingScreen } from "@/components/shared/LoadingScreen";
+import { useApp } from "@/lib/app-context";
+import type { ProductCreateMode } from "@/routes/tovarlar";
+import { cn, formatNumberInput, parseNumberInput } from "@/lib/utils";
+import {
+  joinBarcodes,
+  makeUniqueBarcode,
+  makeUniqueCustomCode,
+  splitBarcodes,
+} from "@/lib/barcode-utils";
+
+type NewVariantRow = {
+  id: string;
+  label: string;
+  costCurrency: Currency;
+  costPrice: string;
+  wholesaleCurrency: Currency;
+  wholesalePrice: string;
+  wholesaleMarkupPercent: string;
+  wholesaleMarkupWarn: boolean;
+  priceCurrency: Currency;
+  price: string;
+  priceMarkupPercent: string;
+  priceMarkupWarn: boolean;
+  barcode: string;
+  customCode: string;
+  image?: string;
+};
+
+type NewProductRow = {
+  id: string;
+  name: string;
+  unit: string;
+  /** Birlik "a | b" ko'rinishida bo'lsa — bitta qadoqdagi (b) asosiy birlik (a) soni. */
+  perBox: string;
+  costCurrency: Currency;
+  costPrice: string;
+  preventBelowCost: boolean;
+  wholesaleCurrency: Currency;
+  wholesalePrice: string;
+  wholesaleMarkupPercent: string;
+  wholesaleMarkupWarn: boolean;
+  priceCurrency: Currency;
+  price: string;
+  priceMarkupPercent: string;
+  priceMarkupWarn: boolean;
+  barcode: string;
+  customCode: string;
+  image?: string;
+  variantsOpen: boolean;
+  variants: NewVariantRow[];
+};
+
+const makeNewVariantRow = (): NewVariantRow => ({
+  id: `variant-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+  label: "",
+  costCurrency: "UZS",
+  costPrice: "",
+  wholesaleCurrency: "UZS",
+  wholesalePrice: "",
+  wholesaleMarkupPercent: "",
+  wholesaleMarkupWarn: false,
+  priceCurrency: "UZS",
+  price: "",
+  priceMarkupPercent: "",
+  priceMarkupWarn: false,
+  barcode: "",
+  customCode: "",
+});
+
+const makeNewProductRow = (unit = "dona"): NewProductRow => ({
+  id: `row-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+  name: "",
+  unit,
+  perBox: "",
+  costCurrency: "UZS",
+  costPrice: "",
+  preventBelowCost: true,
+  wholesaleCurrency: "UZS",
+  wholesalePrice: "",
+  wholesaleMarkupPercent: "",
+  wholesaleMarkupWarn: false,
+  priceCurrency: "UZS",
+  price: "",
+  priceMarkupPercent: "",
+  priceMarkupWarn: false,
+  barcode: "",
+  customCode: "",
+  variantsOpen: false,
+  variants: [],
+});
+
+/** "dona | karobka" -> { base: "dona", pack: "karobka" }. Oddiy birlikda pack = null. */
+function splitUnit(unit: string): { base: string; pack: string | null } {
+  if (!unit.includes("|")) return { base: unit.trim(), pack: null };
+  const [base, ...rest] = unit.split("|");
+  return { base: base.trim() || "dona", pack: rest.join("|").trim() || "karobka" };
+}
+
+/** "Yangi tovar qo'shish" — bazaga yangi mahsulot yozuvini (rasm bilan) yaratadi.
+ * Ombordagi qoldiqni kiritish alohida "Tovar prixod qilish" bo'limida amalga oshiriladi. */
+export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () => void }) {
+  const { settings } = useApp();
+  const [rows, setRows] = React.useState<NewProductRow[]>(() => [
+    makeNewProductRow(settings.units[0]?.name ?? "dona"),
+  ]);
+  const [showValidation, setShowValidation] = React.useState(false);
+  // Yoqilsa — marja foizidan narx hisoblanganda UZS 1000 so'mgacha
+  // yaxlitlanmaydi, aniq qiymat ko'rsatiladi (masalan 3000 + 50% = 4500,
+  // o'chiq bo'lsa 5000gacha yaxlitlanadi).
+  const [exactMarkup, setExactMarkup] = React.useState(false);
+  // Mahsulot bazaga yozilayotganini simulyatsiya qilish uchun.
+  const [saving, setSaving] = React.useState(false);
+
+  const updateRow = (id: string, patch: Partial<NewProductRow>) => {
+    setRows((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)));
+  };
+
+  // Marja foizini o'zgartirish bilan bir vaqtda, tan narx asosida narxni ham
+  // darhol qayta hisoblaydi — qo'shimcha "Qo'llash" tugmasi kerak emas.
+  const updateWholesaleMarkupPercent = (id: string, percent: string) => {
+    setRows((current) =>
+      current.map((row) => {
+        if (row.id !== id) return row;
+        const cost = parseNumberInput(row.costPrice);
+        if (!cost) {
+          return { ...row, wholesaleMarkupPercent: percent, wholesaleMarkupWarn: percent !== "" };
+        }
+        const result = computeMarkupPrice(
+          cost,
+          row.costCurrency,
+          row.wholesaleCurrency,
+          parseNumberInput(percent),
+          exactMarkup,
+        );
+        return {
+          ...row,
+          wholesaleMarkupPercent: percent,
+          wholesalePrice: formatNumberInput(String(result)),
+          wholesaleMarkupWarn: false,
+        };
+      }),
+    );
+  };
+
+  const updatePriceMarkupPercent = (id: string, percent: string) => {
+    setRows((current) =>
+      current.map((row) => {
+        if (row.id !== id) return row;
+        const cost = parseNumberInput(row.costPrice);
+        if (!cost) {
+          return { ...row, priceMarkupPercent: percent, priceMarkupWarn: percent !== "" };
+        }
+        const result = computeMarkupPrice(
+          cost,
+          row.costCurrency,
+          row.priceCurrency,
+          parseNumberInput(percent),
+          exactMarkup,
+        );
+        return {
+          ...row,
+          priceMarkupPercent: percent,
+          price: formatNumberInput(String(result)),
+          priceMarkupWarn: false,
+        };
+      }),
+    );
+  };
+
+  const addRow = () => {
+    if (hasOpenVariantEditor) {
+      toast.error("Avval boshlangan variantlarni yakunlang");
+      return;
+    }
+    const lastRow = rows[rows.length - 1];
+    setRows((current) => [
+      ...current,
+      {
+        ...makeNewProductRow(settings.units[0]?.name ?? "dona"),
+        wholesaleMarkupPercent: lastRow?.wholesaleMarkupPercent ?? "",
+        priceMarkupPercent: lastRow?.priceMarkupPercent ?? "",
+      },
+    ]);
+  };
+
+  /** Tan narx real vaqtda (har bir tugma bosilganda) o'zgarganda — agar foiz
+   * maydoni to'ldirilgan bo'lsa (qulflangan yoki qo'lda kiritilgan), optom/sotuv
+   * narx shu foiz asosida darhol qayta hisoblanadi. */
+  const handleCostPriceChange = (id: string, rawValue: string) => {
+    const costPrice = formatNumberInput(rawValue);
+    setRows((current) =>
+      current.map((row) => {
+        if (row.id !== id) return row;
+        const patch: Partial<NewProductRow> = { costPrice };
+        const cost = parseNumberInput(costPrice);
+        if (cost > 0) {
+          const wPercent = parseNumberInput(row.wholesaleMarkupPercent);
+          if (wPercent > 0) {
+            const result = computeMarkupPrice(
+              cost,
+              row.costCurrency,
+              row.wholesaleCurrency,
+              wPercent,
+              exactMarkup,
+            );
+            patch.wholesalePrice = formatNumberInput(String(result));
+            patch.wholesaleMarkupWarn = false;
+          }
+          const pPercent = parseNumberInput(row.priceMarkupPercent);
+          if (pPercent > 0) {
+            const result = computeMarkupPrice(
+              cost,
+              row.costCurrency,
+              row.priceCurrency,
+              pPercent,
+              exactMarkup,
+            );
+            patch.price = formatNumberInput(String(result));
+            patch.priceMarkupWarn = false;
+          }
+        }
+        return { ...row, ...patch };
+      }),
+    );
+  };
+
+  const removeRow = (id: string) => {
+    setRows((current) => (current.length > 1 ? current.filter((row) => row.id !== id) : current));
+  };
+
+  const collectUsedBarcodes = () => {
+    const used = new Set<string>();
+    MOCK_PRODUCTS.forEach((p) => {
+      splitBarcodes(p.barcode).forEach((code) => used.add(code));
+      p.variants?.forEach(
+        (v) => v.barcode && splitBarcodes(v.barcode).forEach((code) => used.add(code)),
+      );
+    });
+    rows.forEach((row) => {
+      splitBarcodes(row.barcode).forEach((code) => used.add(code));
+      row.variants.forEach((v) => splitBarcodes(v.barcode).forEach((code) => used.add(code)));
+    });
+    return used;
+  };
+
+  const assignBarcode = (id: string) => {
+    const usedBarcodes = collectUsedBarcodes();
+    const code = makeUniqueBarcode(usedBarcodes);
+    updateRow(id, { barcode: code });
+  };
+
+  const collectUsedCustomCodes = () => {
+    const used = new Set<string>();
+    rows.forEach((row) => {
+      if (row.customCode) used.add(row.customCode);
+      row.variants.forEach((v) => v.customCode && used.add(v.customCode));
+    });
+    return used;
+  };
+
+  const assignCustomCode = (id: string) => {
+    const code = makeUniqueCustomCode(collectUsedCustomCodes());
+    updateRow(id, { customCode: code });
+  };
+
+  /** Optom/sotuv narx qo'lda o'zgartirilib, inputdan chiqilganda (blur) — tan
+   * narxdan qancha foiz ustama qo'yilgani orqaga hisoblab, foiz maydoniga
+   * yoziladi, shunda keyinroq tan narx o'zgarsa ham shu marja eslab qolinadi. */
+  const handleWholesalePriceBlur = (id: string) => {
+    const row = rows.find((r) => r.id === id);
+    if (!row) return;
+    const cost = parseNumberInput(row.costPrice);
+    const priceNum = parseNumberInput(row.wholesalePrice);
+    if (!cost) {
+      updateRow(id, { wholesaleMarkupWarn: priceNum > 0 });
+      return;
+    }
+    if (!priceNum) {
+      updateRow(id, { wholesaleMarkupWarn: false });
+      return;
+    }
+    const percent = reverseMarkupPercent(cost, row.costCurrency, priceNum, row.wholesaleCurrency);
+    updateRow(id, {
+      wholesaleMarkupPercent:
+        percent === null ? row.wholesaleMarkupPercent : formatNumberInput(String(percent)),
+      wholesaleMarkupWarn: percent === null,
+    });
+  };
+
+  const handlePriceBlur = (id: string) => {
+    const row = rows.find((r) => r.id === id);
+    if (!row) return;
+    const cost = parseNumberInput(row.costPrice);
+    const priceNum = parseNumberInput(row.price);
+    if (!cost) {
+      updateRow(id, { priceMarkupWarn: priceNum > 0 });
+      return;
+    }
+    if (!priceNum) {
+      updateRow(id, { priceMarkupWarn: false });
+      return;
+    }
+    const percent = reverseMarkupPercent(cost, row.costCurrency, priceNum, row.priceCurrency);
+    updateRow(id, {
+      priceMarkupPercent:
+        percent === null ? row.priceMarkupPercent : formatNumberInput(String(percent)),
+      priceMarkupWarn: percent === null,
+    });
+  };
+
+  const handleImagePick = (id: string, file: File | undefined) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      updateRow(id, { image: String(reader.result) });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const hasOpenVariantEditor = rows.some((row) => row.variantsOpen);
+
+  const openVariants = (id: string) => {
+    setRows((current) =>
+      current.map((row) =>
+        row.id === id
+          ? {
+              ...row,
+              variantsOpen: true,
+              variants: row.variants.length === 0 ? [makeNewVariantRow()] : row.variants,
+            }
+          : row,
+      ),
+    );
+  };
+
+  const finishVariants = (id: string) => {
+    const row = rows.find((r) => r.id === id);
+    if (!row) return;
+    const validVariants = row.variants.filter((v) => v.label.trim());
+    if (validVariants.length === 0) {
+      toast.error("Kamida bitta variant nomini kiriting yoki bekor qiling");
+      return;
+    }
+    setRows((current) =>
+      current.map((r) =>
+        r.id === id ? { ...r, variantsOpen: false, variants: validVariants } : r,
+      ),
+    );
+  };
+
+  const cancelVariants = (id: string) => {
+    setRows((current) =>
+      current.map((r) => (r.id === id ? { ...r, variantsOpen: false, variants: [] } : r)),
+    );
+  };
+
+  const addVariant = (rowId: string) => {
+    setRows((current) =>
+      current.map((row) =>
+        row.id === rowId ? { ...row, variants: [...row.variants, makeNewVariantRow()] } : row,
+      ),
+    );
+  };
+
+  const removeVariant = (rowId: string, variantId: string) => {
+    setRows((current) =>
+      current.map((row) =>
+        row.id === rowId
+          ? { ...row, variants: row.variants.filter((v) => v.id !== variantId) }
+          : row,
+      ),
+    );
+  };
+
+  const updateVariant = (rowId: string, variantId: string, patch: Partial<NewVariantRow>) => {
+    setRows((current) =>
+      current.map((row) =>
+        row.id === rowId
+          ? {
+              ...row,
+              variants: row.variants.map((v) => (v.id === variantId ? { ...v, ...patch } : v)),
+            }
+          : row,
+      ),
+    );
+  };
+
+  // Variant uchun marja foizi o'zgarganda — tan narx asosida narxni darhol
+  // qayta hisoblaydi (qo'shimcha tugma kerak emas).
+  const updateVariantWholesaleMarkupPercent = (
+    rowId: string,
+    variantId: string,
+    percent: string,
+  ) => {
+    setRows((current) =>
+      current.map((row) => {
+        if (row.id !== rowId) return row;
+        return {
+          ...row,
+          variants: row.variants.map((v) => {
+            if (v.id !== variantId) return v;
+            const cost = parseNumberInput(v.costPrice);
+            if (!cost) {
+              return { ...v, wholesaleMarkupPercent: percent, wholesaleMarkupWarn: percent !== "" };
+            }
+            const result = computeMarkupPrice(
+              cost,
+              v.costCurrency,
+              v.wholesaleCurrency,
+              parseNumberInput(percent),
+              exactMarkup,
+            );
+            return {
+              ...v,
+              wholesaleMarkupPercent: percent,
+              wholesalePrice: formatNumberInput(String(result)),
+              wholesaleMarkupWarn: false,
+            };
+          }),
+        };
+      }),
+    );
+  };
+
+  const updateVariantPriceMarkupPercent = (rowId: string, variantId: string, percent: string) => {
+    setRows((current) =>
+      current.map((row) => {
+        if (row.id !== rowId) return row;
+        return {
+          ...row,
+          variants: row.variants.map((v) => {
+            if (v.id !== variantId) return v;
+            const cost = parseNumberInput(v.costPrice);
+            if (!cost) {
+              return { ...v, priceMarkupPercent: percent, priceMarkupWarn: percent !== "" };
+            }
+            const result = computeMarkupPrice(
+              cost,
+              v.costCurrency,
+              v.priceCurrency,
+              parseNumberInput(percent),
+              exactMarkup,
+            );
+            return {
+              ...v,
+              priceMarkupPercent: percent,
+              price: formatNumberInput(String(result)),
+              priceMarkupWarn: false,
+            };
+          }),
+        };
+      }),
+    );
+  };
+
+  const assignVariantBarcode = (rowId: string, variantId: string) => {
+    const usedBarcodes = collectUsedBarcodes();
+    const code = makeUniqueBarcode(usedBarcodes);
+    updateVariant(rowId, variantId, { barcode: code });
+  };
+
+  const assignVariantCustomCode = (rowId: string, variantId: string) => {
+    const code = makeUniqueCustomCode(collectUsedCustomCodes());
+    updateVariant(rowId, variantId, { customCode: code });
+  };
+
+  const handleVariantWholesalePriceBlur = (rowId: string, variantId: string) => {
+    const variant = rows.find((r) => r.id === rowId)?.variants.find((v) => v.id === variantId);
+    if (!variant) return;
+    const cost = parseNumberInput(variant.costPrice);
+    const priceNum = parseNumberInput(variant.wholesalePrice);
+    if (!cost) {
+      updateVariant(rowId, variantId, { wholesaleMarkupWarn: priceNum > 0 });
+      return;
+    }
+    if (!priceNum) {
+      updateVariant(rowId, variantId, { wholesaleMarkupWarn: false });
+      return;
+    }
+    const percent = reverseMarkupPercent(
+      cost,
+      variant.costCurrency,
+      priceNum,
+      variant.wholesaleCurrency,
+    );
+    updateVariant(rowId, variantId, {
+      wholesaleMarkupPercent:
+        percent === null ? variant.wholesaleMarkupPercent : formatNumberInput(String(percent)),
+      wholesaleMarkupWarn: percent === null,
+    });
+  };
+
+  const handleVariantPriceBlur = (rowId: string, variantId: string) => {
+    const variant = rows.find((r) => r.id === rowId)?.variants.find((v) => v.id === variantId);
+    if (!variant) return;
+    const cost = parseNumberInput(variant.costPrice);
+    const priceNum = parseNumberInput(variant.price);
+    if (!cost) {
+      updateVariant(rowId, variantId, { priceMarkupWarn: priceNum > 0 });
+      return;
+    }
+    if (!priceNum) {
+      updateVariant(rowId, variantId, { priceMarkupWarn: false });
+      return;
+    }
+    const percent = reverseMarkupPercent(
+      cost,
+      variant.costCurrency,
+      priceNum,
+      variant.priceCurrency,
+    );
+    updateVariant(rowId, variantId, {
+      priceMarkupPercent:
+        percent === null ? variant.priceMarkupPercent : formatNumberInput(String(percent)),
+      priceMarkupWarn: percent === null,
+    });
+  };
+
+  const handleVariantImagePick = (rowId: string, variantId: string, file: File | undefined) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      updateVariant(rowId, variantId, { image: String(reader.result) });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const validRows = rows
+    .map((row) => {
+      const variantsValue = row.variants.filter((v) => v.label.trim());
+      const firstVariant = variantsValue[0];
+      const rowCostNumber = Math.max(0, parseNumberInput(row.costPrice) || 0);
+      const firstVariantCostNumber = firstVariant
+        ? Math.max(0, parseNumberInput(firstVariant.costPrice) || 0)
+        : 0;
+      const rowWholesaleNumber = Math.max(0, parseNumberInput(row.wholesalePrice) || 0);
+      const firstVariantWholesaleNumber = firstVariant
+        ? Math.max(0, parseNumberInput(firstVariant.wholesalePrice) || 0)
+        : 0;
+      const rowPriceNumber = Math.max(0, parseNumberInput(row.price) || 0);
+      const firstVariantPriceNumber = firstVariant
+        ? Math.max(0, parseNumberInput(firstVariant.price) || 0)
+        : 0;
+      return {
+        ...row,
+        nameValue: row.name.trim(),
+        unitValue: row.unit.trim() || settings.units[0]?.name || "dona",
+        customCodeValue: row.customCode.trim(),
+        costCurrency:
+          rowCostNumber > 0 || !firstVariant ? row.costCurrency : firstVariant.costCurrency,
+        costNumber: rowCostNumber || firstVariantCostNumber,
+        wholesaleCurrency:
+          rowWholesaleNumber > 0 || !firstVariant
+            ? row.wholesaleCurrency
+            : firstVariant.wholesaleCurrency,
+        wholesaleNumber: rowWholesaleNumber || firstVariantWholesaleNumber,
+        priceCurrency:
+          rowPriceNumber > 0 || !firstVariant ? row.priceCurrency : firstVariant.priceCurrency,
+        priceNumber: rowPriceNumber || firstVariantPriceNumber,
+        barcodeValue: joinBarcodes(splitBarcodes(row.barcode)),
+        variantsValue,
+      };
+    })
+    .filter((row) => row.nameValue && (row.priceNumber > 0 || row.variantsValue.length > 0));
+
+  const defaultWarehouse = settings.warehouses[0]?.name ?? "Asosiy ombor";
+
+  const handleSubmit = () => {
+    if (hasOpenVariantEditor) {
+      toast.error("Avval boshlangan variantlarni yakunlang");
+      return;
+    }
+    setShowValidation(true);
+    if (validRows.length === 0) {
+      toast.error("Kamida bitta mahsulot nomi va sotuv narxini kiriting");
+      return;
+    }
+
+    const missingPack = rows.some(
+      (row) => row.name.trim() && row.unit.includes("|") && !(parseNumberInput(row.perBox) >= 2),
+    );
+    if (missingPack) {
+      toast.error("Qadoqdagi dona sonini kiriting (kamida 2)");
+      return;
+    }
+
+    // Bazaga yozish jarayonini simulyatsiya qilamiz — shu vaqt davomida
+    // LoadingScreen ko'rsatiladi.
+    setSaving(true);
+    setTimeout(() => {
+      saveValidRows();
+      setSaving(false);
+    }, 550);
+  };
+
+  const saveValidRows = () => {
+    const usedBarcodes = collectUsedBarcodes();
+    const nextBarcode = (preferred: string) => {
+      const code =
+        preferred ||
+        (() => {
+          const generated = makeUniqueBarcode(usedBarcodes);
+          return generated;
+        })();
+      usedBarcodes.add(code);
+      return code;
+    };
+
+    const usedCustomCodes = collectUsedCustomCodes();
+    const nextCustomCode = (preferred: string) => {
+      const code = preferred || makeUniqueCustomCode(usedCustomCodes);
+      usedCustomCodes.add(code);
+      return code;
+    };
+
+    validRows.forEach((row) => {
+      const barcode = nextBarcode(row.barcodeValue);
+      const customCode = nextCustomCode(row.customCodeValue);
+      const { base: baseUnit, pack: packUnit } = splitUnit(row.unitValue);
+      const perBox = packUnit ? Math.max(0, parseNumberInput(row.perBox) || 0) : 0;
+
+      const variants: ProductVariant[] | undefined = row.variantsValue.length
+        ? row.variantsValue.map((v) => {
+            const vCost = parseNumberInput(v.costPrice) || 0;
+            const vWholesale = parseNumberInput(v.wholesalePrice) || 0;
+            const vPrice = parseNumberInput(v.price) || 0;
+            return {
+              id: `v${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              label: v.label.trim(),
+              barcode: nextBarcode(joinBarcodes(splitBarcodes(v.barcode))),
+              customCode: nextCustomCode(v.customCode.trim()),
+              image: v.image,
+              price: vPrice > 0 ? vPrice : undefined,
+              priceCurrency: vPrice > 0 ? v.priceCurrency : undefined,
+              wholesalePrice: vWholesale > 0 ? vWholesale : undefined,
+              wholesaleCurrency: vWholesale > 0 ? v.wholesaleCurrency : undefined,
+              costPrice: vCost > 0 ? vCost : undefined,
+              costCurrency: vCost > 0 ? v.costCurrency : undefined,
+              vitrinaQty: 0,
+              omborQty: 0,
+            };
+          })
+        : undefined;
+
+      const newProduct: Product = {
+        id: `p${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        name: row.nameValue,
+        image: row.image,
+        price: row.priceNumber,
+        priceCurrency: row.priceCurrency,
+        priceMarkupPercent: parseNumberInput(row.priceMarkupPercent) || undefined,
+        wholesalePrice: row.wholesaleNumber || undefined,
+        wholesaleCurrency: row.wholesaleNumber ? row.wholesaleCurrency : undefined,
+        wholesaleMarkupPercent: parseNumberInput(row.wholesaleMarkupPercent) || undefined,
+        costPrice: row.costNumber,
+        costCurrency: row.costCurrency,
+        preventBelowCost: row.preventBelowCost,
+        barcode,
+        customCode,
+        unit: perBox > 1 ? baseUnit : row.unitValue,
+        packUnit: perBox > 1 ? (packUnit ?? undefined) : undefined,
+        perBox: perBox > 1 ? perBox : undefined,
+        warehouse: defaultWarehouse,
+        shelfLocation: "",
+        vitrinaQty: 0,
+        omborQty: 0,
+        salesHistory: [],
+        variants,
+      };
+      MOCK_PRODUCTS.push(newProduct);
+
+      MOCK_NEW_PRODUCT_LOG.unshift({
+        id: `npl-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        date: new Date().toISOString(),
+        addedBy: settings.username,
+        productName: newProduct.name,
+        unit: newProduct.unit,
+        price: newProduct.price,
+        costPrice: newProduct.costPrice,
+        costCurrency: newProduct.costCurrency,
+        wholesalePrice: newProduct.wholesalePrice,
+        barcode: newProduct.barcode,
+        image: newProduct.image,
+      });
+    });
+
+    toast.success("Yangi mahsulot(lar) bazaga qo'shildi", {
+      description: `${validRows.length} ta mahsulot — qoldiqni "Tovar prixod qilish" bo'limidan kiriting`,
+    });
+    onDone();
+  };
+
+  if (saving) {
+    return <LoadingScreen />;
+  }
+
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-3">
+      <section className="flex min-h-0 flex-1 flex-col rounded-lg border bg-card shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b p-3">
+          <div>
+            <div className="text-sm font-semibold">Yangi tovar qo'shish</div>
+            <div className="text-[11px] text-muted-foreground">
+              Bazaga yangi mahsulot yozuvi yaratiladi. Qoldiqni "Tovar prixod qilish" orqali
+              kiriting.
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Switch checked={exactMarkup} onCheckedChange={setExactMarkup} />
+              <span title="Yoqilsa, marjadan hisoblangan narx 1000 so'mgacha yaxlitlanmaydi (masalan 3000 + 50% = 4500, o'chiq bo'lsa 5000)">
+                Marjani aniq hisobla (yaxlitmasiz)
+              </span>
+            </label>
+            <Button
+              onClick={handleSubmit}
+              disabled={hasOpenVariantEditor}
+              title={hasOpenVariantEditor ? "Avval boshlangan variantlarni yakunlang" : undefined}
+              className="h-8 gap-2 text-xs"
+            >
+              <Check className="h-4 w-4" />
+              Saqlash
+            </Button>
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-auto p-3">
+          <div className="space-y-5">
+            {rows.map((row, index) => {
+              const nameInvalid = showValidation && !row.name.trim();
+              const usesVariants = row.variantsOpen || row.variants.length > 0;
+              const priceInvalid =
+                showValidation && !usesVariants && !(parseNumberInput(row.price) > 0);
+              const dualUnit = row.unit.includes("|");
+              const { base: baseUnitLabel, pack: packUnitLabel } = splitUnit(row.unit);
+              const perBoxInvalid =
+                showValidation && dualUnit && !(parseNumberInput(row.perBox) >= 2);
+              return (
+                <div key={row.id} className="relative">
+                  <div className="relative rounded-lg border bg-card p-3 shadow-sm transition-colors focus-within:border-primary/40">
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="absolute right-2 top-2 h-6 w-6 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      onClick={() => removeRow(row.id)}
+                      disabled={rows.length <= 1}
+                      title="Qatorni o'chirish"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+
+                    <div className="mb-2.5 flex items-center gap-2 pr-8">
+                      <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1.5 text-[10px] font-bold text-muted-foreground">
+                        {index + 1}
+                      </span>
+                    </div>
+
+                    <div
+                      className={cn(
+                        "grid grid-cols-1 gap-4 pr-8",
+                        usesVariants
+                          ? dualUnit
+                            ? "md:grid-cols-3 xl:grid-cols-[minmax(200px,1.5fr)_minmax(90px,0.6fr)_minmax(120px,0.8fr)]"
+                            : "md:grid-cols-2 xl:grid-cols-[minmax(200px,1.5fr)_minmax(90px,0.6fr)]"
+                          : dualUnit
+                            ? "md:grid-cols-4 xl:grid-cols-[minmax(200px,1.5fr)_minmax(90px,0.6fr)_minmax(120px,0.8fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(150px,0.95fr)_minmax(150px,0.95fr)_minmax(150px,1fr)]"
+                            : "md:grid-cols-4 xl:grid-cols-[minmax(200px,1.5fr)_minmax(90px,0.6fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(150px,0.95fr)_minmax(150px,0.95fr)_minmax(150px,1fr)]",
+                      )}
+                    >
+                      <Field label="Mahsulot nomi" required error={nameInvalid}>
+                        <Input
+                          value={row.name}
+                          onChange={(e) => updateRow(row.id, { name: e.target.value })}
+                          placeholder="Mahsulot nomini kiriting"
+                          className={cn(
+                            "h-9 text-xs",
+                            nameInvalid && "border-destructive focus-visible:ring-destructive",
+                          )}
+                        />
+                        {row.variants.length === 0 && !row.variantsOpen && (
+                          <button
+                            type="button"
+                            onClick={() => openVariants(row.id)}
+                            className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-primary hover:underline"
+                          >
+                            <Layers className="h-3 w-3" />
+                            Qo'shimcha variantlar (rang/razmer/hajm)
+                          </button>
+                        )}
+                        {usesVariants && (
+                          <p className="text-[10px] text-muted-foreground">
+                            Narx, shtrix kod va rasm har bir variant uchun pastda kiritiladi
+                          </p>
+                        )}
+                      </Field>
+
+                      <Field label="Birlik">
+                        <Select
+                          value={row.unit || settings.units[0]?.name || "dona"}
+                          onValueChange={(value) => updateRow(row.id, { unit: value })}
+                        >
+                          <SelectTrigger className="h-9 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {settings.units.map((unit) => (
+                              <SelectItem key={unit.id} value={unit.name}>
+                                {unit.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </Field>
+
+                      {dualUnit && (
+                        <Field label="Qadoqdagi soni" required error={perBoxInvalid}>
+                          <Input
+                            inputMode="numeric"
+                            value={row.perBox}
+                            onChange={(e) =>
+                              updateRow(row.id, { perBox: formatNumberInput(e.target.value) })
+                            }
+                            placeholder="masalan 12"
+                            className={cn(
+                              "h-9 text-xs",
+                              perBoxInvalid && "border-destructive focus-visible:ring-destructive",
+                            )}
+                          />
+                          {!perBoxInvalid && (
+                            <p className="text-[10px] text-muted-foreground">
+                              1 {packUnitLabel} = ? {baseUnitLabel}
+                            </p>
+                          )}
+                        </Field>
+                      )}
+
+                      {!usesVariants && (
+                        <>
+                          <Field label="Tan narx">
+                            <CurrencyField
+                              value={row.costPrice}
+                              onChange={(value) => handleCostPriceChange(row.id, value)}
+                              placeholder="0"
+                              currency={row.costCurrency}
+                              currencies={settings.currencies}
+                              onCurrencyChange={(value) =>
+                                updateRow(row.id, { costCurrency: value as Currency })
+                              }
+                            />
+                            <label className="mt-1.5 flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
+                              <Checkbox
+                                checked={row.preventBelowCost}
+                                onCheckedChange={(checked) =>
+                                  updateRow(row.id, { preventBelowCost: checked === true })
+                                }
+                              />
+                              Tan narxdan past sotilmasin
+                            </label>
+                          </Field>
+
+                          <Field label="Optom narx">
+                            <CurrencyField
+                              value={row.wholesalePrice}
+                              onChange={(value) =>
+                                updateRow(row.id, { wholesalePrice: formatNumberInput(value) })
+                              }
+                              onBlur={() => handleWholesalePriceBlur(row.id)}
+                              placeholder="0"
+                              currency={row.wholesaleCurrency}
+                              currencies={settings.currencies}
+                              onCurrencyChange={(value) =>
+                                updateRow(row.id, { wholesaleCurrency: value as Currency })
+                              }
+                            />
+                            <MarkupRow
+                              percent={row.wholesaleMarkupPercent}
+                              warn={row.wholesaleMarkupWarn}
+                              onPercentChange={(value) =>
+                                updateWholesaleMarkupPercent(row.id, value)
+                              }
+                            />
+                          </Field>
+
+                          <Field label="Sotuv narx" required error={priceInvalid}>
+                            <CurrencyField
+                              value={row.price}
+                              onChange={(value) =>
+                                updateRow(row.id, { price: formatNumberInput(value) })
+                              }
+                              onBlur={() => handlePriceBlur(row.id)}
+                              placeholder="0"
+                              currency={row.priceCurrency}
+                              currencies={settings.currencies}
+                              onCurrencyChange={(value) =>
+                                updateRow(row.id, { priceCurrency: value as Currency })
+                              }
+                              error={priceInvalid}
+                            />
+                            <MarkupRow
+                              percent={row.priceMarkupPercent}
+                              warn={row.priceMarkupWarn}
+                              onPercentChange={(value) => updatePriceMarkupPercent(row.id, value)}
+                            />
+                          </Field>
+
+                          <Field label="Shtrix kod">
+                            <div className="flex gap-1">
+                              <Input
+                                value={row.barcode}
+                                onChange={(e) => updateRow(row.id, { barcode: e.target.value })}
+                                placeholder="Shtrix kod"
+                                className="h-9 min-w-0 text-xs"
+                              />
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="outline"
+                                className="h-9 w-9 shrink-0"
+                                onClick={() => assignBarcode(row.id)}
+                                title="Avtomatik shtrix kod"
+                              >
+                                <Barcode className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </Field>
+
+                          <Field label="Artikul">
+                            <div className="flex gap-1">
+                              <Input
+                                value={row.customCode}
+                                onChange={(e) => updateRow(row.id, { customCode: e.target.value })}
+                                placeholder="Artikul"
+                                className="h-9 min-w-0 text-xs"
+                              />
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="outline"
+                                className="h-9 w-9 shrink-0"
+                                onClick={() => assignCustomCode(row.id)}
+                                title="Avtomatik artikul"
+                              >
+                                <Hash className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </Field>
+
+                          <Field label="Rasm">
+                            <ImageUploadField
+                              image={row.image}
+                              onPick={(file) => handleImagePick(row.id, file)}
+                              onClear={() => updateRow(row.id, { image: undefined })}
+                            />
+                          </Field>
+                        </>
+                      )}
+                    </div>
+
+                    {row.variantsOpen && (
+                      <div className="mt-3 space-y-3 border-t pt-3">
+                        {row.variants.map((variant, vIndex) => {
+                          const labelInvalid = showValidation && !variant.label.trim();
+                          const previewName =
+                            (row.name.trim() || "Mahsulot") +
+                            (variant.label.trim() ? ` — ${variant.label.trim()}` : "");
+                          return (
+                            <div
+                              key={variant.id}
+                              className="relative rounded-md border bg-muted/30 p-3"
+                            >
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="ghost"
+                                className="absolute right-1.5 top-1.5 h-6 w-6 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                onClick={() => removeVariant(row.id, variant.id)}
+                                title="Variantni o'chirish"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                              <div className="mb-2 pr-7 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                                Variant {vIndex + 1} — {previewName}
+                              </div>
+                              <div className="grid grid-cols-1 gap-3 pr-7 md:grid-cols-3 xl:grid-cols-7">
+                                <Field label="Variant nomi" required error={labelInvalid}>
+                                  <Input
+                                    value={variant.label}
+                                    onChange={(e) =>
+                                      updateVariant(row.id, variant.id, { label: e.target.value })
+                                    }
+                                    placeholder='Masalan: "Oq"'
+                                    className={cn(
+                                      "h-9 text-xs",
+                                      labelInvalid &&
+                                        "border-destructive focus-visible:ring-destructive",
+                                    )}
+                                  />
+                                </Field>
+
+                                <Field label="Tan narx">
+                                  <CurrencyField
+                                    value={variant.costPrice}
+                                    onChange={(value) =>
+                                      updateVariant(row.id, variant.id, {
+                                        costPrice: formatNumberInput(value),
+                                      })
+                                    }
+                                    placeholder="0"
+                                    currency={variant.costCurrency}
+                                    currencies={settings.currencies}
+                                    onCurrencyChange={(value) =>
+                                      updateVariant(row.id, variant.id, {
+                                        costCurrency: value as Currency,
+                                      })
+                                    }
+                                  />
+                                </Field>
+
+                                <Field label="Optom narx">
+                                  <CurrencyField
+                                    value={variant.wholesalePrice}
+                                    onChange={(value) =>
+                                      updateVariant(row.id, variant.id, {
+                                        wholesalePrice: formatNumberInput(value),
+                                      })
+                                    }
+                                    onBlur={() =>
+                                      handleVariantWholesalePriceBlur(row.id, variant.id)
+                                    }
+                                    placeholder="0"
+                                    currency={variant.wholesaleCurrency}
+                                    currencies={settings.currencies}
+                                    onCurrencyChange={(value) =>
+                                      updateVariant(row.id, variant.id, {
+                                        wholesaleCurrency: value as Currency,
+                                      })
+                                    }
+                                  />
+                                  <MarkupRow
+                                    percent={variant.wholesaleMarkupPercent}
+                                    warn={variant.wholesaleMarkupWarn}
+                                    onPercentChange={(value) =>
+                                      updateVariantWholesaleMarkupPercent(row.id, variant.id, value)
+                                    }
+                                  />
+                                </Field>
+
+                                <Field label="Sotuv narx">
+                                  <CurrencyField
+                                    value={variant.price}
+                                    onChange={(value) =>
+                                      updateVariant(row.id, variant.id, {
+                                        price: formatNumberInput(value),
+                                      })
+                                    }
+                                    onBlur={() => handleVariantPriceBlur(row.id, variant.id)}
+                                    placeholder="0"
+                                    currency={variant.priceCurrency}
+                                    currencies={settings.currencies}
+                                    onCurrencyChange={(value) =>
+                                      updateVariant(row.id, variant.id, {
+                                        priceCurrency: value as Currency,
+                                      })
+                                    }
+                                  />
+                                  <MarkupRow
+                                    percent={variant.priceMarkupPercent}
+                                    warn={variant.priceMarkupWarn}
+                                    onPercentChange={(value) =>
+                                      updateVariantPriceMarkupPercent(row.id, variant.id, value)
+                                    }
+                                  />
+                                </Field>
+
+                                <Field label="Shtrix kod">
+                                  <div className="flex gap-1">
+                                    <Input
+                                      value={variant.barcode}
+                                      onChange={(e) =>
+                                        updateVariant(row.id, variant.id, {
+                                          barcode: e.target.value,
+                                        })
+                                      }
+                                      placeholder="Shtrix kod"
+                                      className="h-9 min-w-0 text-xs"
+                                    />
+                                    <Button
+                                      type="button"
+                                      size="icon"
+                                      variant="outline"
+                                      className="h-9 w-9 shrink-0"
+                                      onClick={() => assignVariantBarcode(row.id, variant.id)}
+                                      title="Avtomatik shtrix kod"
+                                    >
+                                      <Barcode className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </div>
+                                </Field>
+
+                                <Field label="Artikul">
+                                  <div className="flex gap-1">
+                                    <Input
+                                      value={variant.customCode}
+                                      onChange={(e) =>
+                                        updateVariant(row.id, variant.id, {
+                                          customCode: e.target.value,
+                                        })
+                                      }
+                                      placeholder="Artikul"
+                                      className="h-9 min-w-0 text-xs"
+                                    />
+                                    <Button
+                                      type="button"
+                                      size="icon"
+                                      variant="outline"
+                                      className="h-9 w-9 shrink-0"
+                                      onClick={() => assignVariantCustomCode(row.id, variant.id)}
+                                      title="Avtomatik artikul"
+                                    >
+                                      <Hash className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </div>
+                                </Field>
+
+                                <Field label="Rasm">
+                                  <ImageUploadField
+                                    image={variant.image}
+                                    onPick={(file) =>
+                                      handleVariantImagePick(row.id, variant.id, file)
+                                    }
+                                    onClear={() =>
+                                      updateVariant(row.id, variant.id, { image: undefined })
+                                    }
+                                  />
+                                </Field>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 gap-1.5 text-xs"
+                            onClick={() => addVariant(row.id)}
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            Variant qo'shish
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="h-8 gap-1.5 text-xs"
+                            onClick={() => finishVariants(row.id)}
+                          >
+                            <Check className="h-3.5 w-3.5" />
+                            Variantlarni yakunlash
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 gap-1.5 text-xs text-muted-foreground"
+                            onClick={() => cancelVariants(row.id)}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                            Bekor qilish
+                          </Button>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">
+                          Variantlarni yakunlamaguncha boshqa tovar qo'sha olmaysiz.
+                        </p>
+                      </div>
+                    )}
+
+                    {!row.variantsOpen && row.variants.length > 0 && (
+                      <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t pt-3">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
+                          <Layers className="h-3 w-3" />
+                          {row.variants.length} variant
+                        </span>
+                        {row.variants.map((v) => (
+                          <span
+                            key={v.id}
+                            className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground"
+                          >
+                            {v.label}
+                          </span>
+                        ))}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-6 gap-1 text-[10px]"
+                          onClick={() => openVariants(row.id)}
+                        >
+                          <Pencil className="h-3 w-3" />
+                          Tahrirlash
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+
+                  {index === rows.length - 1 && (
+                    <Button
+                      type="button"
+                      size="icon"
+                      disabled={hasOpenVariantEditor}
+                      className="absolute -bottom-3 -right-3 h-6 w-6 rounded-full bg-blue-800 text-white shadow-md hover:bg-blue-900 disabled:opacity-40"
+                      onClick={addRow}
+                      title={
+                        hasOpenVariantEditor
+                          ? "Avval boshlangan variantlarni yakunlang"
+                          : "Qator qo'shish"
+                      }
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+export function ImageUploadField({
+  image,
+  onPick,
+  onClear,
+}: {
+  image?: string;
+  onPick: (file: File | undefined) => void;
+  onClear: () => void;
+}) {
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  return (
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => onPick(e.target.files?.[0])}
+      />
+      {image ? (
+        <div className="flex h-9 w-full items-center gap-2 rounded-md border px-1.5">
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            className="flex min-w-0 flex-1 items-center gap-2"
+            title="Rasmni almashtirish"
+          >
+            <img
+              src={image}
+              alt="Mahsulot rasmi"
+              className="h-6 w-6 shrink-0 rounded object-cover"
+            />
+            <span className="truncate text-xs text-muted-foreground">Rasm tanlandi</span>
+          </button>
+          <button
+            type="button"
+            onClick={onClear}
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+            aria-label="Rasmni olib tashlash"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ) : (
+        <Button
+          type="button"
+          variant="outline"
+          className="h-9 w-full justify-start gap-2 px-2 text-xs font-normal text-muted-foreground"
+          onClick={() => inputRef.current?.click()}
+          title="Rasm yuklash"
+        >
+          <ImagePlus className="h-4 w-4 shrink-0" />
+          Rasm yuklash
+        </Button>
+      )}
+    </>
+  );
+}
+
+function Field({
+  label,
+  children,
+  required,
+  error,
+}: {
+  label: string;
+  children: React.ReactNode;
+  required?: boolean;
+  error?: boolean;
+}) {
+  return (
+    <div className="min-w-0 space-y-1.5">
+      <Label
+        className={cn(
+          "flex items-center gap-0.5 text-xs font-medium",
+          error ? "text-destructive" : "text-muted-foreground",
+        )}
+      >
+        {label}
+        {required && (
+          <span className={error ? "text-destructive" : "text-muted-foreground/60"}>*</span>
+        )}
+      </Label>
+      {children}
+      {error && <div className="text-[10px] font-medium text-destructive">Majburiy maydon</div>}
+    </div>
+  );
+}
+
+export function CurrencyField({
+  value,
+  onChange,
+  onBlur,
+  placeholder,
+  currency,
+  currencies,
+  onCurrencyChange,
+  error,
+  heightClassName = "h-9",
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onBlur?: () => void;
+  placeholder?: string;
+  currency: string;
+  currencies: string[];
+  onCurrencyChange: (value: string) => void;
+  error?: boolean;
+  /** Input/valyuta belgisi balandligini boshqa qiymatga o'zgartirish uchun (standart: h-9). */
+  heightClassName?: string;
+}) {
+  return (
+    <div className="relative">
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={onBlur}
+        placeholder={placeholder}
+        className={cn(
+          heightClassName,
+          "pr-14 text-right text-xs",
+          error && "border-destructive focus-visible:ring-destructive",
+        )}
+        inputMode="decimal"
+      />
+      <Select value={currency} onValueChange={onCurrencyChange}>
+        <SelectTrigger
+          className={cn(
+            heightClassName,
+            "absolute right-0 top-0 w-14 cursor-pointer justify-center border-0 bg-transparent px-1.5 text-[10px] font-semibold uppercase text-muted-foreground shadow-none hover:text-primary focus:ring-0 focus:ring-offset-0 [&>span]:line-clamp-1 [&_svg]:hidden",
+          )}
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent align="end">
+          {currencies.map((c) => (
+            <SelectItem key={c} value={c}>
+              {c}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+/** Tan narx ustiga foiz qo'yib, natijani narx maydoniga qo'yadigan mini-hisoblagich.
+ * Foiz kiritilgan zahoti (har bir belgida) narx avtomatik qayta hisoblanadi —
+ * qo'shimcha tugma bosish shart emas. */
+export function MarkupRow({
+  percent,
+  onPercentChange,
+  warn,
+}: {
+  percent: string;
+  onPercentChange: (value: string) => void;
+  warn?: boolean;
+}) {
+  return (
+    <div className="mt-1 flex items-center justify-between gap-1 text-[10px] text-muted-foreground">
+      <span className={cn("shrink-0", warn && "font-semibold text-destructive")}>
+        {warn ? "Avval tan narxni kiriting" : "Tan narx + %"}
+      </span>
+      <div className="flex items-center gap-1">
+        <Input
+          value={percent}
+          onChange={(e) => onPercentChange(formatNumberInput(e.target.value))}
+          placeholder="0"
+          inputMode="decimal"
+          className={cn(
+            "h-6 w-12 px-1 text-center text-[10px]",
+            warn && "border-destructive focus-visible:ring-destructive",
+          )}
+        />
+        <Percent className="h-3 w-3 shrink-0" />
+      </div>
+    </div>
+  );
+}

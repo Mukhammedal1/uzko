@@ -1,0 +1,1650 @@
+import * as React from "react";
+import * as XLSX from "xlsx";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  MOCK_EDIT_HISTORY,
+  MOCK_NEW_PRODUCT_LOG,
+  MOCK_PRODUCTS,
+  MOCK_PRODUCT_HISTORY,
+  MOCK_PRODUCT_HISTORY_EDIT_LOG,
+  MOCK_RETURN_RECEIPTS,
+  formatSom,
+  getSuppliersList,
+  type ProductHistory,
+  type ProductHistoryEditLog,
+  type ReturnReceipt,
+} from "@/lib/mock-data";
+import {
+  ReturnReceiptDetailDialog,
+  returnedByLabel,
+} from "@/components/shared/ReturnReceiptDetailDialog";
+import { useApp } from "@/lib/app-context";
+import {
+  CalendarDays,
+  Eye,
+  FileSpreadsheet,
+  Filter,
+  PackageMinus,
+  PackagePlus,
+  Pencil,
+  Printer,
+  RotateCcw,
+  Search,
+  Trash2,
+} from "lucide-react";
+import { toast } from "sonner";
+
+function fmtDate(value: string) {
+  return new Date(value).toLocaleString("uz-UZ", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+type Tab = "yangi" | "edited" | "returned" | "writtenoff";
+type EditChange = {
+  field: string;
+  oldValue: unknown;
+  newValue: unknown;
+};
+type FlexibleEditHistory = (typeof MOCK_EDIT_HISTORY)[number] & Record<string, unknown>;
+export type DateMode = "all" | "today" | "month" | "custom";
+
+export function TovarlarTarixi() {
+  const [tab, setTab] = React.useState<Tab>("yangi");
+  const { t } = useApp();
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex gap-2 border-b bg-card p-3">
+        <Button
+          size="sm"
+          variant={tab === "yangi" ? "default" : "outline"}
+          onClick={() => setTab("yangi")}
+          className="gap-2"
+        >
+          <PackagePlus className="h-4 w-4" /> Yangi tovar qo'shish
+        </Button>
+        <Button
+          size="sm"
+          variant={tab === "edited" ? "default" : "outline"}
+          onClick={() => setTab("edited")}
+        >
+          {t("edited_products")}
+        </Button>
+        <Button
+          size="sm"
+          variant={tab === "returned" ? "default" : "outline"}
+          onClick={() => setTab("returned")}
+          className="gap-2"
+        >
+          <RotateCcw className="h-4 w-4" /> Qaytgan tovarlar tarixi
+        </Button>
+        <Button
+          size="sm"
+          variant={tab === "writtenoff" ? "default" : "outline"}
+          onClick={() => setTab("writtenoff")}
+          className="gap-2"
+        >
+          <PackageMinus className="h-4 w-4" /> Hisobdan chiqarilgan tovarlar tarixi
+        </Button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto">
+        {tab === "yangi" ? (
+          <NewProductTable />
+        ) : tab === "edited" ? (
+          <EditedTable />
+        ) : tab === "returned" ? (
+          <ReturnedTable />
+        ) : (
+          <WrittenOffTable />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NewProductTable() {
+  const [productQuery, setProductQuery] = React.useState("");
+  const [dateMode, setDateMode] = React.useState<DateMode>("all");
+  const [from, setFrom] = React.useState("");
+  const [to, setTo] = React.useState("");
+
+  const filtered = React.useMemo(
+    () =>
+      MOCK_NEW_PRODUCT_LOG.filter(
+        (h) =>
+          matchesProductName(h.productName, productQuery) &&
+          matchesDateFilter(h.date, dateMode, from, to),
+      ),
+    [productQuery, dateMode, from, to],
+  );
+
+  return (
+    <div className="flex h-full flex-col">
+      <HistoryFilters
+        productQuery={productQuery}
+        onProductQueryChange={setProductQuery}
+        dateMode={dateMode}
+        onDateModeChange={setDateMode}
+        from={from}
+        onFromChange={setFrom}
+        to={to}
+        onToChange={setTo}
+        summaryLabel="Yangi tovarlar"
+        summaryValue={`${filtered.length} ta`}
+      />
+
+      <div className="min-h-0 flex-1 overflow-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 z-10 bg-muted/90 backdrop-blur">
+            <tr className="border-b text-xs uppercase text-muted-foreground">
+              <th className="px-4 py-2 text-left">Sana</th>
+              <th className="px-4 py-2 text-left">Tovar</th>
+              <th className="px-4 py-2 text-left">Birlik</th>
+              <th className="px-4 py-2 text-right">Tan narx</th>
+              <th className="px-4 py-2 text-right">Optom narx</th>
+              <th className="px-4 py-2 text-right">Sotuv narx</th>
+              <th className="px-4 py-2 text-left">Shtrix kod</th>
+              <th className="px-4 py-2 text-left">Qo'shdi</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((h) => (
+              <tr key={h.id} className="border-b hover:bg-muted/40">
+                <td className="px-4 py-2 text-muted-foreground">{fmtDate(h.date)}</td>
+                <td className="px-4 py-2 font-medium">
+                  <div className="flex items-center gap-2">
+                    {h.image && (
+                      <img
+                        src={h.image}
+                        alt={h.productName}
+                        className="h-7 w-7 rounded object-cover"
+                      />
+                    )}
+                    {h.productName}
+                  </div>
+                </td>
+                <td className="px-4 py-2">{h.unit}</td>
+                <td className="px-4 py-2 text-right tabular-nums">{formatSom(h.costPrice)}</td>
+                <td className="px-4 py-2 text-right tabular-nums">
+                  {h.wholesalePrice ? formatSom(h.wholesalePrice) : "—"}
+                </td>
+                <td className="px-4 py-2 text-right tabular-nums">{formatSom(h.price)}</td>
+                <td className="px-4 py-2 font-mono text-xs">{h.barcode}</td>
+                <td className="px-4 py-2">
+                  <Badge variant="outline">{h.addedBy}</Badge>
+                </td>
+              </tr>
+            ))}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
+                  Yangi tovar qo'shish tarixi topilmadi
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/** AddedTable qidiruvi — tovar nomi YOKI prixod (nakladnoy) raqami bo'yicha mos keladi. */
+function matchesInvoiceOrProductName(h: ProductHistory, query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return h.productName.toLowerCase().includes(q) || h.invoiceNumber.toLowerCase().includes(q);
+}
+
+export function AddedTable({ initialDateMode = "all" }: { initialDateMode?: DateMode } = {}) {
+  const { t, settings } = useApp();
+  const [productQuery, setProductQuery] = React.useState("");
+  const [dateMode, setDateMode] = React.useState<DateMode>(initialDateMode);
+  const [from, setFrom] = React.useState("");
+  const [to, setTo] = React.useState("");
+  const [supplierFilter, setSupplierFilter] = React.useState("all");
+  const [warehouseFilter, setWarehouseFilter] = React.useState("all");
+  const [addedByFilter, setAddedByFilter] = React.useState("all");
+  const [detailRow, setDetailRow] = React.useState<ProductHistory | null>(null);
+  const [editRow, setEditRow] = React.useState<ProductHistory | null>(null);
+  const [version, setVersion] = React.useState(0);
+
+  const supplierOptions = React.useMemo(() => getSuppliersList(), [version]);
+  const addedByOptions = React.useMemo(
+    () => Array.from(new Set(MOCK_PRODUCT_HISTORY.map((h) => h.addedBy))).sort(),
+    [version],
+  );
+
+  const filtered = React.useMemo(
+    () =>
+      MOCK_PRODUCT_HISTORY.filter(
+        (h) =>
+          matchesInvoiceOrProductName(h, productQuery) &&
+          matchesDateFilter(h.date, dateMode, from, to) &&
+          (supplierFilter === "all" || h.supplierId === supplierFilter) &&
+          (warehouseFilter === "all" || h.warehouse === warehouseFilter) &&
+          (addedByFilter === "all" || h.addedBy === addedByFilter),
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [productQuery, dateMode, from, to, supplierFilter, warehouseFilter, addedByFilter, version],
+  );
+
+  const deleteRow = (row: ProductHistory) => {
+    const ok = window.confirm(
+      `"${row.productName}" — ${fmtDate(row.date)} kirim yozuvini o'chirasizmi? Bu tovar zaxirasidan ham ayiriladi.`,
+    );
+    if (!ok) return;
+
+    const idx = MOCK_PRODUCT_HISTORY.findIndex((h) => h.id === row.id);
+    if (idx >= 0) MOCK_PRODUCT_HISTORY.splice(idx, 1);
+
+    const product = findMatchingProduct(row.productName);
+    if (product) product.omborQty = Math.max(0, product.omborQty - row.qty);
+
+    MOCK_PRODUCT_HISTORY_EDIT_LOG.unshift({
+      id: `phel-${Date.now()}`,
+      date: new Date().toISOString(),
+      editedBy: settings.username,
+      entryId: row.id,
+      invoiceNumber: row.invoiceNumber,
+      productName: row.productName,
+      action: "delete",
+      oldTotal: row.qty * row.costPrice,
+      newTotal: 0,
+    });
+
+    setVersion((v) => v + 1);
+    toast.success("Kirim tarixi yozuvi o'chirildi", {
+      description: "Tovar zaxirasi ham yangilandi",
+    });
+  };
+
+  return (
+    <div className="flex h-full flex-col">
+      <HistoryFilters
+        productQuery={productQuery}
+        onProductQueryChange={setProductQuery}
+        searchLabel="Tovar nomi yoki prixod raqami bo'yicha qidirish"
+        searchPlaceholder="Masalan: sement yoki PRX-000123..."
+        dateMode={dateMode}
+        onDateModeChange={setDateMode}
+        from={from}
+        onFromChange={setFrom}
+        to={to}
+        onToChange={setTo}
+        summaryLabel="Jami kirim"
+        summaryValue={formatSom(filtered.reduce((sum, h) => sum + h.qty * h.costPrice, 0))}
+        extraActiveCount={
+          (supplierFilter !== "all" ? 1 : 0) +
+          (warehouseFilter !== "all" ? 1 : 0) +
+          (addedByFilter !== "all" ? 1 : 0)
+        }
+        extraFilters={
+          <>
+            <div className="space-y-1.5">
+              <Label className="block text-xs">Taminotchi</Label>
+              <Select value={supplierFilter} onValueChange={setSupplierFilter}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Barchasi</SelectItem>
+                  {supplierOptions.map((a) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="block text-xs">Ombor</Label>
+              <Select value={warehouseFilter} onValueChange={setWarehouseFilter}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Barchasi</SelectItem>
+                  {settings.warehouses.map((w) => (
+                    <SelectItem key={w.id} value={w.name}>
+                      {w.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="block text-xs">Prixodchi xodim</Label>
+              <Select value={addedByFilter} onValueChange={setAddedByFilter}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Barchasi</SelectItem>
+                  {addedByOptions.map((name) => (
+                    <SelectItem key={name} value={name}>
+                      {name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </>
+        }
+      />
+
+      <div className="min-h-0 flex-1 overflow-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 z-10 bg-muted/90 backdrop-blur">
+            <tr className="border-b text-xs uppercase text-muted-foreground">
+              <th className="px-4 py-2 text-left">Prixod №</th>
+              <th className="px-4 py-2 text-left">{t("date")}</th>
+              <th className="px-4 py-2 text-right">Prixod tan narx</th>
+              <th className="px-4 py-2 text-left">{t("warehouse")}</th>
+              <th className="px-4 py-2 text-left">{t("supplier")}</th>
+              <th className="px-4 py-2 text-left">{t("added_by")}</th>
+              <th className="px-4 py-2 text-center">Amal</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((h) => (
+              <tr
+                key={h.id}
+                className="cursor-pointer border-b hover:bg-muted/40"
+                onClick={() => setDetailRow(h)}
+              >
+                <td className="px-4 py-2 font-mono text-xs font-semibold">{h.invoiceNumber}</td>
+                <td className="px-4 py-2 text-muted-foreground">{fmtDate(h.date)}</td>
+                <td className="px-4 py-2 text-right font-medium tabular-nums">
+                  {formatSom(h.qty * h.costPrice)}
+                </td>
+                <td className="px-4 py-2">{h.warehouse}</td>
+                <td className="px-4 py-2">{h.supplierName || "-"}</td>
+                <td className="px-4 py-2">
+                  <Badge variant="outline">{h.addedBy}</Badge>
+                </td>
+                <td className="px-4 py-2">
+                  <div className="flex justify-center gap-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
+                      aria-label="Batafsil ko'rish"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setDetailRow(h);
+                      }}
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
+                      aria-label="Tahrirlash"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setEditRow(h);
+                      }}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 text-destructive hover:text-destructive"
+                      aria-label="O'chirish"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        deleteRow(h);
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
+                  Tovar qo'shish tarixi topilmadi
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <ProductHistoryDetailDialog row={detailRow} onClose={() => setDetailRow(null)} />
+      <EditProductHistoryDialog
+        row={editRow}
+        onClose={() => setEditRow(null)}
+        onSaved={() => setVersion((v) => v + 1)}
+      />
+    </div>
+  );
+}
+
+/** Nom bo'yicha mos keladigan bazadagi mahsulotni topadi — kirim tarixi tahrirlanganda/o'chirilganda zaxirani moslashtirish uchun. */
+function findMatchingProduct(productName: string) {
+  const normalized = productName.trim().toLowerCase();
+  return MOCK_PRODUCTS.find((p) => p.name.trim().toLowerCase() === normalized);
+}
+
+function EditProductHistoryDialog({
+  row,
+  onClose,
+  onSaved,
+}: {
+  row: ProductHistory | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { settings } = useApp();
+  const [qty, setQty] = React.useState("0");
+  const [price, setPrice] = React.useState("0");
+  const [costPrice, setCostPrice] = React.useState("0");
+  const [warehouse, setWarehouse] = React.useState("");
+  const [shelfLocation, setShelfLocation] = React.useState("__empty__");
+  const [note, setNote] = React.useState("");
+
+  React.useEffect(() => {
+    if (!row) return;
+    setQty(String(row.qty));
+    setPrice(String(row.price));
+    setCostPrice(String(row.costPrice));
+    setWarehouse(row.warehouse);
+    setShelfLocation(row.shelfLocation || "__empty__");
+    setNote(row.note ?? "");
+  }, [row]);
+
+  const save = () => {
+    if (!row) return;
+    const entry = MOCK_PRODUCT_HISTORY.find((h) => h.id === row.id);
+    if (!entry) return;
+
+    const oldQty = entry.qty;
+    const oldPrice = entry.price;
+    const oldCostPrice = entry.costPrice;
+    const oldWarehouse = entry.warehouse;
+    const oldShelf = entry.shelfLocation ?? "";
+    const oldNote = entry.note ?? "";
+    const oldTotal = oldQty * oldCostPrice;
+
+    const newQty = Math.max(0, Number(qty) || 0);
+    const newPrice = Math.max(0, Number(price) || 0);
+    const newCostPrice = Math.max(0, Number(costPrice) || 0);
+    const newWarehouse = warehouse || oldWarehouse;
+    const newShelf = shelfLocation === "__empty__" ? "" : shelfLocation;
+    const newNote = note;
+
+    const changes: { field: string; label: string; oldValue: string; newValue: string }[] = [];
+    if (newQty !== oldQty) {
+      changes.push({
+        field: "qty",
+        label: "Miqdor",
+        oldValue: `${oldQty} ${entry.unit}`,
+        newValue: `${newQty} ${entry.unit}`,
+      });
+    }
+    if (newPrice !== oldPrice) {
+      changes.push({
+        field: "price",
+        label: "Sotuv narxi",
+        oldValue: formatSom(oldPrice),
+        newValue: formatSom(newPrice),
+      });
+    }
+    if (newCostPrice !== oldCostPrice) {
+      changes.push({
+        field: "costPrice",
+        label: "Tan narx",
+        oldValue: formatSom(oldCostPrice),
+        newValue: formatSom(newCostPrice),
+      });
+    }
+    if (newWarehouse !== oldWarehouse) {
+      changes.push({
+        field: "warehouse",
+        label: "Ombor",
+        oldValue: oldWarehouse,
+        newValue: newWarehouse,
+      });
+    }
+    if (newShelf !== oldShelf) {
+      changes.push({
+        field: "shelfLocation",
+        label: "Polka",
+        oldValue: oldShelf || "-",
+        newValue: newShelf || "-",
+      });
+    }
+    if (newNote !== oldNote) {
+      changes.push({
+        field: "note",
+        label: "Izoh",
+        oldValue: oldNote || "-",
+        newValue: newNote || "-",
+      });
+    }
+
+    if (changes.length === 0) {
+      onClose();
+      return;
+    }
+
+    entry.qty = newQty;
+    entry.price = newPrice;
+    entry.costPrice = newCostPrice;
+    entry.warehouse = newWarehouse;
+    entry.shelfLocation = newShelf;
+    entry.note = newNote;
+
+    const product = findMatchingProduct(entry.productName);
+    if (product && newQty !== oldQty) {
+      product.omborQty = Math.max(0, product.omborQty + (newQty - oldQty));
+    }
+
+    MOCK_PRODUCT_HISTORY_EDIT_LOG.unshift({
+      id: `phel-${Date.now()}`,
+      date: new Date().toISOString(),
+      editedBy: settings.username,
+      entryId: entry.id,
+      invoiceNumber: entry.invoiceNumber,
+      productName: entry.productName,
+      action: "edit",
+      oldTotal,
+      newTotal: newQty * newCostPrice,
+      changes,
+    });
+
+    onSaved();
+    onClose();
+    toast.success("Kirim tarixi yozuvi tahrirlandi", {
+      description: "O'zgarish alohida tarixga qayd qilindi",
+    });
+  };
+
+  return (
+    <Dialog open={!!row} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-[460px]">
+        <DialogHeader>
+          <DialogTitle>Kirim tarixini tahrirlash</DialogTitle>
+        </DialogHeader>
+        {row && (
+          <div className="space-y-3">
+            <div className="rounded-lg bg-muted/50 p-3 text-sm">
+              <b>{row.productName}</b>
+              <div className="text-muted-foreground">
+                {row.invoiceNumber} · {fmtDate(row.date)} · {row.addedBy}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="mb-1 block text-xs">Miqdor</Label>
+                <Input type="number" value={qty} onChange={(e) => setQty(e.target.value)} />
+              </div>
+              <div>
+                <Label className="mb-1 block text-xs">Sotuv narxi</Label>
+                <Input type="number" value={price} onChange={(e) => setPrice(e.target.value)} />
+              </div>
+              <div>
+                <Label className="mb-1 block text-xs">Tan narx</Label>
+                <Input
+                  type="number"
+                  value={costPrice}
+                  onChange={(e) => setCostPrice(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label className="mb-1 block text-xs">Ombor</Label>
+                <Select value={warehouse} onValueChange={setWarehouse}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {settings.warehouses.map((w) => (
+                      <SelectItem key={w.id} value={w.name}>
+                        {w.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div>
+              <Label className="mb-1 block text-xs">Polka raqami</Label>
+              <Select value={shelfLocation} onValueChange={setShelfLocation}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Tanlang" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__empty__">Tanlanmagan</SelectItem>
+                  {settings.shelfLocations.map((loc) => (
+                    <SelectItem key={loc.id} value={loc.name}>
+                      {loc.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="mb-1 block text-xs">Izoh</Label>
+              <Textarea value={note} onChange={(e) => setNote(e.target.value)} />
+            </div>
+            <p className="rounded-lg bg-orange-50 p-2 text-xs text-orange-700">
+              Miqdor o'zgartirilsa, tovar zaxirasi ham avtomatik moslashtiriladi. O'zgarish "Kirim
+              tarixi tahrirlari" bo'limida qayd qilinadi.
+            </p>
+            <Button onClick={save} className="w-full gap-2">
+              <Pencil className="h-4 w-4" /> Saqlash
+            </Button>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function AddedEditLogTable() {
+  const [productQuery, setProductQuery] = React.useState("");
+  const [dateMode, setDateMode] = React.useState<DateMode>("all");
+  const [from, setFrom] = React.useState("");
+  const [to, setTo] = React.useState("");
+
+  const filtered = React.useMemo(
+    () =>
+      MOCK_PRODUCT_HISTORY_EDIT_LOG.filter(
+        (h) =>
+          matchesProductName(h.productName, productQuery) &&
+          matchesDateFilter(h.date, dateMode, from, to),
+      ),
+    [productQuery, dateMode, from, to],
+  );
+
+  return (
+    <div className="flex h-full flex-col">
+      <HistoryFilters
+        productQuery={productQuery}
+        onProductQueryChange={setProductQuery}
+        dateMode={dateMode}
+        onDateModeChange={setDateMode}
+        from={from}
+        onFromChange={setFrom}
+        to={to}
+        onToChange={setTo}
+        summaryLabel="Tahrir/o'chirishlar"
+        summaryValue={`${filtered.length} ta`}
+      />
+
+      <div className="min-h-0 flex-1 overflow-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 z-10 bg-muted/90 backdrop-blur">
+            <tr className="border-b text-xs uppercase text-muted-foreground">
+              <th className="px-4 py-2 text-left">Sana</th>
+              <th className="px-4 py-2 text-left">Tovar</th>
+              <th className="px-4 py-2 text-left">Nakladnoy</th>
+              <th className="px-4 py-2 text-left">Amal</th>
+              <th className="px-4 py-2 text-left">O'zgarishlar</th>
+              <th className="px-4 py-2 text-right">Eski summa</th>
+              <th className="px-4 py-2 text-right">Yangi summa</th>
+              <th className="px-4 py-2 text-left">Kim o'zgartirdi</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((h: ProductHistoryEditLog) => (
+              <tr key={h.id} className="border-b hover:bg-muted/40">
+                <td className="px-4 py-2 text-muted-foreground">{fmtDate(h.date)}</td>
+                <td className="px-4 py-2 font-medium">{h.productName}</td>
+                <td className="px-4 py-2 font-mono text-xs">{h.invoiceNumber ?? h.entryId}</td>
+                <td className="px-4 py-2">
+                  <Badge
+                    variant="outline"
+                    className={
+                      h.action === "delete" ? "border-destructive/40 text-destructive" : ""
+                    }
+                  >
+                    {h.action === "delete" ? "O'chirildi" : "Tahrirlandi"}
+                  </Badge>
+                </td>
+                <td className="px-4 py-2">
+                  <div className="flex max-w-3xl flex-wrap gap-1.5">
+                    {h.changes && h.changes.length > 0 ? (
+                      h.changes.map((c, idx) => (
+                        <span
+                          key={`${h.id}-${idx}`}
+                          className="rounded-md border bg-muted/30 px-2 py-1 text-xs"
+                        >
+                          <span className="font-semibold">{c.label}: </span>
+                          <span className="text-muted-foreground">{c.oldValue}</span>
+                          <span className="px-1 text-muted-foreground">-&gt;</span>
+                          <span className="font-semibold">{c.newValue}</span>
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </div>
+                </td>
+                <td className="px-4 py-2 text-right tabular-nums">{formatSom(h.oldTotal)}</td>
+                <td className="px-4 py-2 text-right font-semibold tabular-nums">
+                  {formatSom(h.newTotal)}
+                </td>
+                <td className="px-4 py-2">
+                  <Badge variant="secondary">{h.editedBy}</Badge>
+                </td>
+              </tr>
+            ))}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
+                  Kirim tarixida hali tahrir yoki o'chirish bo'lmagan
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function EditedTable() {
+  const { t } = useApp();
+  const [productQuery, setProductQuery] = React.useState("");
+  const [dateMode, setDateMode] = React.useState<DateMode>("all");
+  const [from, setFrom] = React.useState("");
+  const [to, setTo] = React.useState("");
+
+  const filtered = React.useMemo(
+    () =>
+      MOCK_EDIT_HISTORY.filter(
+        (h) =>
+          h.action !== "writeoff" &&
+          matchesProductName(h.productName, productQuery) &&
+          matchesDateFilter(h.date, dateMode, from, to),
+      ),
+    [productQuery, dateMode, from, to],
+  );
+
+  return (
+    <div className="flex h-full flex-col">
+      <HistoryFilters
+        productQuery={productQuery}
+        onProductQueryChange={setProductQuery}
+        dateMode={dateMode}
+        onDateModeChange={setDateMode}
+        from={from}
+        onFromChange={setFrom}
+        to={to}
+        onToChange={setTo}
+        summaryLabel="Tahrirlar"
+        summaryValue={`${filtered.length} ta`}
+      />
+
+      <div className="min-h-0 flex-1 overflow-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 z-10 bg-muted/90 backdrop-blur">
+            <tr className="border-b text-xs uppercase text-muted-foreground">
+              <th className="px-4 py-2 text-left">{t("date")}</th>
+              <th className="px-4 py-2 text-left">{t("product")}</th>
+              <th className="px-4 py-2 text-left">O'zgarishlar</th>
+              <th className="px-4 py-2 text-left">{t("action")}</th>
+              <th className="px-4 py-2 text-left">{t("edited_by")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((history) => {
+              const h = history as FlexibleEditHistory;
+              const changes = getEditChanges(h);
+              return (
+                <tr key={h.id} className="border-b hover:bg-muted/40">
+                  <td className="px-4 py-2 text-muted-foreground">{fmtDate(h.date)}</td>
+                  <td className="px-4 py-2 font-medium">{h.productName}</td>
+                  <td className="px-4 py-2">
+                    <div className="flex max-w-3xl flex-wrap gap-1.5">
+                      {changes.map((change) => (
+                        <ChangeBadge
+                          key={`${h.id}-${change.field}`}
+                          change={change}
+                          unit={h.unit}
+                        />
+                      ))}
+                      {changes.length === 0 && (
+                        <span className="text-muted-foreground">O'zgarish ma'lumoti yo'q</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-4 py-2">
+                    <Badge
+                      variant="outline"
+                      className={
+                        h.action === "delete" || h.action === "writeoff"
+                          ? "border-destructive/40 text-destructive"
+                          : ""
+                      }
+                    >
+                      {h.action === "delete"
+                        ? t("deleted")
+                        : h.action === "writeoff"
+                          ? t("written_off")
+                          : h.action === "sanoq"
+                            ? t("stock_counted")
+                            : t("edited")}
+                    </Badge>
+                    {(h.action === "writeoff" || h.action === "sanoq") &&
+                      typeof h.note === "string" &&
+                      h.note && <div className="mt-1 text-xs text-muted-foreground">{h.note}</div>}
+                  </td>
+                  <td className="px-4 py-2">{h.editedBy}</td>
+                </tr>
+              );
+            })}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
+                  Tahrirlangan tovarlar topilmadi
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function WrittenOffTable() {
+  const { t } = useApp();
+  const [productQuery, setProductQuery] = React.useState("");
+  const [dateMode, setDateMode] = React.useState<DateMode>("all");
+  const [from, setFrom] = React.useState("");
+  const [to, setTo] = React.useState("");
+
+  const filtered = React.useMemo(
+    () =>
+      MOCK_EDIT_HISTORY.filter(
+        (h) =>
+          h.action === "writeoff" &&
+          matchesProductName(h.productName, productQuery) &&
+          matchesDateFilter(h.date, dateMode, from, to),
+      ),
+    [productQuery, dateMode, from, to],
+  );
+
+  const totalQty = filtered.reduce((sum, h) => sum + Math.max(0, h.oldQty - h.newQty), 0);
+
+  return (
+    <div className="flex h-full flex-col">
+      <HistoryFilters
+        productQuery={productQuery}
+        onProductQueryChange={setProductQuery}
+        dateMode={dateMode}
+        onDateModeChange={setDateMode}
+        from={from}
+        onFromChange={setFrom}
+        to={to}
+        onToChange={setTo}
+        summaryLabel="Hisobdan chiqarilgan"
+        summaryValue={`${filtered.length} ta yozuv`}
+      />
+
+      <div className="min-h-0 flex-1 overflow-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 z-10 bg-muted/90 backdrop-blur">
+            <tr className="border-b text-xs uppercase text-muted-foreground">
+              <th className="px-4 py-2 text-left">{t("date")}</th>
+              <th className="px-4 py-2 text-left">{t("product")}</th>
+              <th className="px-4 py-2 text-right">Chiqarilgan miqdor</th>
+              <th className="px-4 py-2 text-left">Sabab</th>
+              <th className="px-4 py-2 text-left">{t("edited_by")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((h) => (
+              <tr key={h.id} className="border-b hover:bg-muted/40">
+                <td className="px-4 py-2 text-muted-foreground">{fmtDate(h.date)}</td>
+                <td className="px-4 py-2 font-medium">{h.productName}</td>
+                <td className="px-4 py-2 text-right tabular-nums">
+                  <span className="font-semibold text-destructive">
+                    -{Math.max(0, h.oldQty - h.newQty)} {h.unit}
+                  </span>
+                  <div className="text-xs text-muted-foreground">
+                    {h.oldQty} → {h.newQty} {h.unit}
+                  </div>
+                </td>
+                <td className="px-4 py-2 text-muted-foreground">{h.note || "-"}</td>
+                <td className="px-4 py-2">
+                  <Badge variant="outline">{h.editedBy}</Badge>
+                </td>
+              </tr>
+            ))}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
+                  Hisobdan chiqarilgan tovarlar topilmadi
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {filtered.length > 0 && (
+        <div className="border-t bg-card px-4 py-2 text-right text-xs text-muted-foreground">
+          Jami hisobdan chiqarilgan:{" "}
+          <span className="font-semibold text-destructive">{totalQty}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function HistoryFilters({
+  productQuery,
+  onProductQueryChange,
+  searchLabel = "Tovar nomi bo'yicha qidirish",
+  searchPlaceholder = "Masalan: sement, armatura...",
+  dateMode,
+  onDateModeChange,
+  from,
+  onFromChange,
+  to,
+  onToChange,
+  summaryLabel,
+  summaryValue,
+  extraFilters,
+  extraActiveCount = 0,
+}: {
+  productQuery: string;
+  onProductQueryChange: (value: string) => void;
+  searchLabel?: string;
+  searchPlaceholder?: string;
+  dateMode: DateMode;
+  onDateModeChange: (value: DateMode) => void;
+  from: string;
+  onFromChange: (value: string) => void;
+  to: string;
+  onToChange: (value: string) => void;
+  summaryLabel: string;
+  summaryValue: string;
+  extraFilters?: React.ReactNode;
+  extraActiveCount?: number;
+}) {
+  const [filterOpen, setFilterOpen] = React.useState(false);
+  const activeCount = (dateMode !== "all" ? 1 : 0) + extraActiveCount;
+
+  return (
+    <div className="flex flex-wrap items-end gap-3 border-b bg-card p-3">
+      <div className="min-w-[280px] flex-1">
+        <Label className="mb-1 block text-xs">{searchLabel}</Label>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={productQuery}
+            onChange={(e) => onProductQueryChange(e.target.value)}
+            placeholder={searchPlaceholder}
+            className="pl-9"
+          />
+        </div>
+      </div>
+
+      <Popover open={filterOpen} onOpenChange={setFilterOpen}>
+        <PopoverTrigger asChild>
+          <Button type="button" variant="outline" className="h-9 gap-2">
+            <Filter className="h-4 w-4" />
+            Filter
+            {activeCount > 0 && (
+              <Badge variant="secondary" className="h-5 min-w-5 justify-center px-1">
+                {activeCount}
+              </Badge>
+            )}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-80 space-y-3">
+          <div>
+            <Label className="mb-1 block text-xs">Sana filter</Label>
+            <Select value={dateMode} onValueChange={(value) => onDateModeChange(value as DateMode)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Barcha davr</SelectItem>
+                <SelectItem value="today">Bugun</SelectItem>
+                <SelectItem value="month">Bu oy</SelectItem>
+                <SelectItem value="custom">Istalgan davr</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {dateMode === "custom" && (
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="mb-1 block text-xs">Boshlanish</Label>
+                <Input type="date" value={from} onChange={(e) => onFromChange(e.target.value)} />
+              </div>
+              <div>
+                <Label className="mb-1 block text-xs">Tugash</Label>
+                <Input type="date" value={to} onChange={(e) => onToChange(e.target.value)} />
+              </div>
+            </div>
+          )}
+
+          {extraFilters}
+        </PopoverContent>
+      </Popover>
+
+      <div className="ml-auto rounded-xl bg-primary/10 px-4 py-2 text-right text-sm text-primary">
+        <div className="flex items-center gap-1 text-xs">
+          <Filter className="h-3 w-3" />
+          {summaryLabel}
+        </div>
+        <b>{summaryValue}</b>
+      </div>
+    </div>
+  );
+}
+
+function exportProductHistoryToExcel(row: ProductHistory) {
+  const data = [
+    {
+      "Prixod №": row.invoiceNumber,
+      Sana: fmtDate(row.date),
+      "Tovar nomi": row.productName,
+      Miqdor: row.qty,
+      Birligi: row.unit,
+      "Sotuv narxi": row.price,
+      "Tan narx": row.costPrice,
+      "Jami tan narx": row.qty * row.costPrice,
+      Ombor: row.warehouse,
+      Polka: row.shelfLocation || "",
+      "Yetkazib beruvchi": row.supplierName || "",
+      "Yetkazib beruvchi telefoni": row.supplierPhone || "",
+      "Berilgan pul": row.paidAmount ?? "",
+      "Qarz summasi": row.remainingDebt ?? "",
+      Izoh: row.note || "",
+      "Qo'shgan": row.addedBy,
+    },
+  ];
+
+  const worksheet = XLSX.utils.json_to_sheet(data);
+  worksheet["!cols"] = [
+    { wch: 14 },
+    { wch: 18 },
+    { wch: 24 },
+    { wch: 10 },
+    { wch: 10 },
+    { wch: 14 },
+    { wch: 14 },
+    { wch: 16 },
+    { wch: 18 },
+    { wch: 12 },
+    { wch: 20 },
+    { wch: 16 },
+    { wch: 14 },
+    { wch: 14 },
+    { wch: 24 },
+    { wch: 16 },
+  ];
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Kirim");
+  XLSX.writeFile(workbook, `kirim-${row.invoiceNumber}.xlsx`);
+}
+
+function printNakladnoy(row: ProductHistory, storeName: string, phone: string) {
+  const win = window.open("", "_blank");
+  if (!win) return;
+
+  const total = row.qty * row.costPrice;
+  const hasSource = Boolean(row.supplierName || row.supplierId || row.supplierPhone);
+
+  win.document.write(`
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Nakladnoy ${row.invoiceNumber}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 24px; color: #111; }
+          h1 { font-size: 18px; margin: 0 0 2px; }
+          .muted { color: #555; font-size: 12px; }
+          .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111; padding-bottom: 12px; margin-bottom: 16px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+          th, td { border: 1px solid #333; padding: 8px; font-size: 13px; text-align: left; }
+          th { background: #f2f2f2; }
+          .right { text-align: right; }
+          .total-row td { font-weight: bold; }
+          .signs { display: flex; justify-content: space-between; margin-top: 48px; }
+          .sign { width: 45%; border-top: 1px solid #333; padding-top: 4px; font-size: 12px; text-align: center; }
+        </style>
+      </head>
+      <body>
+        <div class="head">
+          <div>
+            <h1>${storeName || "Tovar qabul qilish nakladnoyi"}</h1>
+            ${phone ? `<div class="muted">Tel: ${phone}</div>` : ""}
+          </div>
+          <div class="muted">
+            <div>Nakladnoy №: ${row.invoiceNumber}</div>
+            <div>Sana: ${fmtDate(row.date)}</div>
+          </div>
+        </div>
+
+        ${
+          hasSource
+            ? `<div class="muted">Yetkazib beruvchi: <b>${row.supplierName || "-"}</b>${row.supplierPhone ? ` · ${row.supplierPhone}` : ""}</div>`
+            : ""
+        }
+
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Tovar nomi</th>
+              <th class="right">Miqdor</th>
+              <th class="right">Narx</th>
+              <th class="right">Summa</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>1</td>
+              <td>${row.productName}</td>
+              <td class="right">${row.qty} ${row.unit}</td>
+              <td class="right">${formatSom(row.costPrice)}</td>
+              <td class="right">${formatSom(total)}</td>
+            </tr>
+            <tr class="total-row">
+              <td colspan="4" class="right">Jami:</td>
+              <td class="right">${formatSom(total)}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="signs">
+          <div class="sign">Topshirdi (F.I.Sh, imzo)</div>
+          <div class="sign">Qabul qildi: ${row.addedBy}</div>
+        </div>
+      </body>
+    </html>
+  `);
+  win.document.close();
+  win.focus();
+  win.print();
+}
+
+function ProductHistoryDetailDialog({
+  row,
+  onClose,
+}: {
+  row: ProductHistory | null;
+  onClose: () => void;
+}) {
+  const { settings } = useApp();
+  const hasSource = Boolean(row?.supplierName || row?.supplierId || row?.supplierPhone);
+
+  return (
+    <Dialog open={!!row} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-[620px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <PackagePlus className="h-5 w-5 text-primary" />
+            Tovar qo'shish ma'lumotlari
+          </DialogTitle>
+        </DialogHeader>
+
+        {row && (
+          <div className="space-y-4">
+            <div className="rounded-lg border bg-muted/20 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="text-xs text-muted-foreground">Tovar</div>
+                  <div className="text-lg font-bold">{row.productName}</div>
+                  <div className="mt-0.5 font-mono text-xs font-semibold text-primary">
+                    {row.invoiceNumber}
+                  </div>
+                </div>
+                <Badge variant="outline" className="gap-1">
+                  <CalendarDays className="h-3.5 w-3.5" />
+                  {fmtDate(row.date)}
+                </Badge>
+              </div>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Info label="Miqdor" value={`${row.qty} ${row.unit}`} />
+              <Info label="Ombor" value={row.warehouse} />
+              <Info label="Polka" value={row.shelfLocation || "-"} />
+              <Info label="Sotuv narxi" value={formatSom(row.price)} />
+              <Info label="Tan narx" value={formatSom(row.costPrice)} />
+              <Info label="Jami tan narx" value={formatSom(row.qty * row.costPrice)} />
+              <Info label="Qo'shgan" value={row.addedBy} />
+            </div>
+
+            <div className="rounded-lg border p-3">
+              <div className="mb-2 text-sm font-semibold">Qayerdan kelgani</div>
+              {hasSource ? (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Info label="Yetkazib beruvchi kodi" value={row.supplierId || "-"} />
+                  <Info label="Yetkazib beruvchi ismi" value={row.supplierName || "-"} />
+                  <Info label="Telefon raqami" value={row.supplierPhone || "-"} />
+                  <Info label="Berilgan pul" value={formatSom(row.paidAmount ?? 0)} />
+                  <Info label="Qarz summasi" value={formatSom(row.remainingDebt ?? 0)} />
+                  <Info label="Izoh" value={row.note || "-"} />
+                </div>
+              ) : (
+                <div className="rounded-md bg-muted/40 p-3 text-sm text-muted-foreground">
+                  Bu kirimda yetkazib beruvchi yoki nasiya manbasi kiritilmagan.
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 border-t pt-3">
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => exportProductHistoryToExcel(row)}
+              >
+                <FileSpreadsheet className="h-4 w-4" />
+                Excel
+              </Button>
+              <Button
+                className="gap-2"
+                onClick={() =>
+                  printNakladnoy(
+                    row,
+                    settings.receiptSettings.storeName,
+                    settings.receiptSettings.phone,
+                  )
+                }
+              >
+                <Printer className="h-4 w-4" />
+                Nakladnoy
+              </Button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function matchesProductName(productName: string, query: string) {
+  const q = query.trim().toLowerCase();
+  return !q || productName.toLowerCase().includes(q);
+}
+
+function Info({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border bg-muted/20 p-2">
+      <div className="text-[10px] uppercase text-muted-foreground">{label}</div>
+      <div className="text-sm font-semibold">{value}</div>
+    </div>
+  );
+}
+
+export function matchesDateFilter(value: string, mode: DateMode, from: string, to: string) {
+  const date = new Date(value);
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  if (mode === "today") return date >= startOfToday;
+  if (mode === "month") return date >= startOfMonth;
+  if (mode === "custom") {
+    return (
+      (!from || date >= new Date(`${from}T00:00:00`)) && (!to || date <= new Date(`${to}T23:59:59`))
+    );
+  }
+  return true;
+}
+
+function ReturnedTable() {
+  const [rows, setRows] = React.useState<ReturnReceipt[]>(() => [...MOCK_RETURN_RECEIPTS]);
+  const [receiptQuery, setReceiptQuery] = React.useState("");
+  const [dateMode, setDateMode] = React.useState("all");
+  const [from, setFrom] = React.useState("");
+  const [to, setTo] = React.useState("");
+  const [editRow, setEditRow] = React.useState<ReturnReceipt | null>(null);
+  const [detailRow, setDetailRow] = React.useState<ReturnReceipt | null>(null);
+  const [editTotal, setEditTotal] = React.useState(0);
+  const [editReason, setEditReason] = React.useState("");
+
+  const filtered = React.useMemo(() => {
+    const q = receiptQuery.trim().toLowerCase();
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    return rows.filter((r) => {
+      const d = new Date(r.date);
+      const byReceipt = !q || `${r.id} ${r.customerName}`.toLowerCase().includes(q);
+      let byDate = true;
+      if (dateMode === "today") byDate = d >= startOfToday;
+      if (dateMode === "month") byDate = d >= startOfMonth;
+      if (dateMode === "custom") {
+        byDate =
+          (!from || d >= new Date(`${from}T00:00:00`)) && (!to || d <= new Date(`${to}T23:59:59`));
+      }
+      return byReceipt && byDate;
+    });
+  }, [rows, receiptQuery, dateMode, from, to]);
+
+  const deleteRow = (id: string) => {
+    const ok = window.confirm("Qaytgan tovar tarixini o'chirasizmi?");
+    if (!ok) return;
+    const idx = MOCK_RETURN_RECEIPTS.findIndex((r) => r.id === id);
+    if (idx >= 0) MOCK_RETURN_RECEIPTS.splice(idx, 1);
+    setRows((prev) => prev.filter((r) => r.id !== id));
+    toast.success("Qaytgan tovar tarixi o'chirildi");
+  };
+
+  const openEdit = (r: ReturnReceipt) => {
+    setEditRow(r);
+    setEditTotal(r.total);
+    setEditReason(r.reason ?? "");
+  };
+
+  const saveEdit = () => {
+    if (!editRow) return;
+    editRow.total = Math.max(0, Number(editTotal) || 0);
+    editRow.reason = editReason;
+    editRow.editedAt = new Date().toISOString();
+    editRow.editedBy = "Joriy foydalanuvchi";
+    setRows([...MOCK_RETURN_RECEIPTS]);
+    setEditRow(null);
+    toast.success("Qaytgan tovar tarixi tahrirlandi", { description: "Tahrir vaqti qayd qilindi" });
+  };
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex flex-wrap items-end gap-3 border-b bg-card p-3">
+        <div className="min-w-[240px] flex-1">
+          <Label className="mb-1 block text-xs">Chek raqami yoki mijoz bo'yicha qidirish</Label>
+          <Input
+            value={receiptQuery}
+            onChange={(e) => setReceiptQuery(e.target.value)}
+            placeholder="QT-0001 yoki Dilshod..."
+          />
+        </div>
+        <div className="w-44">
+          <Label className="mb-1 block text-xs">Sana filter</Label>
+          <Select value={dateMode} onValueChange={setDateMode}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Barcha davr</SelectItem>
+              <SelectItem value="today">Bugun</SelectItem>
+              <SelectItem value="month">Bu oy</SelectItem>
+              <SelectItem value="custom">Istalgan davr</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {dateMode === "custom" && (
+          <>
+            <div>
+              <Label className="mb-1 block text-xs">Boshlanish</Label>
+              <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+            </div>
+            <div>
+              <Label className="mb-1 block text-xs">Tugash</Label>
+              <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+            </div>
+          </>
+        )}
+        <div className="ml-auto rounded-xl bg-primary/10 px-4 py-2 text-right text-sm text-primary">
+          <div className="flex items-center gap-1 text-xs">
+            <Filter className="h-3 w-3" /> Jami qaytgan
+          </div>
+          <b>{formatSom(filtered.reduce((s, r) => s + r.total, 0))}</b>
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 z-10 bg-muted/90 backdrop-blur">
+            <tr className="border-b text-xs uppercase text-muted-foreground">
+              <th className="px-4 py-2 text-left">Sana</th>
+              <th className="px-4 py-2 text-left">Chek</th>
+              <th className="px-4 py-2 text-left">Kim qaytargan</th>
+              <th className="px-4 py-2 text-left">Qabul qilgan</th>
+              <th className="px-4 py-2 text-left">Tovarlar</th>
+              <th className="px-4 py-2 text-right">Summa</th>
+              <th className="px-4 py-2 text-left">Tahrir vaqti</th>
+              <th className="px-4 py-2 text-center">Amal</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((r) => {
+              const returnedBy = returnedByLabel(r);
+              return (
+                <tr
+                  key={r.id}
+                  className="cursor-pointer border-b hover:bg-muted/40"
+                  onClick={() => setDetailRow(r)}
+                >
+                  <td className="px-4 py-2 text-muted-foreground">{fmtDate(r.date)}</td>
+                  <td className="px-4 py-2 font-mono font-semibold">{r.id}</td>
+                  <td className="px-4 py-2">
+                    {returnedBy.name}
+                    <div className="text-xs text-muted-foreground">{returnedBy.meta}</div>
+                  </td>
+                  <td className="px-4 py-2">{r.cashier}</td>
+                  <td className="px-4 py-2">
+                    <div className="max-w-[260px] truncate">
+                      {r.items.map((i) => `${i.name} (${i.qty} ${i.unit})`).join(", ")}
+                    </div>
+                    <div className="text-xs text-muted-foreground">{r.reason ?? "—"}</div>
+                  </td>
+                  <td className="px-4 py-2 text-right font-bold tabular-nums">
+                    {formatSom(r.total)}
+                  </td>
+                  <td className="px-4 py-2 text-xs text-muted-foreground">
+                    {r.editedAt ? fmtDate(r.editedAt) : "—"}
+                  </td>
+                  <td className="px-4 py-2">
+                    <div className="flex justify-center gap-1">
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        className="h-8 w-8"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openEdit(r);
+                        }}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        className="h-8 w-8 text-destructive hover:text-destructive"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          deleteRow(r.id);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <Dialog open={!!editRow} onOpenChange={(open) => !open && setEditRow(null)}>
+        <DialogContent className="sm:max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle>Qaytgan tovar tarixini tahrirlash</DialogTitle>
+          </DialogHeader>
+          {editRow && (
+            <div className="space-y-3">
+              <div className="rounded-lg bg-muted/50 p-3 text-sm">
+                <b>{editRow.id}</b>
+                <div className="text-muted-foreground">
+                  {editRow.customerName} · {fmtDate(editRow.date)}
+                </div>
+              </div>
+              <div>
+                <Label className="mb-1 block text-xs">Qaytgan summa</Label>
+                <Input
+                  type="number"
+                  value={editTotal}
+                  onChange={(e) => setEditTotal(Number(e.target.value) || 0)}
+                />
+              </div>
+              <div>
+                <Label className="mb-1 block text-xs">Izoh</Label>
+                <Textarea value={editReason} onChange={(e) => setEditReason(e.target.value)} />
+              </div>
+              <p className="rounded-lg bg-orange-50 p-2 text-xs text-orange-700">
+                Saqlanganda tahrir vaqti avtomatik qayd qilinadi.
+              </p>
+              <Button onClick={saveEdit} className="w-full gap-2">
+                <Pencil className="h-4 w-4" /> Saqlash
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+      <ReturnReceiptDetailDialog receipt={detailRow} onClose={() => setDetailRow(null)} />
+    </div>
+  );
+}
+
+function getEditChanges(history: FlexibleEditHistory): EditChange[] {
+  const directChanges = normalizeChanges(history.changes);
+  if (directChanges.length > 0) return directChanges;
+
+  const field =
+    stringValue(history.field) || stringValue(history.fieldName) || stringValue(history.key);
+  if (field && ("oldValue" in history || "newValue" in history)) {
+    return [{ field, oldValue: history.oldValue, newValue: history.newValue }];
+  }
+
+  const pairs: Array<[string, string, string]> = [
+    ["qty", "oldQty", "newQty"],
+    ["price", "oldPrice", "newPrice"],
+    ["salePrice", "oldSalePrice", "newSalePrice"],
+    ["costPrice", "oldCostPrice", "newCostPrice"],
+    ["unit", "oldUnit", "newUnit"],
+    ["warehouse", "oldWarehouse", "newWarehouse"],
+  ];
+
+  return pairs
+    .filter(([, oldKey, newKey]) => oldKey in history || newKey in history)
+    .map(([changeField, oldKey, newKey]) => ({
+      field: changeField,
+      oldValue: history[oldKey],
+      newValue: history[newKey],
+    }));
+}
+
+function normalizeChanges(value: unknown): EditChange[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (!item || typeof item !== "object") return null;
+        const record = item as Record<string, unknown>;
+        const field =
+          stringValue(record.field) || stringValue(record.fieldName) || stringValue(record.key);
+        if (!field) return null;
+        return {
+          field,
+          oldValue: record.oldValue ?? record.old,
+          newValue: record.newValue ?? record.new,
+        };
+      })
+      .filter((item): item is EditChange => Boolean(item));
+  }
+
+  if (value && typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>).map(([field, change]) => {
+      if (change && typeof change === "object") {
+        const record = change as Record<string, unknown>;
+        return {
+          field,
+          oldValue: record.oldValue ?? record.old,
+          newValue: record.newValue ?? record.new,
+        };
+      }
+      return { field, oldValue: undefined, newValue: change };
+    });
+  }
+
+  return [];
+}
+
+function ChangeBadge({ change, unit }: { change: EditChange; unit?: string }) {
+  return (
+    <span className="rounded-md border bg-muted/30 px-2 py-1 text-xs">
+      <span className="font-semibold">{fieldLabel(change.field)}: </span>
+      <span className="text-muted-foreground">
+        {formatChangeValue(change.field, change.oldValue, unit)}
+      </span>
+      <span className="px-1 text-muted-foreground">-&gt;</span>
+      <span className="font-semibold">
+        {formatChangeValue(change.field, change.newValue, unit)}
+      </span>
+    </span>
+  );
+}
+
+function fieldLabel(field: string) {
+  const normalized = normalizeFieldName(field);
+  if (["qty", "quantity", "amount", "miqdor"].includes(normalized)) return "Miqdor";
+  if (["price", "saleprice", "narx"].includes(normalized)) return "Narx";
+  if (["costprice", "cost", "tannarx"].includes(normalized)) return "Tan narx";
+  if (["wholesaleprice", "optomnarx"].includes(normalized)) return "Optom narx";
+  if (["unit", "birlik"].includes(normalized)) return "Birlik";
+  if (["warehouse", "ombor"].includes(normalized)) return "Ombor";
+  if (["name", "nomi"].includes(normalized)) return "Nomi";
+  if (["barcode", "shtrixkod"].includes(normalized)) return "Shtrix kod";
+  if (["shelflocation", "raf", "polka"].includes(normalized)) return "Polka";
+  return field;
+}
+
+function formatChangeValue(field: string, value: unknown, unit?: string) {
+  if (value === undefined || value === null || value === "") return "-";
+  const normalized = normalizeFieldName(field);
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (
+    Number.isFinite(numeric) &&
+    ["price", "saleprice", "costprice", "cost"].includes(normalized)
+  ) {
+    return formatSom(numeric);
+  }
+  if (Number.isFinite(numeric) && ["qty", "quantity", "amount"].includes(normalized)) {
+    return `${numeric} ${unit ?? ""}`.trim();
+  }
+  return String(value);
+}
+
+function stringValue(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+
+function normalizeFieldName(field: string) {
+  return field.toLowerCase().replace(/[\s_-]/g, "");
+}
