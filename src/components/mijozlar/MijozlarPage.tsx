@@ -62,7 +62,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PeriodFilter, type PeriodFilterValue } from "@/components/shared/PeriodFilter";
-import { MoneyOperationDialog } from "@/components/shared/MoneyOperationDialog";
+import { DebtPaymentDialog } from "@/components/shared/DebtPaymentDialog";
 import { MoneyOperationsList } from "@/components/shared/MoneyOperationsList";
 import { addCreditCustomer, dispatchReceiptMessage, fullCustomerName } from "@/lib/data-actions";
 import { cn, formatNumberInput } from "@/lib/utils";
@@ -594,15 +594,6 @@ export function MijozlarPage() {
       })
       .sort((a, b) => b.debt - a.debt);
   }, [from, query, period, refreshKey, to]);
-
-  const moneyOpCreditBalance = React.useMemo(
-    () =>
-      moneyOpCredit
-        ? (MOCK_CREDIT_CUSTOMERS.find((c) => c.id === moneyOpCredit.id)?.currentDebt ??
-          moneyOpCredit.debt)
-        : 0,
-    [moneyOpCredit, refreshKey],
-  );
 
   const regularSummary = {
     customers: regularRows.length,
@@ -1594,9 +1585,9 @@ export function MijozlarPage() {
         </DialogContent>
       </Dialog>
 
-      <MoneyOperationDialog
-        party="nasiyachi"
-        target={
+      <DebtPaymentDialog
+        partyType="customer"
+        party={
           moneyOpCredit
             ? {
                 id: moneyOpCredit.id,
@@ -1606,7 +1597,7 @@ export function MijozlarPage() {
               }
             : null
         }
-        currentBalance={moneyOpCreditBalance}
+        title="Qarz so'ndirish"
         onClose={() => setMoneyOpCredit(null)}
         onDone={triggerRefresh}
       />

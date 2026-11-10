@@ -120,6 +120,10 @@ export type CustomerDebtReceipt = {
   paidAmount?: number;
   debtAmount?: number;
   note?: string;
+  /** "sale" turidagi yozuv uchun — ko'p-valyutali to'lov oynasi orqali shu
+   * qarzga allaqachon to'langan summa (qarz valyutasida). Qolgan qarz:
+   * `(debtAmount ?? amount) - (paidSoFar ?? 0)`. */
+  paidSoFar?: number;
 };
 
 export type CreditCustomer = {
@@ -518,9 +522,51 @@ export type MoneyOperation = {
   note?: string;
   /** Operatsiyadan keyingi qarz balansi (nasiyachi qarzi yoki bizning yetkazib beruvchiga qarzimiz) */
   balanceAfter: number;
+  /** Ko'p-valyutali to'lov oynasi orqali qilingan bo'lsa — berilgan pul qatorlari (har biri o'z valyutasida). */
+  moneyLines?: { currency: Currency; amount: number }[];
+  /** Har pul qatoridan qaysi qarzga qancha ketgani (qarz valyutasida yopilgan + pul valyutasida sarflangan + muzlatilgan kurs). */
+  allocations?: {
+    debtId: string;
+    debtCurrency: Currency;
+    moneyCurrency: Currency;
+    spentAmount: number;
+    closedAmount: number;
+    rate: number | null;
+  }[];
+  /** Har pul qatoridagi ortiqcha va unga qabul qilingan qaror. */
+  leftovers?: { currency: Currency; amount: number; action: "avans" | "qaytim" }[];
 };
 
 export const MOCK_MONEY_OPERATIONS: MoneyOperation[] = [];
+
+/**
+ * Nasiyachi/yetkazib beruvchiga tegishli, valyuta bo'yicha avans balansi —
+ * ko'p-valyutali to'lovda ortiqcha pul "avans sifatida qoldirish" deb
+ * belgilansa shu yerga yoziladi (keyingi to'lov/prixodda shu valyutadagi
+ * qarzni kamaytirish uchun ishlatilishi mumkin bo'ladi).
+ */
+export type PartyAdvance = {
+  id: string;
+  date: string;
+  party: "nasiyachi" | "yetkazib_beruvchi";
+  partyId: string;
+  currency: Currency;
+  /** Musbat — partyning foydasiga (biz unga qarzdormiz / u bizga haqdor). */
+  amount: number;
+  note?: string;
+};
+
+export const MOCK_PARTY_ADVANCES: PartyAdvance[] = [];
+
+export function partyAdvanceBalance(
+  party: PartyAdvance["party"],
+  partyId: string,
+  currency: Currency,
+): number {
+  return MOCK_PARTY_ADVANCES.filter(
+    (a) => a.party === party && a.partyId === partyId && a.currency === currency,
+  ).reduce((sum, a) => sum + a.amount, 0);
+}
 
 export type ReturnReceipt = {
   id: string;

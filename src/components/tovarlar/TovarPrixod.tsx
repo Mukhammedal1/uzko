@@ -10,30 +10,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Building2,
   CalendarDays,
   Check,
   ChevronRight,
-  CreditCard,
-  HandCoins,
   History,
-  Landmark,
   PackageCheck,
   PackagePlus,
   Plus,
   Trash2,
-  Wallet,
 } from "lucide-react";
 import {
-  MOCK_PAYMENT_METHODS,
+  MOCK_PARTY_ADVANCES,
   MOCK_PRODUCTS,
   MOCK_RATES,
   MOCK_WITHDRAWALS,
@@ -45,23 +32,17 @@ import {
   resolveVariant,
   applyPurchaseToProduct,
 } from "@/lib/mock-data";
-import type { Currency, PaymentKind, PaymentMethod, Product } from "@/lib/mock-data";
-import { recordProductAddition } from "@/lib/data-actions";
+import type { Currency, Product } from "@/lib/mock-data";
+import { recordProductAddition, withdrawalAmountsFromPayment } from "@/lib/data-actions";
+import {
+  DebtPaymentDialog,
+  type DebtPaymentDialogResult,
+} from "@/components/shared/DebtPaymentDialog";
 import { MarkupRow } from "@/components/tovarlar/TovarQoshish";
 import { toast } from "sonner";
 import { useApp } from "@/lib/app-context";
 import { cn, formatNumberInput, parseNumberInput } from "@/lib/utils";
 import { AddedTable, AddedEditLogTable } from "./TovarlarTarixi";
-
-const PAYMENT_KIND_ICON: Record<PaymentKind, typeof Wallet> = {
-  cash: Wallet,
-  card: CreditCard,
-  currency: Landmark,
-  transfer: Building2,
-  wallet: HandCoins,
-};
-
-const PRIXOD_PAYMENT_METHODS = [...MOCK_PAYMENT_METHODS].sort((a, b) => a.sortOrder - b.sortOrder);
 
 type PrixodRow = {
   id: string;
@@ -127,12 +108,6 @@ export function TovarPrixod() {
   const [supplierId, setSupplierId] = React.useState("");
   const [showValidation, setShowValidation] = React.useState(false);
   const [paymentOpen, setPaymentOpen] = React.useState(false);
-  const [paymentPaidAmount, setPaymentPaidAmount] = React.useState("");
-  const [paymentMethodId, setPaymentMethodId] = React.useState<string>("cash");
-  const [paymentOutflowSource, setPaymentOutflowSource] = React.useState<"kassa" | "other">(
-    "kassa",
-  );
-  const [paymentNote, setPaymentNote] = React.useState("");
 
   const agent = agents.find((a) => a.id === supplierId);
 
@@ -307,23 +282,18 @@ export function TovarPrixod() {
     0,
   );
 
-  const paymentPaidNumber = Math.max(0, parseNumberInput(paymentPaidAmount) || 0);
-  const paymentRemaining = Math.max(0, totalCostForDialog - paymentPaidNumber);
-  const paymentMethodInvalid = showValidation && paymentPaidNumber > 0 && !paymentMethodId;
-  const selectedPaymentMethod = PRIXOD_PAYMENT_METHODS.find((m) => m.id === paymentMethodId);
-  // Bank orqali o'tkazmadan boshqa hamma usulda — chiqim kassadanmi yoki
-  // boshqa manbadanmi so'raladi (o'tkazma kassaga umuman tegmaydi).
-  const askOutflowSource = paymentPaidNumber > 0 && selectedPaymentMethod?.kind !== "transfer";
+  // Qarz hamisha so'mda yoziladi (mavjud SupplierReport shunday saqlaydi) —
+  // to'lov esa ko'p valyutali bo'lishi mumkin, shuning uchun qarz summasi
+  // ham so'mga aylantiriladi (`DebtPaymentDialog`ga shu ko'rinishda beriladi).
+  const totalDebtSom = Math.round(totalCostForDialog * rate(paymentCurrency));
 
-  /** Prixodni yakuniy saqlaydi. `payment` — yetkazib beruvchi bo'lsa, popupda tanlangan to'lov holati. */
-  const finalizeProductAddition = (
-    payment: { method: PaymentMethod; paidAmount: number; fromKassa: boolean } | null,
-  ) => {
-    // To'langan summa qatorlar bo'ylab ketma-ket taqsimlanadi (to'lov valyutasida).
-    let paidLeft = payment ? Math.min(totalCostForDialog, payment.paidAmount) : 0;
-    let paidTotal = 0;
+  /** Prixodni yakuniy saqlaydi. `settlement` — DebtPaymentDialog orqali tasdiqlangan
+   * ko'p-valyutali to'lov natijasi (yoki `null` — butunlay qarzga, to'lovsiz). */
+  const finalizeProductAddition = (settlement: DebtPaymentDialogResult | null) => {
+    // To'langan summa (so'mda) qatorlar bo'ylab ketma-ket taqsimlanadi.
+    let paidLeftSom = Math.min(totalDebtSom, settlement?.totalClosed ?? 0);
     const invoiceNumbers: string[] = [];
-    const debtParts: number[] = [];
+    const debtPartsSom: number[] = [];
 
     for (const item of rows) {
       const { parent, variant, product } = resolveRowProduct(item);
@@ -378,13 +348,10 @@ export function TovarPrixod() {
         parent.shelfLocation = product.shelfLocation;
       }
 
-      const totalCost = qtyNumber * product.costPrice;
-      const totalInPayCurrency = (totalCost * rate(item.costCurrency)) / rate(paymentCurrency);
-      const allocated = Math.min(paidLeft, totalInPayCurrency);
-      paidLeft -= allocated;
-      paidTotal += allocated;
-      const paidAmount = (allocated * rate(paymentCurrency)) / rate(item.costCurrency);
-      debtParts.push(((totalCost - paidAmount) * rate(item.costCurrency)) / rate(paymentCurrency));
+      const totalCostSom = qtyNumber * product.costPrice;
+      const allocatedSom = Math.min(paidLeftSom, totalCostSom);
+      paidLeftSom -= allocatedSom;
+      debtPartsSom.push(totalCostSom - allocatedSom);
 
       const { invoiceNumber } = recordProductAddition({
         productName: product.name,
@@ -401,10 +368,8 @@ export function TovarPrixod() {
               supplierId: agent.id,
               supplierName: agent.name,
               supplierPhone: agent.phone,
-              paidAmount: String(paidAmount),
-              note: payment
-                ? `${payment.method.name} orqali to'landi (${payment.method.kind === "transfer" ? "o'tkazma" : payment.fromKassa ? "kassadan" : "boshqa manbadan"})${paymentNote.trim() ? ` · ${paymentNote.trim()}` : ""}`
-                : paymentNote.trim(),
+              paidAmount: String(allocatedSom),
+              note: settlement?.note?.trim() ?? "",
               sendBotUpdate: false,
             }
           : undefined,
@@ -412,27 +377,48 @@ export function TovarPrixod() {
       invoiceNumbers.push(invoiceNumber);
     }
 
-    // Kassadan chiqim faqat foydalanuvchi "Kassadan" deb tanlaganda yoziladi
-    // (o'tkazmadan boshqa har bir usulda shu savol so'raladi — bekor qilinsa
-    // yoki "Boshqa manbadan" tanlansa, kassaga tegilmaydi).
-    if (agent && payment && paidTotal > 0 && payment.fromKassa) {
-      const kind = payment.method.kind;
-      MOCK_WITHDRAWALS.push({
-        id: `CH-prixod-${Date.now()}`,
-        date: new Date().toISOString(),
-        cashier: settings.username,
-        category: "Yetkazib beruvchilarga to'lov",
-        cash: kind === "cash" ? Math.round(paidTotal * rate(paymentCurrency)) : 0,
-        cardAmount: kind === "card" ? Math.round(paidTotal * rate(paymentCurrency)) : 0,
-        currencies: kind === "currency" ? [{ code: paymentCurrency, amount: paidTotal }] : [],
-        note: `Tovar prixodi uchun to'lov (${payment.method.name}) · ${filledRows.map((i) => i.product.name).join(", ")}`,
-        supplierId: agent.id,
-      });
+    // Kassadan chiqim faqat "Kassadan" manba tanlanganda yoziladi — "Ixtiyoriy
+    // manba" tanlansa kassaga tegilmaydi.
+    if (agent && settlement && (settlement.outflowSource ?? "kassa") === "kassa") {
+      const { cash, currencies } = withdrawalAmountsFromPayment(
+        settlement.moneyLines,
+        settlement.leftovers,
+      );
+      if (cash > 0 || currencies.length > 0) {
+        MOCK_WITHDRAWALS.push({
+          id: `CH-prixod-${Date.now()}`,
+          date: new Date().toISOString(),
+          cashier: settings.username,
+          category: "Yetkazib beruvchilarga to'lov",
+          cash,
+          cardAmount: 0,
+          currencies,
+          note: `Tovar prixodi uchun to'lov · ${filledRows.map((i) => i.product.name).join(", ")}`,
+          supplierId: agent.id,
+        });
+      }
+    }
+
+    // Ortiqcha pul "avans sifatida qoldirish" deb belgilansa — taminotchiga
+    // shu valyutadagi avans sifatida yoziladi.
+    if (agent && settlement) {
+      for (const leftover of settlement.leftovers) {
+        if (leftover.action !== "avans" || leftover.amount <= 0) continue;
+        MOCK_PARTY_ADVANCES.push({
+          id: `ADV-${Date.now()}-${leftover.currency}`,
+          date: new Date().toISOString(),
+          party: "yetkazib_beruvchi",
+          partyId: agent.id,
+          currency: leftover.currency,
+          amount: leftover.amount,
+          note: "Prixod to'lovidan ortiqcha",
+        });
+      }
     }
 
     const remaining = Math.max(
       0,
-      debtParts.reduce((a, b) => a + b, 0),
+      debtPartsSom.reduce((a, b) => a + b, 0),
     );
     const title =
       filledRows.length === 1 ? filledRows[0].product.name : `${filledRows.length} ta tovar`;
@@ -452,7 +438,7 @@ export function TovarPrixod() {
       description: `${
         agent
           ? remaining > 0
-            ? `${title} · ${agent.name} · qarz: ${formatMoney(remaining, paymentCurrency)}`
+            ? `${title} · ${agent.name} · qarz: ${formatMoney(remaining, "UZS")}`
             : `${title} · ${agent.name} · to'liq to'landi`
           : title
       }${avgCostLine}`,
@@ -503,29 +489,12 @@ export function TovarPrixod() {
     }
 
     // Taminotchi tanlangan — to'lov holatini popupda so'raymiz, saqlash shu yerda to'xtaydi.
-    setPaymentPaidAmount("0");
-    setPaymentMethodId("cash");
-    setPaymentOutflowSource("kassa");
-    setPaymentNote("");
     setPaymentOpen(true);
   };
 
-  const handlePaymentConfirm = () => {
-    if (paymentPaidNumber <= 0) {
-      finalizeProductAddition(null);
-      return;
-    }
-    const method = PRIXOD_PAYMENT_METHODS.find((m) => m.id === paymentMethodId);
-    if (!method) {
-      setShowValidation(true);
-      toast.error("To'lov usulini tanlang");
-      return;
-    }
-    finalizeProductAddition({
-      method,
-      paidAmount: paymentPaidNumber,
-      fromKassa: method.kind === "transfer" ? false : paymentOutflowSource === "kassa",
-    });
+  const handleDebtSettle = (result: DebtPaymentDialogResult): { ok: true } => {
+    finalizeProductAddition(result);
+    return { ok: true };
   };
 
   if (formOpen) {
@@ -817,170 +786,54 @@ export function TovarPrixod() {
           </div>
         </section>
 
-        <Dialog open={paymentOpen} onOpenChange={setPaymentOpen}>
-          <DialogContent className="flex max-h-[92dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-md">
-            <DialogHeader className="space-y-0 border-b px-5 py-3">
-              <DialogTitle className="text-base font-semibold">Prixodni yakunlash</DialogTitle>
-            </DialogHeader>
-
-            <div className="flex items-end justify-between gap-4 border-b bg-muted/30 px-5 py-3">
-              <div>
-                <div className="text-xs text-muted-foreground">Qo'shilayotgan tovar</div>
-                {filledRows.map(({ row, product }) => (
-                  <div key={row.id} className="text-sm">
-                    <span className="font-semibold">{product.name}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {" "}
-                      · {rowQty(row)} {product.unit}
-                    </span>
+        {paymentOpen && agent && (
+          <DebtPaymentDialog
+            partyType="supplier"
+            party={{ id: agent.id, name: agent.name, phone: agent.phone }}
+            title="Prixodni yakunlash"
+            allowZeroPayment
+            debts={[
+              {
+                id: "prixod-debt",
+                currency: "UZS",
+                amount: totalDebtSom,
+                date: new Date().toISOString(),
+                label:
+                  filledRows.length === 1
+                    ? filledRows[0].product.name
+                    : `${filledRows.length} ta tovar`,
+              },
+            ]}
+            headerExtra={
+              <div className="flex items-end justify-between gap-4 rounded-md border bg-muted/30 px-3 py-2">
+                <div>
+                  <div className="text-xs text-muted-foreground">Qo'shilayotgan tovar</div>
+                  {filledRows.map(({ row, product }) => (
+                    <div key={row.id} className="text-sm">
+                      <span className="font-semibold">{product.name}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {" "}
+                        · {rowQty(row)} {product.unit}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="text-right">
+                  <div className="text-xs text-muted-foreground">Tan narxda jami</div>
+                  <div
+                    data-no-translate
+                    className="text-xl font-bold leading-none tabular-nums text-primary"
+                  >
+                    {formatMoney(totalDebtSom, "UZS")}
                   </div>
-                ))}
-              </div>
-              <div className="text-right">
-                <div className="text-xs text-muted-foreground">Tan narxda jami</div>
-                <div
-                  data-no-translate
-                  className="text-2xl font-bold leading-none tabular-nums text-primary"
-                >
-                  {formatMoney(totalCostForDialog, paymentCurrency)}
                 </div>
               </div>
-            </div>
-
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
-              <div className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2">
-                <span className="text-xs text-muted-foreground">Taminotchi</span>
-                <span className="text-sm font-semibold">{agent?.name ?? "—"}</span>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-sm font-medium">Berilgan summa ({paymentCurrency})</Label>
-                <Input
-                  value={paymentPaidAmount}
-                  onChange={(e) => setPaymentPaidAmount(formatNumberInput(e.target.value))}
-                  className="h-11 text-right text-lg font-bold tabular-nums"
-                  inputMode="decimal"
-                  placeholder="0"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">To'lov usuli</Label>
-                <div className="grid grid-cols-4 gap-2">
-                  {PRIXOD_PAYMENT_METHODS.map((method) => {
-                    const Icon = PAYMENT_KIND_ICON[method.kind] ?? Wallet;
-                    const active = paymentMethodId === method.id;
-                    return (
-                      <button
-                        key={method.id}
-                        type="button"
-                        onClick={() => setPaymentMethodId(method.id)}
-                        className={cn(
-                          "flex flex-col items-center justify-center gap-1 rounded-md border px-1 py-2.5 transition-colors",
-                          active
-                            ? "border-2 border-primary bg-primary/10"
-                            : "border-input bg-card hover:border-primary/50",
-                        )}
-                      >
-                        <Icon
-                          className={cn(
-                            "h-4 w-4",
-                            active ? "text-primary" : "text-muted-foreground",
-                          )}
-                        />
-                        <span
-                          className={cn(
-                            "text-center text-[11px] font-semibold leading-tight",
-                            active ? "text-primary" : "text-foreground",
-                          )}
-                        >
-                          {method.name}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-                {paymentMethodInvalid && (
-                  <div className="text-[11px] font-medium text-destructive">
-                    To'lov usulini tanlang
-                  </div>
-                )}
-              </div>
-
-              {askOutflowSource && (
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-medium">Chiqim qayerdan</Label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setPaymentOutflowSource("kassa")}
-                      className={cn(
-                        "flex items-center justify-center gap-1.5 rounded-md border px-3 py-2 text-sm font-semibold transition-colors",
-                        paymentOutflowSource === "kassa"
-                          ? "border-2 border-primary bg-primary/10 text-primary"
-                          : "border-input text-foreground hover:border-primary/50",
-                      )}
-                    >
-                      <Wallet className="h-3.5 w-3.5" />
-                      Kassadan
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPaymentOutflowSource("other")}
-                      className={cn(
-                        "flex items-center justify-center gap-1.5 rounded-md border px-3 py-2 text-sm font-semibold transition-colors",
-                        paymentOutflowSource === "other"
-                          ? "border-2 border-primary bg-primary/10 text-primary"
-                          : "border-input text-foreground hover:border-primary/50",
-                      )}
-                    >
-                      Boshqa manbadan
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground">
-                    {paymentOutflowSource === "kassa"
-                      ? "Bu summa kassadan chiqim sifatida yoziladi"
-                      : "Kassaga tegilmaydi — faqat yetkazib beruvchiga to'lov sifatida qayd etiladi"}
-                  </p>
-                </div>
-              )}
-
-              <div className="flex items-center justify-between rounded-md bg-amber-50 px-3 py-2 text-sm dark:bg-amber-950/30">
-                <span className="flex items-center gap-1.5 text-muted-foreground">
-                  <HandCoins className="h-3.5 w-3.5 text-amber-600" />
-                  Qoldiq — qarz sifatida yoziladi
-                </span>
-                <span
-                  data-no-translate
-                  className="font-bold tabular-nums text-amber-700 dark:text-amber-500"
-                >
-                  {formatMoney(paymentRemaining, paymentCurrency)}
-                </span>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-sm font-medium">Izoh — ixtiyoriy</Label>
-                <Textarea
-                  value={paymentNote}
-                  onChange={(e) => setPaymentNote(e.target.value)}
-                  placeholder="Masalan: naqd qo'lda berildi"
-                  rows={2}
-                  className="resize-none text-sm"
-                />
-              </div>
-            </div>
-
-            <DialogFooter className="border-t px-5 py-3">
-              <Button type="button" variant="outline" onClick={() => setPaymentOpen(false)}>
-                Bekor qilish
-              </Button>
-              <Button type="button" onClick={handlePaymentConfirm} className="gap-2">
-                <Check className="h-4 w-4" />
-                Tasdiqlash va saqlash
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+            }
+            onClose={() => setPaymentOpen(false)}
+            onDone={() => setPaymentOpen(false)}
+            onSettle={handleDebtSettle}
+          />
+        )}
       </div>
     );
   }
