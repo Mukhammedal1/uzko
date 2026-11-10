@@ -52,7 +52,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { PeriodFilter, type PeriodFilterValue } from "@/components/shared/PeriodFilter";
-import { MoneyOperationDialog } from "@/components/shared/MoneyOperationDialog";
+import { DebtPaymentDialog } from "@/components/shared/DebtPaymentDialog";
 import { MoneyOperationsList } from "@/components/shared/MoneyOperationsList";
 import { dispatchReceiptMessage } from "@/lib/data-actions";
 import { formatNumberInput } from "@/lib/utils";
@@ -642,17 +642,6 @@ export function YetkazibBeruvchilarPage() {
   const [editingSupplier, setEditingSupplier] = React.useState<SupplierRow | null>(null);
   const [deletingSupplier, setDeletingSupplier] = React.useState<SupplierRow | null>(null);
   const [moneyOpSupplier, setMoneyOpSupplier] = React.useState<SupplierRow | null>(null);
-
-  const moneyOpBalance = React.useMemo(
-    () =>
-      moneyOpSupplier
-        ? MOCK_SUPPLIER_REPORTS.filter((r) => r.supplierId === moneyOpSupplier.id).reduce(
-            (sum, r) => sum + r.remainingDebt,
-            0,
-          )
-        : 0,
-    [moneyOpSupplier, refreshKey],
-  );
 
   const [receiptPeriod, setReceiptPeriod] = React.useState<Period>("all");
   const [receiptFrom, setReceiptFrom] = React.useState("");
@@ -1506,9 +1495,9 @@ export function YetkazibBeruvchilarPage() {
         onClose={() => setPaymentReceipt(null)}
       />
 
-      <MoneyOperationDialog
-        party="yetkazib_beruvchi"
-        target={
+      <DebtPaymentDialog
+        partyType="supplier"
+        party={
           moneyOpSupplier
             ? {
                 id: moneyOpSupplier.id,
@@ -1518,7 +1507,7 @@ export function YetkazibBeruvchilarPage() {
               }
             : null
         }
-        currentBalance={moneyOpBalance}
+        title="Yetkazib beruvchiga to'lov"
         onClose={() => setMoneyOpSupplier(null)}
         onDone={triggerRefresh}
       />

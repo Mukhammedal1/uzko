@@ -5,8 +5,10 @@ import {
   MOCK_LOYAL_CUSTOMERS,
   MOCK_MONEY_OPERATIONS,
   MOCK_ONE_TIME_ITEMS,
+  MOCK_PARTY_ADVANCES,
   MOCK_PRODUCTS,
   MOCK_PRODUCT_HISTORY,
+  MOCK_RATES,
   MOCK_RECEIPT_DISPATCHES,
   MOCK_RECEIPTS,
   MOCK_REGULAR_CUSTOMERS,
@@ -20,6 +22,7 @@ import {
   type CreditCustomer,
   type CustomerDebtReceipt,
   type CustomerType,
+  type Currency,
   type DebtPayment,
   type MoneyOperation,
   type Product,
@@ -34,6 +37,14 @@ import {
   type SupplierReport,
 } from "@/lib/mock-data";
 import { notifyAdminNewSale } from "@/lib/telegram";
+import {
+  allocatePayment,
+  r4,
+  systemSuggestedRate,
+  type Debt as PaymentDebt,
+  type MoneyLine as PaymentMoneyLine,
+  type RatePair,
+} from "@/lib/debt-payment";
 
 export type DebtPaymentInput = {
   customer: CreditCustomer;
@@ -979,4 +990,297 @@ function nextOneTimeHistoryId() {
 
 function formatPlainSom(value: number) {
   return `${Math.round(value).toLocaleString("uz-UZ")} so'm`;
+}
+
+// === Ko'p-valyutali qarz to'lash ===
+// Ta'minotchilar ham, nasiyachilar ham xuddi shu `settleDebtPayment()` orqali
+// to'lanadi — hisob-kitob doim `allocatePayment()` (src/lib/debt-payment.ts)
+// orqali bajariladi, shu bilan ikkala oqimda raqamlar bir xil bo'lishi
+// kafolatlanadi. Hozircha debts har doim UZS'da saqlanadi (mavjud ma'lumot
+// modeli shunday); yangi narsa — to'lovning o'zi bir nechta valyutadan
+// iborat bo'lishi mumkinligi.
+
+export type OpenDebt = {
+  id: string;
+  currency: Currency;
+  amount: number;
+  date: string;
+  label: string;
+};
+
+export function getOpenSupplierDebts(supplierId: string): OpenDebt[] {
+  return MOCK_SUPPLIER_REPORTS.filter((r) => r.supplierId === supplierId && r.remainingDebt > 0)
+    .map((r) => ({
+      id: r.id,
+      currency: "UZS",
+      amount: r.remainingDebt,
+      date: r.date,
+      label: r.items.length > 0 ? r.items.map((i) => i.productName).join(", ") : "Prixod",
+    }))
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+}
+
+export function getOpenCustomerDebts(customerId: string): OpenDebt[] {
+  const customer = MOCK_CREDIT_CUSTOMERS.find((c) => c.id === customerId);
+  if (!customer) return [];
+  return (customer.receipts ?? [])
+    .filter((r) => r.type === "sale")
+    .map((r) => ({
+      id: r.id,
+      currency: "UZS",
+      amount: Math.max(0, (r.debtAmount ?? r.amount) - (r.paidSoFar ?? 0)),
+      date: r.date,
+      label: r.title,
+    }))
+    .filter((d) => d.amount > 0)
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+}
+
+function rateInputKey(pair: RatePair) {
+  return `${pair.moneyCurrency}::${pair.debtCurrency}`;
+}
+
+/**
+ * Pul qatorlaridan — kassadan chiqarilishi kerak bo'lgan summa: "qaytim"
+ * deb belgilangan ortiqcha ayriladi (u kassadan umuman chiqmagan bo'lib
+ * hisoblanadi), "avans" bo'lsa to'liq summa chiqadi (naqd pul haqiqatan
+ * berilgan, endi ortiqchasi kelgusi qarz hisobiga kredit sifatida turadi).
+ */
+export function withdrawalAmountsFromPayment(
+  moneyLines: DebtPaymentMoneyLineInput[],
+  leftovers: { currency: Currency; amount: number; action: "avans" | "qaytim" }[],
+): { cash: number; currencies: { code: Currency; amount: number }[] } {
+  let cash = 0;
+  const currencies: { code: Currency; amount: number }[] = [];
+  for (const line of moneyLines) {
+    const leftover = leftovers.find((l) => l.currency === line.currency);
+    const withdrawn =
+      leftover && leftover.action === "qaytim" ? r4(line.amount - leftover.amount) : line.amount;
+    if (withdrawn <= 0) continue;
+    if (line.currency === "UZS") cash += withdrawn;
+    else currencies.push({ code: line.currency, amount: withdrawn });
+  }
+  return { cash, currencies };
+}
+
+export type DebtPaymentMoneyLineInput = { currency: Currency; amount: number };
+export type DebtPaymentRateInput = {
+  moneyCurrency: Currency;
+  debtCurrency: Currency;
+  rate: number;
+};
+export type DebtPaymentLeftoverInput = { currency: Currency; action: "avans" | "qaytim" };
+
+export type SettleDebtPaymentInput = {
+  partyType: "supplier" | "customer";
+  partyId: string;
+  partyName: string;
+  partyPhone?: string;
+  botEnabled?: boolean;
+  cashier?: string;
+  /** Bo'sh/berilmagan — 2-rejim (barcha ochiq qarzlarga avtomatik taqsimlash). */
+  selectedDebtIds?: string[];
+  moneyLines: DebtPaymentMoneyLineInput[];
+  /** Faqat kerakli juftliklar uchun; berilmagan juftlikda tizim kursi ishlatiladi. */
+  rates: DebtPaymentRateInput[];
+  /** Ortiqcha qolgan har valyuta uchun qaror (leftover > 0 bo'lsa majburiy). */
+  leftovers: DebtPaymentLeftoverInput[];
+  /** Faqat ta'minotchi uchun: kassadan chiqim yozilsinmi. */
+  outflowSource?: "kassa" | "boshqa";
+  note?: string;
+};
+
+export type SettleDebtPaymentResult =
+  { ok: true; operation: MoneyOperation; totalClosed: number } | { ok: false; error: string };
+
+/**
+ * Ta'minotchi yoki nasiyachi qarzini (bir nechta valyutadagi pul bilan,
+ * bir nechta qarzga bir yo'la) to'laydi. Hisob-kitob `allocatePayment()`
+ * orqali bajariladi — bu yerda faqat natijani mock-data'ga yozish bor.
+ */
+export function settleDebtPayment(input: SettleDebtPaymentInput): SettleDebtPaymentResult {
+  const moneyLines = input.moneyLines.filter((m) => m.amount > 0);
+  if (moneyLines.length === 0) return { ok: false, error: "Summa kiriting" };
+
+  const allDebts =
+    input.partyType === "supplier"
+      ? getOpenSupplierDebts(input.partyId)
+      : getOpenCustomerDebts(input.partyId);
+
+  const selected =
+    input.selectedDebtIds && input.selectedDebtIds.length > 0
+      ? allDebts.filter((d) => input.selectedDebtIds!.includes(d.id))
+      : allDebts;
+
+  if (selected.length === 0) return { ok: false, error: "Ochiq qarz topilmadi" };
+
+  const paymentMoneyLines: PaymentMoneyLine[] = moneyLines.map((m, index) => ({
+    id: `ml-${index}`,
+    currency: m.currency,
+    amount: m.amount,
+  }));
+  const paymentDebts: PaymentDebt[] = selected.map((d) => ({
+    id: d.id,
+    currency: d.currency,
+    amount: d.amount,
+  }));
+
+  const rateMap = new Map<string, number>();
+  for (const r of input.rates) {
+    if (r.rate > 0) {
+      rateMap.set(
+        rateInputKey({ moneyCurrency: r.moneyCurrency, debtCurrency: r.debtCurrency }),
+        r.rate,
+      );
+    }
+  }
+
+  const result = allocatePayment({
+    debts: paymentDebts,
+    moneyLines: paymentMoneyLines,
+    rateOf: (pair) => rateMap.get(rateInputKey(pair)) ?? systemSuggestedRate(MOCK_RATES, pair),
+  });
+
+  if (result.bad) return { ok: false, error: "Kursni kiriting" };
+
+  for (const line of paymentMoneyLines) {
+    const leftover = result.moneyLeftover[line.id] ?? 0;
+    if (leftover > 0 && !input.leftovers.some((l) => l.currency === line.currency)) {
+      return { ok: false, error: `Ortiqcha ${line.currency} uchun qaror tanlanmagan` };
+    }
+  }
+
+  const date = new Date().toISOString();
+  const cashier = input.cashier?.trim() || "Joriy foydalanuvchi";
+
+  const closedByDebtId = new Map<string, number>();
+  for (const a of result.allocations) {
+    closedByDebtId.set(a.debtId, (closedByDebtId.get(a.debtId) ?? 0) + a.closed);
+  }
+
+  let totalClosed = 0;
+  if (input.partyType === "supplier") {
+    for (const [debtId, closed] of closedByDebtId) {
+      const report = MOCK_SUPPLIER_REPORTS.find((r) => r.id === debtId);
+      if (!report) continue;
+      report.remainingDebt = Math.max(0, r4(report.remainingDebt - closed));
+      report.paidAmount = r4(report.paidAmount + closed);
+      totalClosed += closed;
+    }
+  } else {
+    const customer = MOCK_CREDIT_CUSTOMERS.find((c) => c.id === input.partyId);
+    if (customer) {
+      for (const [debtId, closed] of closedByDebtId) {
+        const receipt = (customer.receipts ?? []).find((r) => r.id === debtId);
+        if (!receipt) continue;
+        receipt.paidSoFar = r4((receipt.paidSoFar ?? 0) + closed);
+        const remaining = Math.max(0, (receipt.debtAmount ?? receipt.amount) - receipt.paidSoFar);
+        receipt.status = remaining <= 0 ? "paid" : "partial";
+        totalClosed += closed;
+      }
+      customer.currentDebt = Math.max(0, r4(customer.currentDebt - totalClosed));
+      customer.receipts = customer.receipts ?? [];
+      customer.receipts.unshift({
+        id: `QS-${Date.now()}`,
+        date,
+        type: "payment",
+        title: "Qarz so'ndirish",
+        items: [],
+        amount: -totalClosed,
+        status: "paid",
+        note: moneyLines
+          .map((m) => `${formatPlainSom(m.amount)}`.replace("so'm", m.currency))
+          .join(" + "),
+      });
+    }
+  }
+
+  const leftoverEntries: NonNullable<MoneyOperation["leftovers"]> = [];
+  for (const line of paymentMoneyLines) {
+    const leftover = r4(result.moneyLeftover[line.id] ?? 0);
+    if (leftover <= 0) continue;
+    const decision = input.leftovers.find((l) => l.currency === line.currency);
+    if (!decision) continue;
+    leftoverEntries.push({ currency: line.currency, amount: leftover, action: decision.action });
+    if (decision.action === "avans") {
+      MOCK_PARTY_ADVANCES.push({
+        id: `ADV-${Date.now()}-${line.currency}`,
+        date,
+        party: input.partyType === "supplier" ? "yetkazib_beruvchi" : "nasiyachi",
+        partyId: input.partyId,
+        currency: line.currency,
+        amount: leftover,
+        note: "Qarz to'lovidan ortiqcha",
+      });
+    }
+  }
+
+  if (input.partyType === "supplier" && (input.outflowSource ?? "kassa") === "kassa") {
+    const { cash, currencies } = withdrawalAmountsFromPayment(moneyLines, leftoverEntries);
+    if (cash > 0 || currencies.length > 0) {
+      MOCK_WITHDRAWALS.push({
+        id: `WD-${Date.now()}`,
+        date,
+        cashier,
+        category: "Yetkazib beruvchilarga to'lov",
+        cash,
+        cardAmount: 0,
+        currencies,
+        note: `Yetkazib beruvchi: ${input.partyName}${input.note?.trim() ? ` · ${input.note.trim()}` : ""}`,
+        supplierId: input.partyId,
+      });
+    }
+  }
+
+  const balanceAfter =
+    input.partyType === "supplier"
+      ? supplierRemainingDebt(input.partyId)
+      : (MOCK_CREDIT_CUSTOMERS.find((c) => c.id === input.partyId)?.currentDebt ?? 0);
+
+  const operation: MoneyOperation = {
+    id: `MO-${Date.now()}`,
+    date,
+    cashier,
+    party: input.partyType === "supplier" ? "yetkazib_beruvchi" : "nasiyachi",
+    partyId: input.partyId,
+    partyName: input.partyName,
+    partyPhone: input.partyPhone,
+    direction: input.partyType === "supplier" ? "out" : "in",
+    source: input.partyType === "supplier" ? (input.outflowSource ?? "kassa") : undefined,
+    amount: Math.round(totalClosed),
+    method: moneyLines.every((m) => m.currency === "UZS") ? "naqd" : "valyuta",
+    currencyCode: moneyLines.find((m) => m.currency !== "UZS")?.currency,
+    note: input.note?.trim() || undefined,
+    balanceAfter,
+    moneyLines: moneyLines.map((m) => ({ currency: m.currency, amount: m.amount })),
+    allocations: result.allocations.map((a) => {
+      const debt = selected.find((d) => d.id === a.debtId)!;
+      const moneyLine = paymentMoneyLines.find((m) => m.id === a.moneyLineId)!;
+      return {
+        debtId: a.debtId,
+        debtCurrency: debt.currency,
+        moneyCurrency: moneyLine.currency,
+        spentAmount: a.spent,
+        closedAmount: a.closed,
+        rate: a.rate,
+      };
+    }),
+    leftovers: leftoverEntries,
+  };
+  MOCK_MONEY_OPERATIONS.unshift(operation);
+
+  if (input.botEnabled && input.partyPhone?.trim()) {
+    dispatchReceiptMessage({
+      recipientCategory: input.partyType === "supplier" ? "yetkazib_beruvchi" : "nasiya",
+      recipientId: input.partyId,
+      recipientName: input.partyName,
+      phone: input.partyPhone,
+      receiptId: operation.id,
+      title: input.partyType === "supplier" ? "Yetkazib beruvchiga to'lov" : "Qarz so'ndirildi",
+      total: Math.round(totalClosed),
+      note: moneyLines.map((m) => `${m.amount} ${m.currency}`).join(" + "),
+    });
+  }
+
+  return { ok: true, operation, totalClosed };
 }
