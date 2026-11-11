@@ -12,6 +12,11 @@ type Props = {
   onPreview: (product: Product) => void;
   mode: ProductGridMode;
   query: string;
+  /** Tanlangan kategoriya (yoki "Saqlanganlar") nomi — sarlavhada ko'rsatish uchun
+   * (matn qidiruvsiz tanlansa ham). */
+  categoryLabel?: string | null;
+  savedIds: Set<string>;
+  onToggleSaved: (productId: string) => void;
 };
 
 // Katalog 600–7000 tovar bo'lishi mumkin — grid hech qachon to'liq chizilmaydi,
@@ -20,7 +25,17 @@ const CARD_MIN_WIDTH: Record<ProductGridMode, number> = { pinned: 184, search: 1
 const ROW_HEIGHT: Record<ProductGridMode, number> = { pinned: 246, search: 192 };
 const GAP = 12;
 
-export function ProductGrid({ products, cartQuantities, onPick, onPreview, mode, query }: Props) {
+export function ProductGrid({
+  products,
+  cartQuantities,
+  onPick,
+  onPreview,
+  mode,
+  query,
+  categoryLabel,
+  savedIds,
+  onToggleSaved,
+}: Props) {
   const parentRef = React.useRef<HTMLDivElement>(null);
   const [columns, setColumns] = React.useState(1);
 
@@ -49,7 +64,11 @@ export function ProductGrid({ products, cartQuantities, onPick, onPreview, mode,
   const label =
     mode === "pinned"
       ? "Tezkor panel"
-      : `"${query.trim()}" bo'yicha natija · ${products.length} ta`;
+      : query.trim()
+        ? `"${query.trim()}" bo'yicha natija · ${products.length} ta`
+        : categoryLabel
+          ? `"${categoryLabel}" kategoriyasi · ${products.length} ta`
+          : `${products.length} ta natija`;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -91,6 +110,8 @@ export function ProductGrid({ products, cartQuantities, onPick, onPreview, mode,
                       onPick={() => onPick(product)}
                       onPreview={() => onPreview(product)}
                       size={mode === "pinned" ? "lg" : "md"}
+                      isSaved={savedIds.has(product.id)}
+                      onToggleSaved={() => onToggleSaved(product.id)}
                     />
                   ))}
                 </div>

@@ -53,7 +53,7 @@ export function TopBar() {
     { to: "/kassa", label: t("kassa"), Icon: Wallet },
     { to: "/tovarlar", label: t("tovarlar"), Icon: Boxes },
     { to: "/mijozlar", label: "Mijozlar", Icon: UserRound },
-    { to: "/yetkazib-beruvchilar", label: "Yetkazib beruvchilar", Icon: Truck },
+    { to: "/yetkazib-beruvchilar", label: "Ta'minotchilar", Icon: Truck },
     { to: "/xodimlar", label: "Xodimlar", Icon: Users },
     { to: "/umumiy", label: t("umumiy"), Icon: BarChart3 },
     { to: "/boshqaruv", label: t("boshqaruv"), Icon: SlidersHorizontal },

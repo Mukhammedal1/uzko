@@ -84,7 +84,7 @@ type SupplierExportColumn =
   "name" | "phone" | "companyName" | "inn" | "accountNumber" | "total" | "paid" | "remaining";
 
 const SUPPLIER_EXPORT_COLUMNS: { key: SupplierExportColumn; label: string }[] = [
-  { key: "name", label: "Yetkazib beruvchi" },
+  { key: "name", label: "Ta'minotchi" },
   { key: "phone", label: "Telefon" },
   { key: "companyName", label: "Korxona" },
   { key: "inn", label: "INN" },
@@ -119,19 +119,19 @@ type SupplierRow = {
   inn?: string;
   accountNumber?: string;
   botEnabled: boolean;
-  /** Shu paytgacha shu yetkazib beruvchidan olingan tovarlarning umumiy summasi. */
+  /** Shu paytgacha shu ta'minotchidan olingan tovarlarning umumiy summasi. */
   total: number;
-  /** Yetkazib beruvchiga to'langan barcha summalar yig'indisi. */
+  /** Ta'minotchiga to'langan barcha summalar yig'indisi. */
   paid: number;
   /** Joriy qarz. */
   remaining: number;
   lastPaymentAmount: number;
   lastPaymentDate?: string;
   lastPaymentReport?: SupplierReport;
-  /** Oxirgi marta shu yetkazib beruvchiga qaytarilgan tovar summasi. */
+  /** Oxirgi marta shu ta'minotchiga qaytarilgan tovar summasi. */
   lastReturnAmount: number;
   lastReturnDate?: string;
-  /** Shu yetkazib beruvchi orqali kelgan tovarlardan jami qaytarilgan summa. */
+  /** Shu ta'minotchi orqali kelgan tovarlardan jami qaytarilgan summa. */
   totalReturned: number;
   receipts: SupplierReport[];
 };
@@ -247,7 +247,7 @@ function buildPaymentReceipt(report: SupplierReport): PaymentReceiptData {
   const rows: [string, string][] = [
     ["Chek raqami", report.id],
     ["Sana va vaqt", fmtDate(report.date)],
-    ["Yetkazib beruvchi", report.supplierName],
+    ["Ta'minotchi", report.supplierName],
   ];
   if (report.companyName) rows.push(["Korxona", report.companyName]);
   if (report.inn) rows.push(["INN", report.inn]);
@@ -265,7 +265,7 @@ function buildPaymentReceipt(report: SupplierReport): PaymentReceiptData {
   const note = operation?.note || (isPayment ? "" : report.note || "");
   if (note) rows.push(["Izoh", note]);
   return {
-    title: isPayment ? "Yetkazib beruvchiga to'lov cheki" : "Prixod to'lovi cheki",
+    title: isPayment ? "Ta'minotchiga to'lov cheki" : "Prixod to'lovi cheki",
     receiptId: report.id,
     rows,
     amount: report.paidAmount,
@@ -439,11 +439,11 @@ export function printSupplierNakladnoy(
       <body>
         <div class="head">
           <div>
-            <h1>${storeName || "Yetkazib beruvchi tovarlar tarixi nakladnoyi"}</h1>
+            <h1>${storeName || "Ta'minotchi tovarlar tarixi nakladnoyi"}</h1>
             ${storePhone ? `<div class="muted">Tel: ${storePhone}</div>` : ""}
           </div>
           <div class="muted">
-            <div>Yetkazib beruvchi: <b>${supplierName}</b></div>
+            <div>Ta'minotchi: <b>${supplierName}</b></div>
             ${supplierPhone ? `<div>Tel: ${supplierPhone}</div>` : ""}
           </div>
         </div>
@@ -548,7 +548,7 @@ export function printSupplierReceipt80mm(
         <div class="row"><span>Chek:</span><span><b>${report.id}</b></span></div>
         <div class="row"><span>Sana:</span><span>${fmtDate(report.date)}</span></div>
         <div class="row"><span>Turi:</span><span>${reportKindLabel(report)}</span></div>
-        <div class="row"><span>Yetkazib beruvchi:</span><span>${report.supplierName}</span></div>
+        <div class="row"><span>Ta'minotchi:</span><span>${report.supplierName}</span></div>
         ${report.supplierPhone ? `<div class="row"><span>Tel:</span><span>${report.supplierPhone}</span></div>` : ""}
         <div class="line"></div>
         <table>
@@ -777,7 +777,7 @@ export function YetkazibBeruvchilarPage() {
     const worksheet = XLSX.utils.aoa_to_sheet([columns.map((c) => c.label), ...rows]);
     worksheet["!cols"] = columns.map(() => ({ wch: 20 }));
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Yetkazib beruvchilar qarzi");
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Ta'minotchilar qarzi");
     XLSX.writeFile(
       workbook,
       `yetkazib-beruvchilar-qarz-hisoboti-${new Date().toISOString().slice(0, 10)}.xlsx`,
@@ -816,7 +816,7 @@ export function YetkazibBeruvchilarPage() {
       if (MOCK_SUPPLIER_REPORTS[i].supplierId === deletingSupplier.id)
         MOCK_SUPPLIER_REPORTS.splice(i, 1);
     }
-    toast.success(`Yetkazib beruvchi o'chirildi: ${deletingSupplier.name}`);
+    toast.success(`Ta'minotchi o'chirildi: ${deletingSupplier.name}`);
     setDeletingSupplier(null);
     triggerRefresh();
   };
@@ -826,7 +826,7 @@ export function YetkazibBeruvchilarPage() {
       resetReceiptFilters();
       setDetail({
         type: "supplier-receipts",
-        title: `${row.name} yetkazib beruvchi cheklari`,
+        title: `${row.name} ta'minotchi cheklari`,
         rows: row.receipts,
         supplier: { id: row.id, name: row.name, phone: row.phone, botEnabled: row.botEnabled },
       });
@@ -908,7 +908,7 @@ export function YetkazibBeruvchilarPage() {
       <div className="flex h-full flex-col overflow-hidden">
         <div className="flex items-center gap-2 border-b bg-card p-3">
           <Truck className="h-5 w-5 text-primary" />
-          <div className="text-base font-semibold">Yetkazib beruvchilar</div>
+          <div className="text-base font-semibold">Ta'minotchilar</div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-hidden p-4">
@@ -916,12 +916,12 @@ export function YetkazibBeruvchilarPage() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="grid flex-1 gap-3 md:grid-cols-4">
                 <Kpi
-                  title="Yetkazib beruvchilar soni"
+                  title="Ta'minotchilar soni"
                   value={`${supplierSummary.customers} ta`}
                   onClick={() =>
                     setDetail({
                       type: "supplier-groups",
-                      title: "Yetkazib beruvchilar ro'yxati",
+                      title: "Ta'minotchilar ro'yxati",
                       rows: supplierRows,
                       metric: "count",
                     })
@@ -933,7 +933,7 @@ export function YetkazibBeruvchilarPage() {
                   onClick={() =>
                     setDetail({
                       type: "supplier-groups",
-                      title: "Yetkazib beruvchilar bo'yicha joriy umumiy qarz",
+                      title: "Ta'minotchilar bo'yicha joriy umumiy qarz",
                       rows: supplierRows.filter((row) => row.remaining > 0),
                       metric: "remaining",
                     })
@@ -945,7 +945,7 @@ export function YetkazibBeruvchilarPage() {
                   onClick={() =>
                     setDetail({
                       type: "supplier-groups",
-                      title: "Yetkazib beruvchilar bo'yicha jami to'lagan qarzimiz",
+                      title: "Ta'minotchilar bo'yicha jami to'lagan qarzimiz",
                       rows: supplierRows,
                       metric: "paid",
                     })
@@ -958,7 +958,7 @@ export function YetkazibBeruvchilarPage() {
                   onClick={() =>
                     setDetail({
                       type: "supplier-groups",
-                      title: "Yetkazib beruvchilar bo'yicha jami qarz aylanmamiz",
+                      title: "Ta'minotchilar bo'yicha jami qarz aylanmamiz",
                       rows: supplierRows,
                       metric: "total",
                     })
@@ -967,7 +967,7 @@ export function YetkazibBeruvchilarPage() {
               </div>
               <Button className="gap-2" onClick={() => setAddSupplierOpen(true)}>
                 <UserPlus className="h-4 w-4" />
-                Yangi yetkazib beruvchi
+                Yangi ta'minotchi
               </Button>
             </div>
 
@@ -976,7 +976,7 @@ export function YetkazibBeruvchilarPage() {
             {selectedIds.size > 0 && (
               <div className="flex items-center justify-between gap-2 rounded-lg border bg-primary/5 px-3 py-2">
                 <div className="text-sm font-semibold text-primary">
-                  {selectedIds.size} ta yetkazib beruvchi tanlandi
+                  {selectedIds.size} ta ta'minotchi tanlandi
                 </div>
                 <div className="flex items-center gap-2">
                   <Button
@@ -1004,7 +1004,7 @@ export function YetkazibBeruvchilarPage() {
 
             <Card className="flex min-h-0 flex-1 flex-col">
               <CardHeader className="flex-row items-center justify-between border-b py-3">
-                <CardTitle className="text-base">Yetkazib beruvchilar ro'yxati</CardTitle>
+                <CardTitle className="text-base">Ta'minotchilar ro'yxati</CardTitle>
                 <Button
                   variant="outline"
                   size="sm"
@@ -1036,7 +1036,7 @@ export function YetkazibBeruvchilarPage() {
                           aria-label="Barchasini belgilash"
                         />
                       </th>
-                      <th className="px-4 py-3 text-left">Yetkazib beruvchi</th>
+                      <th className="px-4 py-3 text-left">Ta'minotchi</th>
                       {showCol("inn") && <th className="px-4 py-3 text-left">INN</th>}
                       {showCol("remaining") && (
                         <th className="px-4 py-3 text-right">Joriy qarzimiz</th>
@@ -1448,7 +1448,7 @@ export function YetkazibBeruvchilarPage() {
                 </Button>
               </div>
               <InfoRow label="Sana" value={fmtDate(selectedReport.date)} />
-              <InfoRow label="Yetkazib beruvchi" value={selectedReport.supplierName} />
+              <InfoRow label="Ta'minotchi" value={selectedReport.supplierName} />
               <InfoRow label="Turi" value={reportKindLabel(selectedReport)} />
               <InfoRow label="Umumiy summa" value={formatSom(selectedReport.totalAmount)} />
               <InfoRow label="Berilgan" value={formatSom(selectedReport.paidAmount)} />
@@ -1527,13 +1527,13 @@ export function YetkazibBeruvchilarPage() {
       <AlertDialog open={!!deletingSupplier} onOpenChange={(o) => !o && setDeletingSupplier(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Yetkazib beruvchini o'chirish?</AlertDialogTitle>
+            <AlertDialogTitle>Ta'minotchini o'chirish?</AlertDialogTitle>
             <AlertDialogDescription>
               {deletingSupplier?.name}
               {deletingSupplier && deletingSupplier.remaining > 0 && (
                 <> · qolgan qarzimiz: {formatSom(deletingSupplier.remaining)}</>
               )}{" "}
-              Bu yetkazib beruvchiga tegishli barcha prixod tarixi ham o'chiriladi.
+              Bu ta'minotchiga tegishli barcha prixod tarixi ham o'chiriladi.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1548,14 +1548,14 @@ export function YetkazibBeruvchilarPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Download className="h-5 w-5" />
-              Yetkazib beruvchilar qarzi hisobotini yuklab olish
+              Ta'minotchilar qarzi hisobotini yuklab olish
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground">
               {selectedSupplierRows.length > 0
-                ? `${selectedSupplierRows.length} ta tanlangan yetkazib beruvchi yuklab olinadi`
-                : `Tanlov yo'q — barcha ${supplierRows.length} ta yetkazib beruvchi yuklab olinadi`}
+                ? `${selectedSupplierRows.length} ta tanlangan ta'minotchi yuklab olinadi`
+                : `Tanlov yo'q — barcha ${supplierRows.length} ta ta'minotchi yuklab olinadi`}
             </div>
             <div className="space-y-2">
               <Label>Format</Label>
@@ -1865,7 +1865,7 @@ function EditSupplierDialog({
         note: OPENING_DEBT_NOTE,
       });
     }
-    toast.success(`Yetkazib beruvchi ma'lumotlari yangilandi: ${name.trim()}`);
+    toast.success(`Ta'minotchi ma'lumotlari yangilandi: ${name.trim()}`);
     onClose();
     onSaved();
   };
@@ -1876,7 +1876,7 @@ function EditSupplierDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Pencil className="h-5 w-5 text-primary" />
-            Yetkazib beruvchi ma'lumotlarini tahrirlash
+            Ta'minotchi ma'lumotlarini tahrirlash
           </DialogTitle>
         </DialogHeader>
 
@@ -2027,7 +2027,7 @@ function AddSupplierDialog({
 
   const save = () => {
     if (!name.trim()) {
-      toast.error("Yetkazib beruvchi ismini kiriting");
+      toast.error("Ta'minotchi ismini kiriting");
       return;
     }
     const altPhonesClean = altPhones.map((p) => p.trim()).filter(Boolean);
@@ -2065,11 +2065,11 @@ function AddSupplierDialog({
         recipientName: report.supplierName,
         phone: report.supplierPhone,
         receiptId: supplierId,
-        title: "Yetkazib beruvchi ro'yxatdan o'tdi",
+        title: "Ta'minotchi ro'yxatdan o'tdi",
         total: 0,
       });
     }
-    toast.success("Yangi yetkazib beruvchi qo'shildi");
+    toast.success("Yangi ta'minotchi qo'shildi");
     onOpenChange(false);
     onSaved();
   };
@@ -2080,7 +2080,7 @@ function AddSupplierDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <UserPlus className="h-5 w-5 text-primary" />
-            Yangi yetkazib beruvchi qo'shish
+            Yangi ta'minotchi qo'shish
           </DialogTitle>
         </DialogHeader>
 
@@ -2180,7 +2180,7 @@ function AddSupplierDialog({
                 placeholder="0"
               />
               <p className="mt-1 text-xs text-muted-foreground">
-                Agar bu yetkazib beruvchidan dasturdan foydalanishdan avval ham tovar olib, qarzimiz
+                Agar bu ta'minotchidan dasturdan foydalanishdan avval ham tovar olib, qarzimiz
                 bo'lsa, shu yerga qoldiq summani kiriting
               </p>
             </div>

@@ -7,8 +7,8 @@ import { YetkazibBeruvchilarPage } from "@/components/yetkazib-beruvchilar/Yetka
 export const Route = createFileRoute("/yetkazib-beruvchilar")({
   head: () => ({
     meta: [
-      { title: "UZKO — Yetkazib beruvchilar" },
-      { name: "description", content: "Yetkazib beruvchilar dashboardi" },
+      { title: "UZKO — Ta'minotchilar" },
+      { name: "description", content: "Ta'minotchilar dashboardi" },
     ],
   }),
   component: YetkazibBeruvchilarRoutePage,

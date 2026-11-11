@@ -8,7 +8,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { AlertTriangle, Banknote, ChevronRight, Columns3, Layers, Search } from "lucide-react";
+import { AlertTriangle, Bookmark, ChevronRight, Columns3, Layers, Search } from "lucide-react";
 import {
   MOCK_KOMPLEKTLAR,
   MOCK_PRODUCTS,
@@ -21,6 +21,9 @@ import {
 } from "@/lib/mock-data";
 import type { Komplekt, Product, ProductVariant } from "@/lib/mock-data";
 import type { OneTimeItemInput, PriceMode } from "./types";
+import { useApp } from "@/lib/app-context";
+import { useSavedProducts } from "@/lib/saved-products";
+import { cn } from "@/lib/utils";
 
 type OptionalColumn = "costPrice" | "wholesale" | "margin" | "boxQty" | "unit";
 
@@ -137,11 +140,14 @@ export function ProductsBrowser({
   currency = "UZS",
   onAddOneTimeItem,
 }: Props) {
+  const { settings } = useApp();
+  const { savedIds, toggleSaved } = useSavedProducts();
   const [query, setQuery] = React.useState("");
+  const [selectedCategory, setSelectedCategory] = React.useState<string | null>(null);
+  const [showSaved, setShowSaved] = React.useState(false);
   const [activeIdx, setActiveIdx] = React.useState(0);
   const [expanded, setExpanded] = React.useState<Set<string>>(() => new Set());
   const [hiddenColumns, setHiddenColumns] = React.useState<Set<OptionalColumn>>(readHiddenColumns);
-  const [priceOnlyMode, setPriceOnlyMode] = React.useState(false);
 
   const toggleColumnVisibility = (key: OptionalColumn, visible: boolean) => {
     setHiddenColumns((current) => {
@@ -160,21 +166,14 @@ export function ProductsBrowser({
   const numericQuery = React.useMemo(() => parseQueryNumber(query), [query]);
 
   const products = React.useMemo(() => {
-    if (priceOnlyMode) {
-      if (numericQuery === null) return [];
-      return MOCK_PRODUCTS.filter((p) => {
-        if (salePrice(p, priceMode) === numericQuery) return true;
-        return (
-          productHasVariants(p) &&
-          p.variants.some(
-            (variant) => salePrice(resolveVariant(p, variant), priceMode) === numericQuery,
-          )
-        );
-      });
-    }
+    const base = showSaved
+      ? MOCK_PRODUCTS.filter((p) => savedIds.has(p.id))
+      : selectedCategory
+        ? MOCK_PRODUCTS.filter((p) => p.category === selectedCategory)
+        : MOCK_PRODUCTS;
     const q = query.trim().toLowerCase();
-    if (!q) return MOCK_PRODUCTS;
-    return MOCK_PRODUCTS.filter((p) => {
+    if (!q) return base;
+    return base.filter((p) => {
       const matchesText =
         p.name.toLowerCase().includes(q) ||
         p.barcode.includes(q) ||
@@ -184,14 +183,14 @@ export function ProductsBrowser({
       const matchesPrice = numericQuery !== null && salePrice(p, priceMode) === numericQuery;
       return matchesText || matchesVariant || matchesPrice;
     });
-  }, [query, priceMode, numericQuery, priceOnlyMode]);
+  }, [query, priceMode, numericQuery, selectedCategory, showSaved, savedIds]);
 
   const komplektlar = React.useMemo(() => {
-    if (priceOnlyMode) return [];
+    if (selectedCategory || showSaved) return [];
     const q = query.trim().toLowerCase();
     if (!q) return MOCK_KOMPLEKTLAR;
     return MOCK_KOMPLEKTLAR.filter((k) => k.name.toLowerCase().includes(q));
-  }, [query, priceOnlyMode]);
+  }, [query, selectedCategory, showSaved]);
 
   // Qidiruvda variant nomi mos kelsa, o'sha guruh avtomatik ochiladi.
   const autoExpanded = React.useMemo(() => {
@@ -272,32 +271,67 @@ export function ProductsBrowser({
     <div className="flex h-full min-h-0 flex-col">
       <div className="border-b bg-card p-2">
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            size="icon"
-            variant={priceOnlyMode ? "default" : "outline"}
-            className="h-8 w-8 shrink-0"
-            title="Faqat narx bo'yicha qidirish"
-            aria-label="Faqat narx bo'yicha qidirish"
-            onClick={() => setPriceOnlyMode((v) => !v)}
-          >
-            <Banknote className="h-3.5 w-3.5" />
-          </Button>
           <div className="relative min-w-[240px] flex-1">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={handleKey}
-              placeholder={
-                priceOnlyMode
-                  ? "Faqat narx bo'yicha qidirish..."
-                  : "Mahsulotni nomi, shtrix kodi yoki maxsus kodi orqali toping..."
-              }
+              placeholder="Mahsulotni nomi, shtrix kodi yoki maxsus kodi orqali toping..."
               className="h-8 pl-8 text-xs"
               autoFocus
             />
           </div>
+        </div>
+        <div className="mt-1.5 flex items-center gap-1.5 overflow-x-auto pb-0.5">
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedCategory(null);
+              setShowSaved(false);
+            }}
+            className={cn(
+              "shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
+              selectedCategory === null && !showSaved
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-input bg-background text-muted-foreground hover:bg-muted",
+            )}
+          >
+            Barchasi
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowSaved((current) => !current);
+              setSelectedCategory(null);
+            }}
+            className={cn(
+              "shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
+              showSaved
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-input bg-background text-muted-foreground hover:bg-muted",
+            )}
+          >
+            Saqlanganlar
+          </button>
+          {settings.productCategories.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => {
+                setSelectedCategory((current) => (current === c.name ? null : c.name));
+                setShowSaved(false);
+              }}
+              className={cn(
+                "shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                selectedCategory === c.name
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-input bg-background text-muted-foreground hover:bg-muted",
+              )}
+            >
+              {c.name}
+            </button>
+          ))}
         </div>
         {numericQuery !== null && onAddOneTimeItem && (
           <p className="mt-1.5 px-0.5 text-[11px] text-muted-foreground">
@@ -334,8 +368,10 @@ export function ProductsBrowser({
                 {!hiddenColumns.has("unit") && (
                   <th className="px-3 py-1.5 text-left font-semibold">Birlik</th>
                 )}
-                <th className="w-8 px-2 py-1.5 text-right font-semibold">
-                  <DropdownMenu>
+                <th className="px-2 py-1.5 text-right font-semibold">
+                  <div className="flex items-center justify-end gap-1.5">
+                    <span>Amallar</span>
+                    <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button
                         type="button"
@@ -361,7 +397,8 @@ export function ProductsBrowser({
                         </DropdownMenuCheckboxItem>
                       ))}
                     </DropdownMenuContent>
-                  </DropdownMenu>
+                    </DropdownMenu>
+                  </div>
                 </th>
               </tr>
             </thead>
@@ -438,7 +475,12 @@ export function ProductsBrowser({
                       {!hiddenColumns.has("unit") && (
                         <td className="px-3 py-1.5 text-muted-foreground">{p.unit}</td>
                       )}
-                      <td className="px-2 py-1.5"></td>
+                      <td className="px-2 py-1.5 text-right">
+                        <SaveToggleButton
+                          saved={savedIds.has(p.id)}
+                          onToggle={() => toggleSaved(p.id)}
+                        />
+                      </td>
                     </tr>
                   );
                 }
@@ -646,7 +688,9 @@ export function ProductsBrowser({
                     {!hiddenColumns.has("unit") && (
                       <td className="px-3 py-1.5 text-muted-foreground">{p.unit}</td>
                     )}
-                    <td className="px-2 py-1.5"></td>
+                    <td className="px-2 py-1.5 text-right">
+                      <SaveToggleButton saved={savedIds.has(p.id)} onToggle={() => toggleSaved(p.id)} />
+                    </td>
                   </tr>
                 );
               })}
@@ -655,6 +699,27 @@ export function ProductsBrowser({
         )}
       </div>
     </div>
+  );
+}
+
+/** Jadval qatoridagi "Saqlanganlar"ga qo'shish/olib tashlash tugmasi — bosilganda
+ * qator bosilishi (savatchaga qo'shish) ishga tushmasligi uchun stopPropagation. */
+function SaveToggleButton({ saved, onToggle }: { saved: boolean; onToggle: () => void }) {
+  return (
+    <Button
+      type="button"
+      size="icon"
+      variant="ghost"
+      className={cn("h-7 w-7", saved && "text-amber-500 hover:text-amber-600")}
+      title={saved ? "Saqlanganlardan olib tashlash" : "Saqlanganlarga qo'shish"}
+      aria-label={saved ? "Saqlanganlardan olib tashlash" : "Saqlanganlarga qo'shish"}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+    >
+      <Bookmark className={cn("h-3.5 w-3.5", saved && "fill-current")} />
+    </Button>
   );
 }
 

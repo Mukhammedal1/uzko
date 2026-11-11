@@ -11,6 +11,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandItem, CommandList } from "@/components/ui/command";
 import {
   Barcode,
   Hash,
@@ -79,6 +81,7 @@ type NewProductRow = {
   priceMarkupWarn: boolean;
   barcode: string;
   customCode: string;
+  category: string;
   image?: string;
   variantsOpen: boolean;
   variants: NewVariantRow[];
@@ -119,6 +122,7 @@ const makeNewProductRow = (unit = "dona"): NewProductRow => ({
   priceMarkupWarn: false,
   barcode: "",
   customCode: "",
+  category: "",
   variantsOpen: false,
   variants: [],
 });
@@ -133,7 +137,7 @@ function splitUnit(unit: string): { base: string; pack: string | null } {
 /** "Yangi tovar qo'shish" — bazaga yangi mahsulot yozuvini (rasm bilan) yaratadi.
  * Ombordagi qoldiqni kiritish alohida "Tovar prixod qilish" bo'limida amalga oshiriladi. */
 export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () => void }) {
-  const { settings } = useApp();
+  const { settings, updateSettings } = useApp();
   const [rows, setRows] = React.useState<NewProductRow[]>(() => [
     makeNewProductRow(settings.units[0]?.name ?? "dona"),
   ]);
@@ -147,6 +151,23 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
 
   const updateRow = (id: string, patch: Partial<NewProductRow>) => {
     setRows((current) => current.map((row) => (row.id === id ? { ...row, ...patch } : row)));
+  };
+
+  /** Agar bu nomdagi kategoriya hali bazada (sozlamalarda) bo'lmasa — yangi
+   * kategoriya sifatida qo'shadi. Mavjud bo'lsa hech narsa o'zgarmaydi. */
+  const createProductCategory = (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const exists = settings.productCategories.some(
+      (c) => c.name.toLowerCase() === trimmed.toLowerCase(),
+    );
+    if (exists) return;
+    updateSettings({
+      productCategories: [
+        ...settings.productCategories,
+        { id: `cat-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, name: trimmed },
+      ],
+    });
   };
 
   // Marja foizini o'zgartirish bilan bir vaqtda, tan narx asosida narxni ham
@@ -580,6 +601,7 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
         nameValue: row.name.trim(),
         unitValue: row.unit.trim() || settings.units[0]?.name || "dona",
         customCodeValue: row.customCode.trim(),
+        categoryValue: row.category.trim(),
         costCurrency:
           rowCostNumber > 0 || !firstVariant ? row.costCurrency : firstVariant.costCurrency,
         costNumber: rowCostNumber || firstVariantCostNumber,
@@ -647,6 +669,31 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
       return code;
     };
 
+    // Inputga yozilib, lekin tanlanmagan/Enter bosilmagan yangi kategoriya
+    // nomlari ham saqlash paytida bazaga (sozlamalarga) qo'shib qo'yiladi.
+    const existingCategoryNames = new Set(
+      settings.productCategories.map((c) => c.name.toLowerCase()),
+    );
+    const newCategoryNames: string[] = [];
+    validRows.forEach((row) => {
+      if (!row.categoryValue) return;
+      const key = row.categoryValue.toLowerCase();
+      if (existingCategoryNames.has(key)) return;
+      existingCategoryNames.add(key);
+      newCategoryNames.push(row.categoryValue);
+    });
+    if (newCategoryNames.length > 0) {
+      updateSettings({
+        productCategories: [
+          ...settings.productCategories,
+          ...newCategoryNames.map((name) => ({
+            id: `cat-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            name,
+          })),
+        ],
+      });
+    }
+
     validRows.forEach((row) => {
       const barcode = nextBarcode(row.barcodeValue);
       const customCode = nextCustomCode(row.customCodeValue);
@@ -680,6 +727,7 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
         id: `p${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         name: row.nameValue,
         image: row.image,
+        category: row.categoryValue || undefined,
         price: row.priceNumber,
         priceCurrency: row.priceCurrency,
         priceMarkupPercent: parseNumberInput(row.priceMarkupPercent) || undefined,
@@ -798,8 +846,8 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
                             ? "md:grid-cols-3 xl:grid-cols-[minmax(200px,1.5fr)_minmax(90px,0.6fr)_minmax(120px,0.8fr)]"
                             : "md:grid-cols-2 xl:grid-cols-[minmax(200px,1.5fr)_minmax(90px,0.6fr)]"
                           : dualUnit
-                            ? "md:grid-cols-4 xl:grid-cols-[minmax(200px,1.5fr)_minmax(90px,0.6fr)_minmax(120px,0.8fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(150px,0.95fr)_minmax(150px,0.95fr)_minmax(150px,1fr)]"
-                            : "md:grid-cols-4 xl:grid-cols-[minmax(200px,1.5fr)_minmax(90px,0.6fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(150px,0.95fr)_minmax(150px,0.95fr)_minmax(150px,1fr)]",
+                            ? "md:grid-cols-4 xl:grid-cols-[minmax(200px,1.5fr)_minmax(90px,0.6fr)_minmax(120px,0.8fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(150px,0.95fr)_minmax(150px,0.95fr)_minmax(140px,0.9fr)_minmax(150px,1fr)]"
+                            : "md:grid-cols-4 xl:grid-cols-[minmax(200px,1.5fr)_minmax(90px,0.6fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(130px,0.9fr)_minmax(150px,0.95fr)_minmax(150px,0.95fr)_minmax(140px,0.9fr)_minmax(150px,1fr)]",
                       )}
                     >
                       <Field label="Mahsulot nomi" required error={nameInvalid}>
@@ -978,6 +1026,15 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
                                 <Hash className="h-3.5 w-3.5" />
                               </Button>
                             </div>
+                          </Field>
+
+                          <Field label="Kategorya">
+                            <CategoryComboboxField
+                              value={row.category}
+                              onChange={(value) => updateRow(row.id, { category: value })}
+                              categories={settings.productCategories}
+                              onCreateCategory={createProductCategory}
+                            />
                           </Field>
 
                           <Field label="Rasm">
@@ -1260,6 +1317,102 @@ export function TovarQoshish({ onDone }: { mode: ProductCreateMode; onDone: () =
         </div>
       </section>
     </div>
+  );
+}
+
+/** "Kategorya" inputi — mavjud kategoriyalardan birini tanlash (popover orqali)
+ * yoki yangi nom yozib Enter bosish bilan bazaga (sozlamalarga) qo'shish mumkin. */
+export function CategoryComboboxField({
+  value,
+  onChange,
+  categories,
+  onCreateCategory,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  categories: { id: string; name: string }[];
+  onCreateCategory: (name: string) => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const trimmed = value.trim();
+  const exactMatch = categories.find((c) => c.name.toLowerCase() === trimmed.toLowerCase());
+  const filtered = trimmed
+    ? categories.filter((c) => c.name.toLowerCase().includes(trimmed.toLowerCase()))
+    : categories;
+
+  const commit = () => {
+    if (!trimmed) {
+      setOpen(false);
+      return;
+    }
+    if (!exactMatch) onCreateCategory(trimmed);
+    onChange(trimmed);
+    setOpen(false);
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverAnchor asChild>
+        <Input
+          value={value}
+          onChange={(e) => {
+            onChange(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commit();
+            } else if (e.key === "Escape") {
+              setOpen(false);
+            }
+          }}
+          placeholder="Tanlang yoki yangi yozing"
+          className="h-9 text-xs"
+          autoComplete="off"
+        />
+      </PopoverAnchor>
+      <PopoverContent
+        className="w-[var(--radix-popover-trigger-width)] p-0"
+        align="start"
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        onCloseAutoFocus={(e) => e.preventDefault()}
+      >
+        <Command shouldFilter={false}>
+          <CommandList>
+            {filtered.length === 0 && (
+              <CommandEmpty className="px-3 py-2 text-xs text-muted-foreground">
+                Kategoriya topilmadi
+              </CommandEmpty>
+            )}
+            {filtered.map((c) => (
+              <CommandItem
+                key={c.id}
+                value={c.id}
+                onSelect={() => {
+                  onChange(c.name);
+                  setOpen(false);
+                }}
+                className="text-xs"
+              >
+                {c.name}
+              </CommandItem>
+            ))}
+            {trimmed && !exactMatch && (
+              <CommandItem
+                value={`__create__${trimmed}`}
+                onSelect={commit}
+                className="gap-1.5 text-xs font-medium text-primary"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                {`"${trimmed}" kategoriyasini qo'shish`}
+              </CommandItem>
+            )}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
   );
 }
 

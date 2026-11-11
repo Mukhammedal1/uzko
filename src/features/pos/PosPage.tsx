@@ -19,6 +19,9 @@ import { ProductGrid } from "./ProductGrid";
 import { CartPanel } from "./CartPanel";
 import { QuantityKeypad } from "./QuantityKeypad";
 import { usePosCart, type PosCartLine } from "./usePosCart";
+import { useApp } from "@/lib/app-context";
+import { useSavedProducts } from "@/lib/saved-products";
+import { cn } from "@/lib/utils";
 
 type Props = {
   products: Product[];
@@ -76,8 +79,12 @@ export function PosPage({
   pendingReturn,
   onClearPendingReturn,
 }: Props) {
+  const { settings } = useApp();
+  const { savedIds, toggleSaved } = useSavedProducts();
   const [query, setQuery] = React.useState("");
   const [debouncedQuery, setDebouncedQuery] = React.useState("");
+  const [selectedCategory, setSelectedCategory] = React.useState<string | null>(null);
+  const [showSaved, setShowSaved] = React.useState(false);
   const [finalizeOpen, setFinalizeOpen] = React.useState(false);
   const [oneTimeOpen, setOneTimeOpen] = React.useState(false);
   const [returnOpen, setReturnOpen] = React.useState(false);
@@ -93,15 +100,20 @@ export function PosPage({
     return () => clearTimeout(timer);
   }, [query]);
 
-  const isSearching = debouncedQuery.trim().length > 0;
+  const isSearching =
+    debouncedQuery.trim().length > 0 || selectedCategory !== null || showSaved;
 
   // Bo'sh qidiruvda — tezkor panel (admin belgilagan, barqaror tartibda).
-  // Qidiruv bo'lsa — natijalar (haqiqiy rasmli tovarlar oldinda).
+  // Qidiruv, kategoriya yoki "Saqlanganlar" tanlansa — natijalar (haqiqiy rasmli tovarlar oldinda).
   const gridProducts = React.useMemo(() => {
     if (!isSearching) return products.filter((p) => p.quick);
-    const matched = products.filter((product) => matchesQuery(product, debouncedQuery));
+    const matched = products.filter((product) => {
+      if (showSaved && !savedIds.has(product.id)) return false;
+      if (selectedCategory && product.category !== selectedCategory) return false;
+      return matchesQuery(product, debouncedQuery);
+    });
     return [...matched].sort((a, b) => Number(hasRealImage(b)) - Number(hasRealImage(a)));
-  }, [products, debouncedQuery, isSearching]);
+  }, [products, debouncedQuery, isSearching, selectedCategory, showSaved, savedIds]);
 
   const cartQuantities = React.useMemo(() => {
     const map: Record<string, number> = {};
@@ -324,6 +336,56 @@ export function PosPage({
               onShiftEnter={handleAddNewPriceItem}
               inputRef={searchInputRef}
             />
+            <div className="flex items-center gap-1.5 overflow-x-auto">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedCategory(null);
+                  setShowSaved(false);
+                }}
+                className={cn(
+                  "h-7 shrink-0 rounded-full border px-3 text-xs font-semibold transition-colors",
+                  selectedCategory === null && !showSaved
+                    ? "border-[#0836B0] bg-[#0836B0] text-white"
+                    : "border-[#E2E7F0] bg-white text-[#737D91] hover:bg-[#F4F6FA]",
+                )}
+              >
+                Barchasi
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSaved((current) => !current);
+                  setSelectedCategory(null);
+                }}
+                className={cn(
+                  "h-7 shrink-0 rounded-full border px-3 text-xs font-semibold transition-colors",
+                  showSaved
+                    ? "border-[#0836B0] bg-[#0836B0] text-white"
+                    : "border-[#E2E7F0] bg-white text-[#737D91] hover:bg-[#F4F6FA]",
+                )}
+              >
+                Saqlanganlar
+              </button>
+              {settings.productCategories.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedCategory((current) => (current === c.name ? null : c.name));
+                    setShowSaved(false);
+                  }}
+                  className={cn(
+                    "h-7 shrink-0 rounded-full border px-3 text-xs font-semibold transition-colors",
+                    selectedCategory === c.name
+                      ? "border-[#0836B0] bg-[#0836B0] text-white"
+                      : "border-[#E2E7F0] bg-white text-[#737D91] hover:bg-[#F4F6FA]",
+                  )}
+                >
+                  {c.name}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="min-h-0 flex-1 p-3">
@@ -334,6 +396,9 @@ export function PosPage({
               onPreview={setPreviewProduct}
               mode={isSearching ? "search" : "pinned"}
               query={debouncedQuery}
+              categoryLabel={showSaved ? "Saqlanganlar" : selectedCategory}
+              savedIds={savedIds}
+              onToggleSaved={toggleSaved}
             />
           </div>
         </div>

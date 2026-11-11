@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Button } from "@/components/ui/button";
-import { Box, Tag, QrCode, Ruler } from "lucide-react";
+import { Box, Tag, Tags, QrCode, Ruler } from "lucide-react";
 import { useApp } from "@/lib/app-context";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -8,6 +8,7 @@ import { SpravochnikTable, type SpravochnikField } from "./SpravochnikTable";
 
 const TABS = [
   { id: "warehouses", label: "Omborlar", icon: Box },
+  { id: "productCategories", label: "Tovar kategoriyalari", icon: Tags },
   { id: "expenseCategories", label: "Xarajatlar", icon: Tag },
   { id: "shelfLocations", label: "Polka raqami", icon: QrCode },
   { id: "units", label: "Birliklar", icon: Ruler },
@@ -29,6 +30,9 @@ export function GeneralEditing() {
   const fields: Record<TabId, SpravochnikField[]> = {
     warehouses: [
       { key: "name", label: "Nomi", type: "text", placeholder: "Masalan: Qurilish ombori" },
+    ],
+    productCategories: [
+      { key: "name", label: "Nomi", type: "text", placeholder: "Masalan: Ichimliklar" },
     ],
     expenseCategories: [
       { key: "name", label: "Nomi", type: "text", placeholder: "Masalan: Reklama" },

@@ -1,4 +1,4 @@
-import { Eye } from "lucide-react";
+import { Bookmark, Eye } from "lucide-react";
 import { formatSom } from "@/lib/mock-data";
 import type { Product } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
@@ -11,6 +11,8 @@ type Props = {
   onPick: () => void;
   onPreview: () => void;
   size: Size;
+  isSaved: boolean;
+  onToggleSaved: () => void;
 };
 
 function stockTone(qty: number) {
@@ -19,7 +21,15 @@ function stockTone(qty: number) {
   return { label: `${qty} dona qoldi`, color: "text-[#12805C]" };
 }
 
-export function ProductCard({ product, quantityInCart, onPick, onPreview, size }: Props) {
+export function ProductCard({
+  product,
+  quantityInCart,
+  onPick,
+  onPreview,
+  size,
+  isSaved,
+  onToggleSaved,
+}: Props) {
   const outOfStock = product.vitrinaQty <= 0;
   const stock = stockTone(product.vitrinaQty);
   const isLg = size === "lg";
@@ -43,7 +53,7 @@ export function ProductCard({ product, quantityInCart, onPick, onPreview, size }
     >
       <div
         className="relative w-full flex-shrink-0 bg-[#F4F6FA]"
-        style={{ height: isLg ? 92 : 64 }}
+        style={{ height: isLg ? 112 : 80 }}
       >
         {product.image ? (
           <img
@@ -86,6 +96,21 @@ export function ProductCard({ product, quantityInCart, onPick, onPreview, size }
           title="Rasmni to'liq ko'rish"
         >
           <Eye className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleSaved();
+          }}
+          className={cn(
+            "absolute bottom-1.5 left-1.5 flex h-8 w-8 touch-manipulation items-center justify-center rounded-full text-white",
+            isSaved ? "bg-amber-500" : "bg-black/45",
+          )}
+          aria-label={isSaved ? "Saqlanganlardan olib tashlash" : "Saqlanganlarga qo'shish"}
+          title={isSaved ? "Saqlanganlardan olib tashlash" : "Saqlanganlarga qo'shish"}
+        >
+          <Bookmark className={cn("h-4 w-4", isSaved && "fill-current")} />
         </button>
       </div>
       <div className={cn("flex flex-1 flex-col gap-1", isLg ? "p-3" : "p-2")}>

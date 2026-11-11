@@ -439,6 +439,7 @@ export type Device = {
 // ─── Spravochniklar ─────────────────────────────────────────────────────────
 
 export type WarehouseEntry = { id: string; name: string };
+export type ProductCategoryEntry = { id: string; name: string };
 export type ExpenseCategoryEntry = { id: string; name: string; note?: string };
 export type ShelfLocationEntry = { id: string; name: string; warehouse: string };
 export type UnitEntry = { id: string; name: string; abbr: string; isBoxUnit?: boolean };
@@ -510,6 +511,7 @@ export type AppSettings = {
   receiptSettings: ReceiptSettings;
   warehouses: WarehouseEntry[];
   currencies: string[];
+  productCategories: ProductCategoryEntry[];
   expenseCategories: ExpenseCategoryEntry[];
   units: UnitEntry[];
   shelfLocations: ShelfLocationEntry[];
@@ -556,6 +558,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     { id: "wh-5", name: "Meva ombor" },
   ],
   currencies: ["UZS", "USD", "RUB", "EUR"],
+  productCategories: [],
   expenseCategories: [
     { id: "ec-1", name: "Tushlik" },
     { id: "ec-2", name: "Oylik" },
@@ -836,6 +839,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             ...(parsed.telegramBot ?? {}),
           },
           warehouses: migrateEntries(parsed.warehouses, DEFAULT_SETTINGS.warehouses),
+          productCategories: migrateEntries(
+            parsed.productCategories,
+            DEFAULT_SETTINGS.productCategories,
+          ),
           expenseCategories: migrateEntries(
             parsed.expenseCategories,
             DEFAULT_SETTINGS.expenseCategories,

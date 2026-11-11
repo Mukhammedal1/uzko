@@ -6,6 +6,7 @@ export type Product = {
   id: string;
   name: string;
   image?: string;
+  category?: string;
   shelfLocation?: string;
   minStockAlert?: number;
   price: number; // sotuv narx — priceCurrency da
